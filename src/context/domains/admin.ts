@@ -10,7 +10,7 @@ import { useCallback, useMemo } from 'react'
 import { applyCleanup, planCleanup } from '../../lib/cleanup'
 import { checkNumbering, formatDocNo, seriesDef } from '../../lib/numbering'
 import { printStickerSheet } from '../../lib/stickerPrint'
-import { DEFAULT_STICKER_HEIGHT_MM, DEFAULT_STICKER_WIDTH_MM, stageLabel } from '../../lib/stickers'
+import { DEFAULT_STICKER_HEIGHT_MM, DEFAULT_STICKER_WIDTH_MM, stageLabel, stickerOwner, stickerReferenceLabel } from '../../lib/stickers'
 import type { StickerJob } from '../../lib/stickers'
 import { deepClone, nowISO } from '../../lib/utils'
 import type { AppState, Config, NumberingRule, StickerTemplate } from '../../types'
@@ -68,12 +68,17 @@ export function useAdmin({ state, setState, nextId, log, showToast, forbidden }:
             printedAt: nowISO(),
           })
         }
-        log(
-          draft,
-          'Printed stickers',
-          live.map((j) => j.reference).join(', '),
-          `${copies} sticker(s) · ${stageLabel(live[0].stage)} · ${widthMm}×${heightMm} mm`,
-        )
+        // One entry per sticker, filed under the record it is for. It used to be one entry
+        // naming every reference joined by commas, and a supplier lot or a store name can
+        // hold a comma of its own.
+        for (const job of live) {
+          log(
+            draft,
+            'Printed stickers',
+            stickerOwner(draft, job),
+            `${job.copies} sticker(s) of ${stickerReferenceLabel(draft, job.stage, job.reference)} · ${stageLabel(job.stage)} · ${widthMm}×${heightMm} mm`,
+          )
+        }
         return draft
       })
 

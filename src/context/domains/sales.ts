@@ -9,7 +9,7 @@
 import { useCallback, useMemo } from 'react'
 import { checkDispatch, checkOrderDispatch } from '../../lib/posting'
 import type { DispatchInput, OrderAllocation } from '../../lib/posting'
-import { isRow, locationLabel, stockRows } from '../../lib/stock'
+import { isRow, locationLabel, stockRows, itemName } from '../../lib/stock'
 import { deepClone, nowISO, uid } from '../../lib/utils'
 import type { Dispatch, OrderLine } from '../../types'
 import { POSTED } from './deps'
@@ -171,6 +171,14 @@ export function useSales({ state, setState, nextId, log, showToast, announcement
             pod: '',
             orderId: o.id,
           })
+          // Each dispatch its own entry, as one raised on the Dispatch page gets — the
+          // order's entry below says only that the order went.
+          log(
+            draft,
+            'Confirmed dispatch',
+            id,
+            `Deducted ${row.qty} ${stock?.uom || 'Pack'} of ${itemName(draft, row.sku)} from ${row.lot} at ${locationLabel(draft, row.location)} for ${o.id}.`,
+          )
         }
         o.status = 'Dispatched'
         o.challan = challanNo
@@ -241,7 +249,7 @@ export function useSales({ state, setState, nextId, log, showToast, announcement
           draft,
           'Confirmed dispatch',
           id,
-          `Deducted ${input.qty} ${r.uom} of ${input.sku} from ${input.batchId} at ${locationLabel(draft, r.location)}.`,
+          `Deducted ${input.qty} ${r.uom} of ${itemName(draft, input.sku)} from ${input.batchId} at ${locationLabel(draft, r.location)}.`,
         )
         createdId = id
         announcement.current = `${id} confirmed.`

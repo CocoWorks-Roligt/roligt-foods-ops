@@ -85,7 +85,7 @@ export function Dashboard() {
       value: fmtRowTotal(qRows, 'None'),
       sub: 'Finished goods waiting for QC',
       breakdown: breakdownByItem(rows, 'Finished Goods', 'Quarantine', itemName),
-      emptyText: 'No finished goods in quarantine.',
+      emptyText: 'No finished goods awaiting QC.',
     },
     {
       key: 'fgR',
@@ -178,7 +178,7 @@ export function Dashboard() {
    * before; one that also sells by weight gets a second row rather than a wrong sum.
    */
   const fgStates = [
-    ['Quarantine', qRows],
+    ['Awaiting QC', qRows],
     ['Released', relRows],
     ['Rejected', held('Finished Goods', 'Rejected')],
   ] as const

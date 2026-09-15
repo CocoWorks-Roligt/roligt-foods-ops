@@ -22,8 +22,9 @@ import {
 } from './batches'
 import { formatSize } from './packs'
 import { itemName, locationLabel, stockRows } from './stock'
+import { receiptsFor } from './stockIds'
 import { fmtDate, inr, statusLabel, toDateKey } from './utils'
-import type { AppState, StickerField, StickerStage, StickerTemplate } from '../types'
+import type { AppState, StickerField, StickerStage, StickerTemplate, StockRow } from '../types'
 
 /** The stages, in the order the plant works through them. */
 export const STICKER_STAGES: { stage: StickerStage; label: string; blurb: string }[] = [
@@ -199,7 +200,7 @@ export function candidatesFor(state: AppState, stage: StickerStage): StickerCand
           harvested: g.harvestedOn ? dateOnly(g.harvestedOn) : '—',
           qty: `${g.accepted} ${g.uom || 'Piece'}`,
           grades: `A ${g.a} · B ${g.b} · C ${g.c}`,
-          store: locationLabel(state, g.location || 'RM Store'),
+          store: whereNow(state, g.lot, g.location),
         },
       }))
       .sort((a, b) => b.when.localeCompare(a.when))
@@ -347,6 +348,55 @@ export function candidatesFor(state: AppState, stage: StickerStage): StickerCand
 }
 
 /** One record queued for printing, already resolved to the lines that will print. */
+/** Stock rows, worked out once per version of the ledger — a sticker list reads them for every lot. */
+const rowsByLedger = new WeakMap<object, StockRow[]>()
+const currentRows = (state: AppState) => {
+  let rows = rowsByLedger.get(state.ledger)
+  if (!rows) {
+    rows = stockRows(state)
+    rowsByLedger.set(state.ledger, rows)
+  }
+  return rows
+}
+
+/** Where a lot is sitting now — every area still holding some — or where it was received, once it is all gone. */
+function whereNow(state: AppState, lot: string, received?: string) {
+  const places = [
+    ...new Set(
+      currentRows(state)
+        .filter((r) => r.lot === lot && r.qty > 0)
+        .map((r) => locationLabel(state, r.location)),
+    ),
+  ]
+  if (places.length) return places.join(', ')
+  return received ? locationLabel(state, received) : '—'
+}
+
+/** A sticker reference as a person reads it: product names and area names, not codes and hidden keys. */
+export function stickerReferenceLabel(state: AppState, stage: StickerStage, reference: string): string {
+  const parts = reference.split('·')
+  if (stage === 'material' && parts.length >= 3) {
+    return `${itemName(state, parts[0])} · ${parts.slice(1, -1).join('·')} · ${locationLabel(state, parts[parts.length - 1])}`
+  }
+  if (parts.length === 2) return `${parts[0]} · ${itemName(state, parts[1])}`
+  return reference
+}
+
+/**
+ * The record a sticker print is filed under in the audit trail. Packing material is filed
+ * under the receipt it came from rather than its item·lot·store reference, so correcting
+ * a supplier lot afterwards cannot leave the print behind.
+ */
+export function stickerOwner(state: AppState, job: { stage: StickerStage; reference: string }): string {
+  if (job.stage !== 'material') return job.reference
+  const parts = job.reference.split('·')
+  if (parts.length < 3) return job.reference
+  const docs = receiptsFor(state, parts[0], parts.slice(1, -1).join('·'), {
+    location: parts[parts.length - 1],
+  })
+  return docs.length ? docs.join(', ') : job.reference
+}
+
 export interface StickerJob {
   stage: StickerStage
   reference: string

@@ -19,7 +19,7 @@ import { StatusBadge } from '../components/StatusBadge'
 import { useApp } from '../context/AppContext'
 import { lowStockItems } from '../lib/alerts'
 import { fmtRowTotal, locationLabel, stockRowKey } from '../lib/stock'
-import { fmtDate, fmtQty, inr } from '../lib/utils'
+import { fmtDate, fmtQty, inr, statusLabel } from '../lib/utils'
 import type { StockRow } from '../types'
 
 /** One packing material, with every lot of it folded together. */
@@ -253,7 +253,7 @@ export function PackingMaterials() {
                                 <div>
                                   <b>{r.lot}</b>
                                   <div className="small">
-                                    {locationLabel(state, r.location)} · {r.status}
+                                    {locationLabel(state, r.location)} · {statusLabel(r.status)}
                                   </div>
                                   <div className="small">
                                     {fmtQty(r.qty)} {r.uom} at {inr(r.unitCost)} · {inr(r.value)}

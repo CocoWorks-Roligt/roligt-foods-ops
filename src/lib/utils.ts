@@ -56,7 +56,7 @@ export const PAGES: Record<string, [string, string]> = {
   ],
   quality: [
     'Quality Control',
-    'Each product a batch made is tested on its own — the coconut water and the malai from one pressing are two records, and either can be released while the other waits. Pass all four checks to release a product; a fail sends its stock to rejected.',
+    'Each product a batch made is tested on its own — the coconut water and the malai from one pressing are two records, and either can be released while the other waits. Pass all four checks to release a product; one fail marks its stock Rejected where it stands, so it can no longer be packed, blended or dispatched.',
   ],
   reports: ['Lab Reports', 'Generate lab test reports from saved test parameters and attach them to QC.'],
   orders: [
@@ -64,7 +64,7 @@ export const PAGES: Record<string, [string, string]> = {
     'What each customer asked for. Raised once the goods are packed and cleared, and sent out complete on one challan.',
   ],
   dispatch: ['Dispatch & Delivery', 'Released stock only. Deduct at dispatch, not delivery.'],
-  inventory: ['Inventory', 'Transaction-driven stock by item, lot, batch, status and location.'],
+  inventory: ['Inventory', 'Transaction-driven stock by item, lot, batch, status and storage area.'],
   'packing-materials': [
     'Packing Materials',
     'What is on hand of every BiB, bottle, cap and carton, and how much of it is left against the level somebody set. Received on the Procurement page.',
@@ -75,7 +75,7 @@ export const PAGES: Record<string, [string, string]> = {
   ],
   storage: [
     'Storage',
-    'One list of every area the plant keeps stock in. What an area is — cold room, dry store or hold — decides what belongs in it: bulk from production may only be kept cold.',
+    'Every storage area the plant keeps stock in. What an area is — cold room, dry store or hold area — decides what may go into it: bulk only ever into a cold room, and only stock QC has rejected into a hold area.',
   ],
   stickers: [
     'Stickers',
@@ -109,6 +109,18 @@ export const nowISO = () => new Date().toISOString()
 export function toDateKey(d: Date = new Date()) {
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+/**
+ * The local calendar day of a stored date or timestamp. A timestamp saved with
+ * `toISOString()` is in UTC, so the first ten characters of it are the day in Greenwich —
+ * the previous day here until half past five in the morning, the same trap as above.
+ */
+export function localDay(s?: string): string {
+  if (!s) return ''
+  if (!s.includes('T')) return s.slice(0, 10)
+  const d = new Date(s)
+  return Number.isNaN(d.getTime()) ? s.slice(0, 10) : toDateKey(d)
 }
 
 export const inr = (n: number) =>

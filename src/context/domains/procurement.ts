@@ -10,7 +10,7 @@ import { useCallback, useMemo } from 'react'
 import { itemUom } from '../../lib/batches'
 import { grnCostsChanged, priceGrn } from '../../lib/grn'
 import type { GrnInput } from '../../lib/grn'
-import { defaultRawStore } from '../../lib/posting'
+import { defaultRawStore, checkArea, postedLocation } from '../../lib/posting'
 import { itemName } from '../../lib/stock'
 import { deepClone, nowISO, uid } from '../../lib/utils'
 import type { Grn } from '../../types'
@@ -33,6 +33,12 @@ export function useProcurement({ state, setState, nextId, nextLot, log, showToas
         return null
       }
 
+      const badArea = checkArea(state, input.location || defaultRawStore(state), 'Raw Material')
+      if (badArea) {
+        showToast(badArea)
+        return null
+      }
+
       let createdId = ''
       setState((prev) => {
         const draft = deepClone(prev)
@@ -45,7 +51,7 @@ export function useProcurement({ state, setState, nextId, nextLot, log, showToas
         const bought = draft.purchaseProducts.find((p) => p.id === input.purchaseProductId)
         const itemId = input.itemId || bought?.itemId || product.itemId || ''
         const uom = input.uom || bought?.uom || itemUom(draft, itemId)
-        const location = input.location || defaultRawStore(draft)
+        const location = input.location || defaultRawStore(draft) || ''
         const g: Grn = {
           id,
           date: new Date(input.date).toISOString(),
@@ -132,6 +138,22 @@ export function useProcurement({ state, setState, nextId, nextLot, log, showToas
         )
         return null
       }
+      // Stock taken or moved out of this lot left from where the receipt put it, and those
+      // lines say so. Changing where it was received would leave that area short and the
+      // new one holding stock that is not there.
+      const receivedIn = existing.location || postedLocation(state, id, 'Raw Material')
+      const putAway = input.location || receivedIn || defaultRawStore(state)
+      if (consumed && putAway !== receivedIn) {
+        showToast(
+          `Stock from ${existing.lot} has already been used or moved — move what is left from the Storage page instead of changing where it was received.`,
+        )
+        return null
+      }
+      const badArea = checkArea(state, putAway, 'Raw Material', { keep: receivedIn })
+      if (badArea) {
+        showToast(badArea)
+        return null
+      }
 
       setState((prev) => {
         const draft = deepClone(prev)
@@ -144,7 +166,7 @@ export function useProcurement({ state, setState, nextId, nextLot, log, showToas
         const bought = draft.purchaseProducts.find((p) => p.id === input.purchaseProductId)
         const itemId = input.itemId || bought?.itemId || draft.grns[idx].itemId || ''
         const uom = input.uom || bought?.uom || draft.grns[idx].uom || itemUom(draft, itemId)
-        const location = input.location || draft.grns[idx].location || defaultRawStore(draft)
+        const location = input.location || draft.grns[idx].location || defaultRawStore(draft) || ''
         const g: Grn = {
           ...draft.grns[idx],
           date: new Date(input.date).toISOString(),

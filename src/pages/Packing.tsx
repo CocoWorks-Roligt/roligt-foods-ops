@@ -11,7 +11,7 @@ import { bulkItems, fmtBulk, itemUom } from '../lib/batches'
 import { bulkItemOf, formatSize } from '../lib/packs'
 import { useLinkedView } from '../lib/linkedView'
 import { DRAWABLE, defaultPackStore, sampleLitres } from '../lib/posting'
-import { itemName as lookupItemName, stockRowsExcluding, storageTypeLabel } from '../lib/stock'
+import { itemName as lookupItemName, stockRowsExcluding, areaChoices } from '../lib/stock'
 import { fmtDate, inr, toLocalInputValue, QTY_EPSILON } from '../lib/utils'
 import type { PackingRun } from '../types'
 import { keyed, keyedAll, type Keyed } from '../lib/rows'
@@ -77,23 +77,13 @@ export function Packing() {
   }, [bulkItem, formRows])
 
   /**
-   * Packs come off the line and go into a cold room whatever the lab is doing — QC
-   * changes their status where they stand, it does not move them. A hold area is still
-   * offered for a plant that parks packs somewhere before freezing them.
+   * Where the packs can go. They go into a storage area off the line and stay there while
+   * the lab works — QC changes their status where they stand, it does not move them. Hold
+   * areas are not offered: they only take stock QC has rejected.
    */
   const packDestinations = useMemo(
-    () =>
-      state.storageLocations
-        .filter((l) => l.status === 'Active')
-        .sort((a, b) => Number(b.type === 'Cold Room') - Number(a.type === 'Cold Room')),
-    [state.storageLocations],
-  )
-
-  /** The cold room a run falls into when nothing is chosen — named on the option, so the
-   *  default is not a mystery the operator has to post to discover. */
-  const defaultRoom = useMemo(
-    () => state.storageLocations.find((s) => s.name === defaultPackStore(state)),
-    [state],
+    () => areaChoices(state, 'Finished Goods', 'Quarantine', location),
+    [location, state],
   )
 
   const packableBatches = useMemo(
@@ -165,7 +155,7 @@ export function Packing() {
     setBatchId('')
     setBulkItem('')
     setPackRows([keyed(blankRow)])
-    setLocation('')
+    setLocation(defaultPackStore(state) || '')
     setSampleCount('')
     setSampleSize(100)
     setOpen(true)
@@ -261,7 +251,7 @@ export function Packing() {
         Packing draws bulk — coconut water, malai, a single-fruit juice or a blended melange — from
         the batch that made it and creates the finished goods. Each pack's type, size and bulk come
         from the <b>Products &amp; Materials</b> page, so a run only picks the pack and says how many. Packs go into
-        the freezer as they come off the line and stay there — the lab works while they sit, and
+        the storage area you pick as they come off the line and stay there — the lab works while they sit, and
         QC clears or rejects them where they stand. Take the lab's sample bottles off the same run
         so the bulk they use is accounted for.
       </div>
@@ -407,7 +397,6 @@ export function Packing() {
               onChange={(e) => {
                 setBulkItem(e.target.value)
                 setBatchId('')
-                setLocation('')
                 setPackRows([keyed(blankRow)])
               }}
             >
@@ -426,7 +415,6 @@ export function Packing() {
               disabled={!bulkItem}
               onChange={(e) => {
                 setBatchId(e.target.value)
-                setLocation('')
               }}
             >
               <option value="">{bulkItem ? 'Select batch' : 'Pick a bulk first'}</option>
@@ -441,24 +429,17 @@ export function Packing() {
               find first, or quarantine. The floor knows which room they went into. */}
           <div className="field span-3">
             <label>
-              Put the packs in
+              Storage area
               <span className="small" style={{ fontWeight: 400 }}>
                 {' '}
-                — they go in now and stay there; QC clears them where they stand
+                — packs go in now and stay there; QC clears or rejects them where they stand
               </span>
             </label>
-            {/* Every active area stays on the list — a plant may genuinely park packs
-                somewhere before freezing them, and refusing would strand the run. What each
-                area is for is spelled out instead, so picking "Rejected Stock" is visibly
-                the wrong answer rather than just another line in a dropdown. */}
             <Select value={location} onChange={(e) => setLocation(e.target.value)}>
-              <option value="">
-                Use the default room{defaultRoom ? ` — ${defaultRoom.label}` : ''}
-              </option>
-              {packDestinations.map((l) => (
-                <option key={l.id} value={l.name}>
-                  {l.label} · {storageTypeLabel(l.type)}
-                  {l.holds ? ` — ${l.holds}` : ''}
+              <option value="">Select storage area</option>
+              {packDestinations.map((c) => (
+                <option key={c.area.id} value={c.value}>
+                  {c.text}
                 </option>
               ))}
             </Select>

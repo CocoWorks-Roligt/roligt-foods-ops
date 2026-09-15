@@ -1,80 +1,35 @@
-import { Fragment, useEffect, useState, type ReactNode } from 'react'
+import { Fragment, lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { DocLink } from '../components/DocLink'
 import { EmptyState } from '../components/EmptyState'
 import { StatusBadge } from '../components/StatusBadge'
 import { useApp } from '../context/AppContext'
-import { batchKind, batchLabel, batchOutputs, fmtBulk, runBulkItem } from '../lib/batches'
+import { batchKind, batchLabel, fmtBulk } from '../lib/batches'
 import { describeIssue } from '../lib/issues'
 import { itemName, locationLabel, stockRowKey } from '../lib/stock'
-import {
-  legacyPackStockIds,
-  outputStockIds,
-  packStockIds,
-  resolveStockId,
-  stockIdOfRow,
-} from '../lib/stockIds'
-import { fmtDate, fmtQty, inr } from '../lib/utils'
-import type { Grn, QcRecord } from '../types'
+import { traceChain, type TraceResult } from '../lib/trace'
+import { sourceKey, traceGraph } from '../lib/traceGraph'
+import { outputStockIds, packStockIds, receiptsFor, runsFilling, stockIdsOfRow } from '../lib/stockIds'
+import { fmtDate, fmtQty, inr, localDay } from '../lib/utils'
+import type { QcRecord, StockIssue } from '../types'
 
 /** Just the day, for the dates a node carries — a trace reads by day, not by minute. */
-const day = (s?: string) => (s ? fmtDate(s.slice(0, 10)) : '')
+const day = (s?: string) => (s ? fmtDate(localDay(s)) : '')
+
+/** A stored date or timestamp as a point in time, a bare date read as local midnight. */
+const moment = (s: string) => {
+  const t = Date.parse(s.includes('T') ? s : `${s.slice(0, 10)}T00:00`)
+  return Number.isNaN(t) ? 0 : t
+}
 
 /**
- * Identifies the source of a lot: the vendor id, or the lot itself when the
- * coconuts were bought straight from a farmer with no vendor master record.
+ * The network view pulls in d3-force, which nothing else in the app needs — so it loads
+ * the first time somebody opens it, not with every screen.
  */
-const sourceKey = (g: Grn) => g.farmerId || `LOT:${g.lot}`
+const TraceNetwork = lazy(() =>
+  import('../components/TraceNetwork').then((m) => ({ default: m.TraceNetwork })),
+)
 
-/** Which of a document's lines a trace is about: every one, or just these. */
-type Scope = 'all' | Set<string>
-
-/** Widens a document's scope, and says whether it actually grew. */
-function widen(map: Map<string, Scope>, key: string, add: Scope): boolean {
-  const had = map.get(key)
-  if (had === 'all') return false
-  if (add === 'all') {
-    map.set(key, 'all')
-    return true
-  }
-  const next = new Set(had || [])
-  let grew = !had
-  for (const v of add) {
-    if (!next.has(v)) {
-      next.add(v)
-      grew = true
-    }
-  }
-  map.set(key, next)
-  return grew
-}
-
-const allows = (map: Map<string, Scope>, key: string, value: string) => {
-  const s = map.get(key)
-  return s === 'all' || !!s?.has(value)
-}
-
-interface TraceResult {
-  sources: string[]
-  lots: string[]
-  materials: string[]
-  batches: string[]
-  packings: string[]
-  dispatches: string[]
-  issues: string[]
-  customers: string[]
-  /** Every item of stock in the chain, by stock ID. */
-  stockIds: string[]
-  /** Which outputs of each batch, and which lines of each run, the chain is about. */
-  outputs: Record<string, 'all' | string[]>
-  lines: Record<string, 'all' | string[]>
-}
-
-const toRecord = (m: Map<string, Scope>) =>
-  Object.fromEntries([...m].map(([k, v]) => [k, v === 'all' ? 'all' : [...v]])) as Record<
-    string,
-    'all' | string[]
-  >
 
 export function Traceability() {
   const { state, rows, getItemName } = useApp()
@@ -85,6 +40,8 @@ export function Traceability() {
   /** Whether the chain is scrolled to its right-hand end, so the fade can get out of
    *  the way once there is genuinely nothing more to see. */
   const [chainAtEnd, setChainAtEnd] = useState(false)
+  /** Two ways to read one trace: every record and every link between them, or the row of stages. */
+  const [view, setView] = useState<'network' | 'chain'>('network')
 
   const inScope = (scope: 'all' | string[] | undefined, value: string) =>
     scope === 'all' || !!scope?.includes(value)
@@ -111,6 +68,29 @@ export function Traceability() {
     if (records.length === 1) return `QC ${records[0].disposition}`
     const released = records.filter((q) => q.disposition === 'Released').length
     return `QC ${released}/${records.length} released`
+  }
+
+  /** The lines of a stock issue that took stock this trace is about — one issue can take from several batches. */
+  const issueLinesInChain = (i: StockIssue) => {
+    if (!result) return i.lines
+    const inChain = i.lines.filter((l) => {
+      if (l.itemType === 'Raw Material') return result.lots.includes(l.lot)
+      if (l.itemType === 'Semi Finished') return inScope(result.outputs[l.lot], l.item)
+      if (l.itemType === 'Finished Goods') {
+        const filled = runsFilling(state, l.lot, l.item, {
+          expiry: l.expiry,
+          location: l.location,
+          time: i.date,
+        })
+        return filled.length
+          ? filled.some((r) => inScope(result.lines[r.id], l.item))
+          : result.batches.includes(l.lot)
+      }
+      return receiptsFor(state, l.item, l.lot, { location: l.location, time: i.date }).some(
+        (doc) => result.materials.includes(doc),
+      )
+    })
+    return inChain.length ? inChain : i.lines
   }
 
   /**
@@ -208,11 +188,19 @@ export function Traceability() {
     for (const id of result.issues) {
       const i = (state.stockIssues || []).find((x) => x.id === id)
       if (!i) continue
+      const lines = issueLinesInChain(i)
       add(
         i.date,
         'Stock issued',
         id,
-        [i.reason, i.recipient, describeIssue(state, i.lines)].filter(Boolean).join(' · '),
+        [
+          i.reason,
+          i.recipient,
+          describeIssue(state, lines),
+          `from ${[...new Set(lines.map((l) => l.lot))].join(', ')}`,
+        ]
+          .filter(Boolean)
+          .join(' · '),
       )
     }
     for (const oid of orderIds()) {
@@ -220,7 +208,7 @@ export function Traceability() {
       if (o) add(o.date, 'Ordered', oid, o.customerName)
     }
 
-    return out.sort((a, b) => a.when.localeCompare(b.when))
+    return out.sort((a, b) => moment(a.when) - moment(b.when))
   }
 
   const orderIds = () =>
@@ -235,299 +223,14 @@ export function Traceability() {
       : []
 
   const runTrace = (raw: string) => {
-    const t = raw.trim().toLowerCase()
-    if (!t) {
+    if (!raw.trim()) {
       setResult(null)
       setEmpty(false)
       return
     }
-
-    const lots = new Set<string>()
-    const materials = new Set<string>()
-    const dispatches = new Set<string>()
-    /**
-     * Stock that left for something other than a sale. A recall has to reach these
-     * too — packs sent to a lab or handed out at a BTL activity are units out of the
-     * building, and leaving them off the chain makes a trace read complete when it
-     * is not.
-     */
-    const issues = new Set<string>()
-    const sources = new Set<string>()
-    const customers = new Set<string>()
-
-    /**
-     * Batches in the chain, and which of their outputs it is about. A trace used to take
-     * a batch whole, so asking after its malai dragged in every pack of the water pressed
-     * alongside it. It carries the product now, all the way through.
-     */
-    const shown = new Map<string, Scope>()
-    /**
-     * The part of `shown` whose stock travels forward. Only what the term matched does:
-     * a lot you asked about should show everything it went into, but a batch reached by
-     * walking back from a blend must not then drag in every other batch that used it.
-     */
-    const forward = new Map<string, Scope>()
-    /** Packing runs in the chain, and which of their lines. All of them travel forward. */
-    const runs = new Map<string, Scope>()
-    const seedLots = new Set<string>()
-
-    const seedBatch = (id: string, scope: Scope) => {
-      widen(shown, id, scope)
-      widen(forward, id, scope)
-    }
-
-    /** A lot of packing material, and every run that drew on it. */
-    const seedMaterial = (doc: string) => {
-      const receipt = state.ledger.find((l) => l.type === 'PM Receipt' && l.doc === doc)
-      if (!receipt) return
-      materials.add(doc)
-      const drewIt = new Set(
-        state.ledger
-          .filter(
-            (l) =>
-              l.type === 'Packing Consume' && l.item === receipt.item && l.lot === receipt.lot,
-          )
-          .map((l) => l.doc),
-      )
-      state.packingRuns.forEach((p) => {
-        if (!drewIt.has(p.id)) return
-        widen(runs, p.id, 'all')
-        widen(shown, p.batchId, new Set([runBulkItem(p)]))
-      })
-    }
-
-    /**
-     * A stock ID names one item exactly, so it is resolved before anything is matched
-     * by name — and traced as that item alone: the malai of a batch, not the batch.
-     */
-    const ref = resolveStockId(state, t)
-    if (ref?.kind === 'raw') {
-      lots.add(ref.lot)
-      seedLots.add(ref.lot)
-    } else if (ref?.kind === 'bulk') {
-      seedBatch(ref.batchId, new Set([ref.item]))
-    } else if (ref?.kind === 'batch') {
-      seedBatch(ref.batchId, 'all')
-    } else if (ref?.kind === 'pack') {
-      widen(runs, ref.runId, new Set([ref.sku]))
-      widen(shown, ref.batchId, new Set([ref.bulkItem]))
-    } else if (ref?.kind === 'material') {
-      seedMaterial(ref.doc)
-    } else {
-      state.batches.forEach((b) => {
-        if ([b.id, batchLabel(state, b)].join(' ').toLowerCase().includes(t)) seedBatch(b.id, 'all')
-      })
-
-      /**
-       * A product code or name — SF-0001, "Tender Coconut Malai" — is a question about
-       * that product in every batch that made it, by-products included, every receipt
-       * that brought it in and every run that filled it. The batch comes along narrowed
-       * to that product rather than whole.
-       */
-      const products = new Set(
-        state.items
-          .filter((i) => [i.id, i.name].join(' ').toLowerCase().includes(t))
-          .map((i) => i.id),
-      )
-      if (products.size) {
-        state.batches.forEach((b) => {
-          const made = batchOutputs(b).map((o) => o.item).filter((i) => products.has(i))
-          if (made.length) seedBatch(b.id, new Set(made))
-        })
-        state.grns.forEach((g) => {
-          if (!products.has(g.itemId || '')) return
-          lots.add(g.lot)
-          seedLots.add(g.lot)
-        })
-        state.packingRuns.forEach((p) => {
-          const skus = p.lines.map((l) => l.sku).filter((sku) => products.has(sku))
-          if (!skus.length) return
-          widen(runs, p.id, new Set(skus))
-          widen(shown, p.batchId, new Set([runBulkItem(p)]))
-        })
-        state.ledger.forEach((l) => {
-          if (l.type === 'PM Receipt' && products.has(l.item)) seedMaterial(l.doc)
-        })
-      }
-
-      state.grns.forEach((g) => {
-        if (
-          [g.id, g.lot, g.farmerName, g.farmerId, g.farmer || '', g.area || '']
-            .join(' ')
-            .toLowerCase()
-            .includes(t)
-        ) {
-          lots.add(g.lot)
-          seedLots.add(g.lot)
-        }
-      })
-      state.dispatches.forEach((d) => {
-        if ([d.id, d.challan, d.customerName, d.batchId, d.sku].join(' ').toLowerCase().includes(t)) {
-          dispatches.add(d.id)
-          customers.add(d.customerId)
-          seedBatch(d.batchId, 'all')
-        }
-      })
-      state.packingRuns.forEach((p) => {
-        if ([p.id, p.batchId].join(' ').toLowerCase().includes(t)) {
-          widen(runs, p.id, 'all')
-          seedBatch(p.batchId, 'all')
-        }
-      })
-      // Everything a customer *you asked about* was sent. Expanding from any customer
-      // that merely turned up in the chain is what pulled in their other orders — and,
-      // through those, every batch and blend behind them.
-      const seedCustomers = new Set<string>()
-      state.customers.forEach((c) => {
-        if ([c.id, c.name].join(' ').toLowerCase().includes(t)) {
-          customers.add(c.id)
-          seedCustomers.add(c.id)
-        }
-      })
-      state.dispatches.forEach((d) => {
-        if (!seedCustomers.has(d.customerId)) return
-        dispatches.add(d.id)
-        seedBatch(d.batchId, 'all')
-      })
-    }
-
-    /** Whether a run in the chain filled this pack off this batch. */
-    const packedInChain = (batchId: string, sku: string, expiry?: string) =>
-      state.packingRuns.some(
-        (p) =>
-          runs.has(p.id) &&
-          p.batchId === batchId &&
-          p.lines.some(
-            (l) =>
-              l.sku === sku &&
-              allows(runs, p.id, sku) &&
-              (!expiry || !l.expiry || l.expiry === expiry),
-          ),
-      )
-
-    // ---- forward: where did what I asked about end up? ----------------------
-    let changed = true
-    while (changed) {
-      changed = false
-      state.batches.forEach((b) => {
-        // A batch that pressed a seed lot carries everything it made forward, and so
-        // does a blend drawing a component the chain is already carrying.
-        const pressedSeedLot = b.sourceLines.some((l) => seedLots.has(l.lot))
-        const blendedFromChain = (b.blendLines || []).some((l) => allows(forward, l.lot, l.item))
-        if (!pressedSeedLot && !blendedFromChain) return
-        if (widen(forward, b.id, 'all')) changed = true
-        if (widen(shown, b.id, 'all')) changed = true
-      })
-      state.packingRuns.forEach((p) => {
-        if (allows(forward, p.batchId, runBulkItem(p)) && widen(runs, p.id, 'all')) changed = true
-      })
-      ;(state.stockIssues || []).forEach((i) => {
-        if (issues.has(i.id)) return
-        const hit = i.lines.some((l) => {
-          if (l.itemType === 'Raw Material') return lots.has(l.lot)
-          if (l.itemType === 'Semi Finished') return allows(forward, l.lot, l.item)
-          if (l.itemType === 'Finished Goods') {
-            return forward.get(l.lot) === 'all' || packedInChain(l.lot, l.item, l.expiry)
-          }
-          return [...materials].some((doc) =>
-            state.ledger.some((x) => x.doc === doc && x.item === l.item && x.lot === l.lot),
-          )
-        })
-        if (hit) {
-          issues.add(i.id)
-          changed = true
-        }
-      })
-      state.dispatches.forEach((d) => {
-        if (!(forward.get(d.batchId) === 'all' || packedInChain(d.batchId, d.sku, d.expiry))) return
-        if (!dispatches.has(d.id)) {
-          dispatches.add(d.id)
-          changed = true
-        }
-        if (!customers.has(d.customerId)) {
-          customers.add(d.customerId)
-          changed = true
-        }
-      })
-    }
-
-    // ---- backward: what went into everything in the chain? ------------------
-    changed = true
-    while (changed) {
-      changed = false
-      // A run needs the batch it filled from — narrowed to the bulk it drew.
-      runs.forEach((_, runId) => {
-        const p = state.packingRuns.find((x) => x.id === runId)
-        if (p && widen(shown, p.batchId, new Set([runBulkItem(p)]))) changed = true
-      })
-      shown.forEach((_, batchId) => {
-        const b = state.batches.find((x) => x.id === batchId)
-        if (!b) return
-        b.sourceLines.forEach((l) => {
-          if (!lots.has(l.lot)) {
-            lots.add(l.lot)
-            changed = true
-          }
-        })
-        // A melange's components are batches, so a blend reaches the juice that made it
-        // and, through that, the lot and the farmer behind it — only the juice it drew.
-        ;(b.blendLines || []).forEach((l) => {
-          if (widen(shown, l.lot, new Set([l.item]))) changed = true
-        })
-      })
-      state.grns.forEach((g) => {
-        if (lots.has(g.lot) && !sources.has(sourceKey(g))) {
-          sources.add(sourceKey(g))
-          changed = true
-        }
-      })
-    }
-
-    const stockIds = new Set<string>([...lots, ...materials])
-    shown.forEach((scope, batchId) => {
-      const b = state.batches.find((x) => x.id === batchId)
-      if (!b) return
-      outputStockIds(b).forEach((l) => {
-        if (scope === 'all' || scope.has(l.item)) stockIds.add(l.stockId)
-      })
-      if (scope === 'all') legacyPackStockIds(b).forEach((o) => stockIds.add(o.stockId))
-    })
-    runs.forEach((scope, runId) => {
-      const p = state.packingRuns.find((x) => x.id === runId)
-      if (!p) return
-      packStockIds(p).forEach((l) => {
-        if (scope === 'all' || scope.has(l.sku)) stockIds.add(l.stockId)
-      })
-    })
-
-    if (
-      !shown.size &&
-      !lots.size &&
-      !materials.size &&
-      !runs.size &&
-      !dispatches.size &&
-      !issues.size &&
-      !sources.size &&
-      !customers.size
-    ) {
-      setResult(null)
-      setEmpty(true)
-      return
-    }
-    setEmpty(false)
-    setResult({
-      sources: [...sources],
-      lots: [...lots],
-      materials: [...materials],
-      batches: [...shown.keys()],
-      packings: [...runs.keys()],
-      dispatches: [...dispatches],
-      issues: [...issues],
-      customers: [...customers],
-      stockIds: [...stockIds],
-      outputs: toRecord(shown),
-      lines: toRecord(runs),
-    })
+    const found = traceChain(state, raw)
+    setResult(found)
+    setEmpty(!found)
   }
 
   /**
@@ -553,14 +256,23 @@ export function Traceability() {
     ? [
         result.sources.map((key) => {
           const vendor = state.vendors.find((x) => x.id === key)
-          const g = state.grns.find((x) => sourceKey(x) === key)
+          // A vendor supplies many lots; only the ones in this chain say anything about it here.
+          const received = state.grns.filter(
+            (x) => sourceKey(x) === key && result.lots.includes(x.lot),
+          )
+          const g = received[0] || state.grns.find((x) => sourceKey(x) === key)
+          const harvested = [
+            ...new Set(received.map((x) => x.harvestedOn).filter(Boolean)),
+          ] as string[]
           return (
             <div className="node" key={key}>
               <div className="small">{vendor ? 'Vendor / Source' : 'Direct farmer'}</div>
               <b>{vendor?.name || g?.farmer || key}</b>
               <div className="small">{vendor ? key : g?.area || 'No vendor record'}</div>
-              {g?.harvestedOn ? (
-                <div className="trace-date">Harvested {day(g.harvestedOn)}</div>
+              {harvested.length ? (
+                <div className="trace-date">
+                  Harvested {harvested.map((h) => day(h)).join(', ')}
+                </div>
               ) : null}
             </div>
           )
@@ -636,6 +348,7 @@ export function Traceability() {
         result.packings.map((id) => {
           const p = state.packingRuns.find((x) => x.id === id)
           const lines = shownLines(id)
+          const expiries = ([...new Set(lines.map((l) => l.expiry).filter(Boolean))] as string[]).sort()
           return (
             <div className="node" key={id}>
               <div className="small">Packing Run</div>
@@ -649,7 +362,9 @@ export function Traceability() {
               ))}
               <div className="trace-date">
                 Packed {day(p?.date) || '—'}
-                {lines[0]?.expiry ? ` · best before ${day(lines[0].expiry)}` : ''}
+                {expiries.length
+                  ? ` · best before ${expiries.map((e) => day(e)).join(', ')}`
+                  : ''}
               </div>
             </div>
           )
@@ -719,10 +434,19 @@ export function Traceability() {
       ].filter((stage) => stage.length)
     : []
 
-  /** What the chain's items are holding right now. */
+  /**
+   * What the chain's items are holding right now. A row can pool two runs' packs — or two
+   * deliveries of one supplier lot — so it belongs when any item it holds is in the chain,
+   * and is labelled with just those.
+   */
   const chainStock = result
-    ? rows.filter((r) => result.stockIds.includes(stockIdOfRow(state, r)))
+    ? rows.flatMap((row) => {
+        const ids = stockIdsOfRow(state, row).filter((id) => result.stockIds.includes(id))
+        return ids.length ? [{ row, ids }] : []
+      })
     : []
+
+  const graph = useMemo(() => (result ? traceGraph(state, result) : null), [result, state])
 
   return (
     <div className="card">
@@ -737,7 +461,7 @@ export function Traceability() {
       <div className="toolbar">
         <input
           className="trace-search"
-          placeholder="Enter a stock ID, product, farmer, lot, batch, dispatch, challan or customer"
+          placeholder="Enter a stock ID, lot, farmer, product, batch, packing run, dispatch, challan, order or customer"
           value={term}
           onChange={(e) => setTerm(e.target.value)}
           onKeyDown={(e) => {
@@ -751,8 +475,9 @@ export function Traceability() {
 
       {!result && !empty && (
         <div className="empty">
-          Enter a stock ID (BAT-2026-0002/1), a product, farmer, lot, batch, dispatch, challan or
-          customer to see the whole chain.
+          Enter a lot, farmer, product or batch to see everything that came out of it — or one
+          stock ID (BAT-2026-0002/1), packing run, dispatch, challan, order or stock issue to see
+          just that record's chain.
         </div>
       )}
       {empty && (
@@ -774,25 +499,48 @@ export function Traceability() {
 
       {result && (
         <>
-          <div
-            className="trace-chain-wrap"
-            style={{ ['--trace-fade' as string]: chainAtEnd ? 0 : 1 }}
-          >
-            <div
-              className="trace-chain"
-              onScroll={(e) => {
-                const el = e.currentTarget
-                setChainAtEnd(el.scrollLeft + el.clientWidth >= el.scrollWidth - 4)
-              }}
+          <div className="type-tabs trace-view-tabs" role="tablist">
+            <button
+              type="button"
+              className={`type-tab ${view === 'network' ? 'active' : ''}`}
+              onClick={() => setView('network')}
             >
-              {stages.map((nodes, i) => (
-                <Fragment key={i}>
-                  {i > 0 ? <div className="arrow">→</div> : null}
-                  {nodes}
-                </Fragment>
-              ))}
-            </div>
+              Network
+            </button>
+            <button
+              type="button"
+              className={`type-tab ${view === 'chain' ? 'active' : ''}`}
+              onClick={() => setView('chain')}
+            >
+              Chain
+            </button>
           </div>
+
+          {view === 'network' && graph ? (
+            <Suspense fallback={<div className="empty">Laying out the network…</div>}>
+              <TraceNetwork graph={graph} />
+            </Suspense>
+          ) : (
+            <div
+              className="trace-chain-wrap"
+              style={{ ['--trace-fade' as string]: chainAtEnd ? 0 : 1 }}
+            >
+              <div
+                className="trace-chain"
+                onScroll={(e) => {
+                  const el = e.currentTarget
+                  setChainAtEnd(el.scrollLeft + el.clientWidth >= el.scrollWidth - 4)
+                }}
+              >
+                {stages.map((nodes, i) => (
+                  <Fragment key={i}>
+                    {i > 0 ? <div className="arrow">→</div> : null}
+                    {nodes}
+                  </Fragment>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="card" style={{ marginTop: 12 }}>
             <h3>Key dates</h3>
@@ -867,10 +615,10 @@ export function Traceability() {
             </div>
             <div className="card">
               <h3>Current stock</h3>
-              {chainStock.map((r) => (
+              {chainStock.map(({ row: r, ids }) => (
                 <div className="kpi-row" key={stockRowKey(r)}>
                   <span>
-                    <b className="cell-id">{stockIdOfRow(state, r)}</b> · {getItemName(r.item)}{' '}
+                    <b className="cell-id">{ids.join(' + ')}</b> · {getItemName(r.item)}{' '}
                     <StatusBadge value={r.status} />
                     <div className="small">{locationLabel(state, r.location)}</div>
                   </span>

@@ -11,8 +11,8 @@ import { batchDisposition, qcDisposition } from '../../lib/posting'
 import type { QcUpdate } from '../../lib/posting'
 import { batchOutputs, mainOutput, runBulkItem } from '../../lib/batches'
 import { categoryTitle } from '../../lib/qcCategories'
-import { itemName, stockRows } from '../../lib/stock'
-import { deepClone, nowISO, statusLabel, uid } from '../../lib/utils'
+import { itemName, stockRows, inHoldArea, locationLabel } from '../../lib/stock'
+import { deepClone, nowISO, statusLabel, uid, QTY_EPSILON } from '../../lib/utils'
 import type { LabReport, TestParameter } from '../../types'
 import { POSTED } from './deps'
 import type { CoreDeps } from './deps'
@@ -23,6 +23,36 @@ export function useQuality({ state, setState, nextId, log, showToast, actor, ann
       // Worked out from the verdicts themselves rather than read back out of the
       // updater, so the toast cannot announce a disposition other than the one saved.
       const disposition = qcDisposition(updates)
+      /**
+       * Stock set aside in a hold area is there because QC rejected it, and a hold area
+       * takes nothing else — so a release must not quietly turn it back into sellable stock
+       * while it sits there. It is moved back out first.
+       */
+      if (disposition === 'Released') {
+        const record = state.qcs.find((x) => x.id === id)
+        const batch = record && state.batches.find((x) => x.id === record.batchId)
+        if (record && batch) {
+          const covered = record.item || mainOutput(batch)?.item || ''
+          const packs = new Set(
+            state.packingRuns
+              .filter((r) => r.batchId === batch.id && runBulkItem(r) === covered)
+              .flatMap((r) => r.lines.map((l) => l.sku)),
+          )
+          const setAside = stockRows(state).find(
+            (r) =>
+              r.lot === batch.id &&
+              r.qty > QTY_EPSILON &&
+              (r.itemType === 'Semi Finished' ? r.item === covered : r.itemType === 'Finished Goods' && packs.has(r.item)) &&
+              inHoldArea(state, r.location),
+          )
+          if (setAside) {
+            showToast(
+              `${itemName(state, setAside.item)} from ${batch.id} is set aside in ${locationLabel(state, setAside.location)} — move it back out before releasing it.`,
+            )
+            return null
+          }
+        }
+      }
       setState((prev) => {
         const draft = deepClone(prev)
         const q = draft.qcs.find((x) => x.id === id)

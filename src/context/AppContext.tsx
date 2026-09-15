@@ -50,6 +50,7 @@ import {
 } from '../lib/stickers'
 import { deepClone, nowISO, uid } from '../lib/utils'
 import type {
+  AreaPurpose,
   AppState,
   Config,
   OrderLine,
@@ -144,6 +145,7 @@ interface AppContextValue {
   updateStorageLocation: (id: string, patch: StorageLocationInput) => string | null
   setStorageLocationStatus: (id: string, status: string) => void
   deleteStorageLocation: (id: string) => void
+  setDefaultArea: (purpose: AreaPurpose, id: string) => string | null
   addTestParameter: (input: Omit<TestParameter, 'id'>) => string | null
   updateTestParameter: (id: string, patch: Omit<TestParameter, 'id' | 'category'>) => string | null
   deleteTestParameter: (id: string) => void

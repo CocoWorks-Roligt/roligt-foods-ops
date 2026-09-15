@@ -15,7 +15,7 @@ import { StatusBadge } from './StatusBadge'
 import { EmptyState } from './EmptyState'
 import { useApp } from '../context/AppContext'
 import { useLinkedView } from '../lib/linkedView'
-import { defaultBulkStore, isByProduct } from '../lib/posting'
+import { defaultBulkStore, isByProduct, postedLocation } from '../lib/posting'
 
 /** "1 piece", "960 pieces" — the unit is stored singular. */
 const plural = (uom: string, n: number) => (n === 1 ? uom : `${uom}s`)
@@ -38,7 +38,7 @@ import {
   itemName as lookupItemName,
   poolByLot,
   stockRowsExcluding,
-  storageTypeLabel,
+  areaChoices,
 } from '../lib/stock'
 import { fmtDate, fmtQty, inr, toLocalInputValue } from '../lib/utils'
 import type { Batch } from '../types'
@@ -93,15 +93,10 @@ export function ExtractionBatches() {
   }, [editing, rows, state])
 
   const bulks = useMemo(() => bulkItems(state), [state])
-  /** Bulk waits in a hold or a store; a freezer is for packs and a defrost area is a
-   *  dispatch point, so neither belongs on this list. */
+  /** Bulk is unsealed and perishable, so only cold rooms are offered — see `areaChoices`. */
   const bulkRooms = useMemo(
-    () =>
-      state.storageLocations.filter(
-        // Bulk is unsealed and perishable: a cold room is the only place it may go.
-        (l) => l.status === 'Active' && l.type === 'Cold Room',
-      ),
-    [state.storageLocations],
+    () => areaChoices(state, 'Semi Finished', 'Quarantine', outLocation),
+    [outLocation, state],
   )
   /**
    * A melange's own bulk is made by blending, on the Melange tab, and its record keeps
@@ -263,7 +258,7 @@ export function ExtractionBatches() {
     setEditId('')
     setDate(toLocalInputValue())
     setSpoiled('')
-    setOutLocation(defaultBulkStore(state))
+    setOutLocation(defaultBulkStore(state) || '')
     setLotRows([keyed(blankLot)])
     setOutRows([keyed(blankOut)])
     setOpen(true)
@@ -273,7 +268,7 @@ export function ExtractionBatches() {
     setEditId(b.id)
     setDate(toLocalInputValue(new Date(b.date)))
     setSpoiled(b.spoiled)
-    setOutLocation(b.location || defaultBulkStore(state))
+    setOutLocation(b.location || postedLocation(state, b.id, 'Semi Finished') || '')
     setLotRows(
       b.sourceLines.length
         ? keyedAll(
@@ -334,7 +329,7 @@ export function ExtractionBatches() {
         </div>
       </div>
       <div className="note">
-        A batch presses raw material into <b>bulk</b>, held in <b>Quarantine</b>. One output carries
+        A batch presses raw material into <b>bulk</b>, kept in the cold room you pick and marked <b>Awaiting QC</b>. One output carries
         the batch cost and the rest are by-products that carry none — coconuts give water plus malai,
         beetroot gives juice plus pomace. Pass all tests in <b>Quality Control</b> to release the
         batch, then blend it under <b>Melange</b> above or fill packs on <b>Packing</b>.
@@ -528,15 +523,18 @@ export function ExtractionBatches() {
           </div>
           {/* Bulk used to land in the bulk store whatever the plant actually had. */}
           <div className="field">
-            <label>Put the bulk in</label>
+            <label>Storage area</label>
             <Select
               value={outLocation}
               disabled={locked}
               onChange={(e) => setOutLocation(e.target.value)}
             >
-              {bulkRooms.map((l) => (
-                <option key={l.id} value={l.name}>
-                  {l.label} · {storageTypeLabel(l.type)}
+              <option value="">
+                {bulkRooms.length ? 'Select a cold room' : 'No active cold room — add one on the Storage page'}
+              </option>
+              {bulkRooms.map((c) => (
+                <option key={c.area.id} value={c.value}>
+                  {c.text}
                 </option>
               ))}
             </Select>
@@ -796,7 +794,7 @@ export function ExtractionBatches() {
           <div className="note warning-note">
             {editing
               ? 'Saving returns the raw material this batch issued, then re-issues it and re-books the bulk from the new figures.'
-              : 'Posting deducts the raw material and books the bulk in Quarantine. The output marked Main carries the whole batch cost; everything else is a by-product and carries none.'}
+              : 'Posting deducts the raw material and books the bulk into the cold room you pick, marked Awaiting QC. The output marked Main carries the whole batch cost; everything else is a by-product and carries none.'}
           </div>
         )}
       </Modal>

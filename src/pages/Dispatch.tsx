@@ -14,6 +14,7 @@ import {
   parseRowKey,
   rowKey,
   stockRowsExcluding,
+  inHoldArea,
 } from '../lib/stock'
 import { useLinkedView } from '../lib/linkedView'
 import { stockIdOfRow } from '../lib/stockIds'
@@ -98,7 +99,7 @@ export function DispatchPage() {
   const packed = useMemo(
     () =>
       rows
-        .filter((r) => r.itemType === 'Finished Goods' && r.status === 'Released' && r.qty > 0)
+        .filter((r) => r.itemType === 'Finished Goods' && r.status === 'Released' && !inHoldArea(state, r.location) && r.qty > 0)
         .map((r) => ({ ...r, shownExpiry: displayExpiry(state, r) }))
         .sort((a, b) => (a.shownExpiry || '').localeCompare(b.shownExpiry || '')),
     [rows, state],
@@ -112,7 +113,7 @@ export function DispatchPage() {
   const options = useMemo(() => {
     if (!editing) return packed
     return stockRowsExcluding(state, editing.id)
-      .filter((r) => r.itemType === 'Finished Goods' && r.status === 'Released' && r.qty > 0)
+      .filter((r) => r.itemType === 'Finished Goods' && r.status === 'Released' && !inHoldArea(state, r.location) && r.qty > 0)
       .map((r) => ({ ...r, shownExpiry: displayExpiry(state, r) }))
       .sort((a, b) => (a.shownExpiry || '').localeCompare(b.shownExpiry || ''))
   }, [editing, packed, state])
@@ -241,7 +242,7 @@ export function DispatchPage() {
           <h4>Packed stock</h4>
           <span className="small">
             Everything packed and cleared by QC, earliest expiry first — dispatched
-            straight out of the freezer it was packed into.
+            straight from the storage area it is in now. Stock set aside in a hold area is not listed.
           </span>
         </div>
       </div>

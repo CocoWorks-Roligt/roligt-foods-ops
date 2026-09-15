@@ -232,13 +232,18 @@ export function migrateState(raw: unknown, opts: MigrateOptions = {}): AppState 
     }
   }
   /**
-   * Bulk may only be kept in a cold room, and the app now refuses to put it anywhere
-   * else. An area that is *already* holding bulk therefore has to be one, whatever its
-   * old kind said — otherwise the migration would strand the stock standing in it.
+   * Bulk may only be kept in a cold room. An area saved before areas had a type that is
+   * holding bulk *right now* therefore has to be one, whatever its old kind said —
+   * otherwise the migration would strand the stock standing in it. A type somebody has
+   * set is theirs and is never overridden, and an area that merely held bulk once is not
+   * forced back to a cold room on every load.
    */
-  const holdsBulk = new Set(
-    next.ledger.filter((l) => l.itemType === 'Semi Finished').map((l) => l.location),
-  )
+  const bulkBalance = new Map<string, number>()
+  for (const l of next.ledger) {
+    if (l.itemType !== 'Semi Finished') continue
+    bulkBalance.set(l.location, (bulkBalance.get(l.location) || 0) + Number(l.qtyIn) - Number(l.qtyOut))
+  }
+  const holdsBulk = new Set([...bulkBalance].filter(([, qty]) => qty > 1e-6).map(([location]) => location))
   next.storageLocations = next.storageLocations.map((s) => {
     const seeded = base.storageLocations.find((x) => x.name === s.name)
     const label = s.label || seeded?.label || s.name
@@ -248,8 +253,9 @@ export function migrateState(raw: unknown, opts: MigrateOptions = {}): AppState 
       name: s.name,
       label: SUPERSEDED_LABELS[label] || label,
       holds: s.holds || seeded?.holds || '',
-      type: holdsBulk.has(s.name) ? 'Cold Room' : typeFromKind(withKind),
-      status: s.status,
+      type: withKind.type || (holdsBulk.has(s.name) ? 'Cold Room' : typeFromKind(withKind)),
+      // An area saved without a status was in use; left blank it vanished from every picker.
+      status: s.status || 'Active',
     }
   })
 
@@ -330,7 +336,9 @@ export function migrateState(raw: unknown, opts: MigrateOptions = {}): AppState 
     ...g,
     itemId: g.itemId || 'RM-TCW-COCO',
     uom: g.uom || 'Piece',
-    location: g.location || 'RM Store',
+    // Where its own receipt line put it; the seed name only guessed, and printed as-is
+    // wherever that area no longer existed.
+    location: g.location || next.ledger.find((l) => l.doc === g.id && l.type === 'Receipt')?.location || '',
   }))
 
   // A melange recipe owns the bulk item it is booked as, so a database carrying
@@ -492,25 +500,48 @@ export function migrateState(raw: unknown, opts: MigrateOptions = {}): AppState 
     next.counters.bulkProduct = next.items.filter((i) => i.id.startsWith('SF-') && /SF-\d+$/.test(i.id)).length
   }
 
+  // Older plants filed finished goods under "FG Quarantine". It is renamed before the
+  // areas are checked against the ledger below — the other way round, the check made an
+  // area for the old name and the rename then left the stock under a name with none.
+  next.ledger = next.ledger.map((l) =>
+    l.location === 'FG Quarantine' ? { ...l, location: 'Quarantine Store' } : l,
+  )
+  const oldQuarantine = next.storageLocations.find((s) => s.name === 'FG Quarantine')
+  if (oldQuarantine && !next.storageLocations.some((s) => s.name === 'Quarantine Store')) {
+    oldQuarantine.name = 'Quarantine Store'
+  }
+
   // Any location name the ledger already used must exist in the master, or its
   // stock would become unmovable and — worse — silently undispatchable. Names
   // written before locations were data were all freely dispatchable, so keep them so.
   for (const l of next.ledger) {
     if (!l.location || next.storageLocations.some((s) => s.name === l.location)) continue
+    // A fresh id past every one in use. Counting the list gave the new area the id of one
+    // still in it whenever an earlier area had been deleted, and the save then lost one.
+    const highest = Math.max(
+      Number(next.counters.storageLocation) || 0,
+      ...next.storageLocations.map((s) => Number(/(\d+)$/.exec(s.id)?.[1]) || 0),
+    )
+    const taken = new Set(next.storageLocations.map((s) => (s.label || '').toLowerCase()))
+    let label = l.location
+    for (let n = 2; taken.has(label.toLowerCase()); n++) label = `${l.location} (${n})`
     next.storageLocations.push({
-      id: `LOC-${String(next.storageLocations.length + 1).padStart(4, '0')}`,
+      id: `LOC-${String(highest + 1).padStart(4, '0')}`,
       name: l.location,
-      label: l.location,
+      label,
       holds: '',
-      // Nothing is known about a room the ledger merely mentions, except that bulk
-      // could only ever have been kept cold.
+      // Nothing is known about an area the ledger merely mentions except what it held:
+      // bulk and packs are only ever kept cold.
       type: next.ledger.some(
-        (x) => x.location === l.location && x.itemType === 'Semi Finished',
+        (x) =>
+          x.location === l.location &&
+          (x.itemType === 'Semi Finished' || x.itemType === 'Finished Goods'),
       )
         ? 'Cold Room'
         : 'Dry Store',
       status: 'Active',
     })
+    next.counters.storageLocation = highest + 1
   }
   next.counters.storageLocation = Math.max(
     Number(next.counters.storageLocation) || 0,
@@ -540,10 +571,6 @@ export function migrateState(raw: unknown, opts: MigrateOptions = {}): AppState 
       wastage: y * (b.spoiled || 0),
     }
   })
-  next.ledger = next.ledger.map((l) => ({
-    ...l,
-    location: l.location === 'FG Quarantine' ? 'Quarantine Store' : l.location,
-  }))
 
   next.purchaseProducts = next.purchaseProducts.map((p) => {
     const raw = p as AppState['purchaseProducts'][number] & {
@@ -593,6 +620,26 @@ export function migrateState(raw: unknown, opts: MigrateOptions = {}): AppState 
     Number(next.counters.sticker) || 0,
     next.stickerPrints.length,
   )
+  /**
+   * Where new stock goes by default is set on the Storage page. A plant saved before that
+   * existed gets the areas its names point at — the guess the postings used to make on
+   * every save, made once, with finished packs kept out of the bulk cold room.
+   */
+  if (!next.config.defaultAreas) {
+    const open = next.storageLocations.filter((s) => s.status === 'Active')
+    const pick = (type: StorageType, prefer: RegExp, avoid?: string) => {
+      const of = open.filter((s) => s.type === type && s.id !== avoid)
+      return (of.find((s) => prefer.test(`${s.label} ${s.name}`)) || of[0])?.id
+    }
+    const bulk = pick('Cold Room', /bulk/i)
+    const produce = pick('Dry Store', /raw|produce|\brm\b/i)
+    next.config.defaultAreas = {
+      produce,
+      packingMaterial: pick('Dry Store', /pack|\bpm\b/i, produce) || produce,
+      bulk,
+      packs: pick('Cold Room', /finish|\bfg\b|pack|freez|cold/i, bulk) || bulk,
+    }
+  }
   if (!next.config.stickerWidthMm) next.config.stickerWidthMm = DEFAULT_STICKER_WIDTH_MM
   if (!next.config.stickerHeightMm) next.config.stickerHeightMm = DEFAULT_STICKER_HEIGHT_MM
 

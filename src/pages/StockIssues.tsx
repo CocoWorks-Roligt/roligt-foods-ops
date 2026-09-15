@@ -20,7 +20,7 @@ import { RecordTrail } from '../components/RecordTrail'
 import { describeIssue, type IssueLineInput } from '../lib/issues'
 import { useLinkedView } from '../lib/linkedView'
 import { itemName as lookupItemName, locationLabel, stockRowKey } from '../lib/stock'
-import { fmtDate, fmtQty, inr, QTY_EPSILON, toLocalInputValue } from '../lib/utils'
+import { fmtDate, fmtQty, inr, QTY_EPSILON, toLocalInputValue, statusLabel } from '../lib/utils'
 import { ISSUE_REASONS, type IssueReason, type StockIssue } from '../types'
 import { keyed, keyedAll, bareAll, type Keyed } from '../lib/rows'
 
@@ -358,7 +358,7 @@ export function StockIssues() {
                     <option value="">{forItem.length ? 'Select lot' : 'No stock'}</option>
                     {forItem.map((r) => (
                       <option key={rowRef(r)} value={rowRef(r)}>
-                        {r.lot} · {locationLabel(state, r.location)} · {r.status} ·{' '}
+                        {r.lot} · {locationLabel(state, r.location)} · {statusLabel(r.status)} ·{' '}
                         {fmtQty(r.qty)} {r.uom}
                         {r.expiry ? ` · exp ${fmtDate(r.expiry)}` : ''}
                       </option>
@@ -443,7 +443,7 @@ export function StockIssues() {
                       </td>
                       <td data-label="From">{locationLabel(state, l.location)}</td>
                       <td data-label="Status" className="cell-tight">
-                        {l.status}
+                        {statusLabel(l.status)}
                       </td>
                       <td data-label="Qty" className="cell-tight">
                         {Number(l.qty.toFixed(3))} {l.uom}

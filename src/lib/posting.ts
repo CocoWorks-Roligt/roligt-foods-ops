@@ -10,10 +10,9 @@
 import { COCONUT_ITEM, batchOutputs, fmtBulk, itemUom } from './batches'
 import { bulkItemOf, mediumForUom } from './packs'
 import { withStockIds } from './stockIds'
-import { isRow, itemName, needsColdRoom, product, rowKey, stockRows } from './stock'
+import { isRow, itemName, product, rowKey, stockRows, areaRefusal, defaultArea, inHoldArea } from './stock'
 import { fitsWithin, nowISO, toDateKey, QTY_EPSILON, sameQty, uid } from './utils'
 import type {
-  StorageType,
   AppState,
   Batch,
   BatchKind,
@@ -331,49 +330,45 @@ export function batchQuantitiesChanged(b: Batch, input: BatchInput) {
 }
 
 /**
- * Where stock lands when nobody picked an area. Looked up by type rather than by the
- * seeded name so a plant that renamed or rebuilt its stores still resolves, falling
- * back to the original names only if it has no area of that type at all.
- *
- * Matched by what the area is *called* first, then any area of the right type: the
- * seeded plant lists more than one cold room and more than one dry store, and picking
- * whichever came first sent bulk into the pack freezer and produce into the packaging
- * store.
+ * Where new stock goes when nobody picked an area: the default set for it on the Storage
+ * page. It used to be guessed — the first active area of the right type whose name looked
+ * right, and failing that a hard-coded seed name — which put finished packs into the bulk
+ * cold room and booked receipts into areas that had been deactivated or no longer
+ * existed. A default that is not set is simply not there now, and the posting asks.
  */
-const activeArea = (state: AppState, type: StorageType, match: RegExp) => {
-  const of = state.storageLocations.filter((s) => s.type === type && s.status === 'Active')
-  return (of.find((s) => match.test(s.label) || match.test(s.name)) || of[0])?.name
+export const defaultBulkStore = (state: AppState) => defaultArea(state, 'bulk')?.name
+export const defaultPackStore = (state: AppState) => defaultArea(state, 'packs')?.name
+export const defaultRawStore = (state: AppState) => defaultArea(state, 'produce')?.name
+export const defaultPackingStore = (state: AppState) => defaultArea(state, 'packingMaterial')?.name
+
+const PUT_AWAY: Record<string, string> = {
+  'Raw Material': 'the produce',
+  'Packing Material': 'the packing material',
+  'Semi Finished': 'the bulk',
+  'Finished Goods': 'the packs',
 }
 
-/** The cold room bulk waits in. Bulk may not be kept anywhere else — see `needsColdRoom`. */
-export const defaultBulkStore = (state: AppState) =>
-  activeArea(state, 'Cold Room', /bulk/i) || 'Bulk Store'
-
-/** The cold room packs come off the line into. */
-export const defaultPackStore = (state: AppState) =>
-  activeArea(state, 'Cold Room', /cold|freez|pack/i) || 'Cold Room'
-
-/** Where a goods receipt puts produce, and where packing material is booked in. */
-export const defaultRawStore = (state: AppState) =>
-  activeArea(state, 'Dry Store', /raw|produce|rm\b/i) || 'RM Store'
-
-export const defaultPackingStore = (state: AppState) =>
-  activeArea(state, 'Dry Store', /pack|pm\b/i) || 'PM Store'
+/** Where a document's own stock was put, read off its ledger lines. */
+export const postedLocation = (state: AppState, doc: string, itemType: string) =>
+  state.ledger.find((l) => l.doc === doc && l.itemType === itemType && l.qtyIn > 0)?.location
 
 /**
- * Refuses an area that may not hold this sort of stock, and says which rule it broke.
- *
- * Only bulk is actually forbidden anywhere — see `needsColdRoom`. Everything else is
- * merely unusual, and the screens flag that rather than refusing it.
+ * Refuses an area that may not hold this stock, and says which rule it broke — see
+ * `areaRefusal`. `keep` is the area a document being edited already has: an edit that
+ * leaves it where it is must not be refused for a rule the area has since fallen foul of,
+ * or correcting a date would be blocked by a room somebody deactivated.
  */
-export function checkArea(state: AppState, name: string | undefined, itemType: string): Problem {
-  if (!name) return null
-  const area = state.storageLocations.find((s) => s.name === name)
-  if (!area || area.status !== 'Active') return 'Pick an active storage area.'
-  if (needsColdRoom(itemType) && area.type !== 'Cold Room') {
-    return `${area.label} is a ${area.type.toLowerCase()}. Bulk is unsealed and perishable — it has to go into a cold room.`
+export function checkArea(
+  state: AppState,
+  name: string | undefined,
+  itemType: string,
+  opts: { status?: string; keep?: string } = {},
+): Problem {
+  if (!name) {
+    return `Pick a storage area for ${PUT_AWAY[itemType] || 'the stock'} — no default is set for it on the Storage page.`
   }
-  return null
+  if (opts.keep && name === opts.keep) return null
+  return areaRefusal(state.storageLocations.find((s) => s.name === name), itemType, opts.status)
 }
 
 export function checkBatch(state: AppState, input: BatchInput, ignoreDoc?: string): Problem {
@@ -390,7 +385,10 @@ export function checkBatch(state: AppState, input: BatchInput, ignoreDoc?: strin
   }
   if (!outputs.some((o) => o.main)) return 'Mark which output the batch cost sits on.'
   // Everything a batch makes is bulk, and bulk belongs in a cold room.
-  const badArea = checkArea(state, input.location, 'Semi Finished')
+  const editing = ignoreDoc ? state.batches.find((b) => b.id === ignoreDoc) : undefined
+  const badArea = checkArea(state, input.location || defaultBulkStore(state), 'Semi Finished', {
+    keep: editing ? editing.location || postedLocation(state, editing.id, 'Semi Finished') : undefined,
+  })
   if (badArea) return badArea
 
   const base = withoutDoc(state, ignoreDoc)
@@ -537,7 +535,7 @@ export function postBatchLines(draft: AppState, id: string, input: BatchInput) {
       item: line.item,
       itemType: 'Semi Finished',
       lot: id,
-      location: input.location || defaultBulkStore(draft),
+      location: input.location || defaultBulkStore(draft) || '',
       status: 'Quarantine',
       qtyIn: line.qty,
       qtyOut: 0,
@@ -581,11 +579,13 @@ export function checkPacking(state: AppState, input: PackingInput, ignoreDoc?: s
   if (!bulkItem) return { ok: false, error: 'Select what the run is filling from.' }
 
   /**
-   * Packs go into the freezer as they come off the line and stay there while the lab
-   * works — QC changes their status, never their room. The only thing checked here is
-   * that the room is real and open.
+   * Packs go into a storage area as they come off the line and stay there while the lab
+   * works — QC changes their status, never their area.
    */
-  const badArea = checkArea(state, input.location, 'Finished Goods')
+  const editingRun = ignoreDoc ? state.packingRuns.find((r) => r.id === ignoreDoc) : undefined
+  const badArea = checkArea(state, input.location || defaultPackStore(state), 'Finished Goods', {
+    keep: editingRun?.location,
+  })
   if (badArea) return { ok: false, error: badArea }
 
   const uom = itemUom(state, bulkItem)
@@ -674,7 +674,7 @@ export function postPackingLines(
    */
   const bulkQc = qcFor(draft, batch.id, math.bulkItem)
   const released = bulkQc ? bulkQc.disposition === 'Released' : batch.status === 'Released'
-  const freezer = defaultPackStore(draft)
+  const freezer = defaultPackStore(draft) || ''
 
   let bulkCost = 0
   let remainingBulk = math.drawn
@@ -868,6 +868,12 @@ export function checkOrderDispatch(
       const k = rowKey(id)
       if (!remaining.has(k)) {
         const row = live.find((r) => isRow(r, id) && r.status === 'Released')
+        if (row && inHoldArea(state, row.location)) {
+          return {
+            ok: false,
+            error: `${itemName(state, line.sku)} from ${p.lot} is set aside in a hold area — move it back out before dispatching it.`,
+          }
+        }
         remaining.set(k, row?.qty ?? 0)
       }
       const left = remaining.get(k) ?? 0
@@ -911,10 +917,13 @@ export function checkDispatch(
       x.status === 'Released' &&
       x.qty > 0,
   )
-  // Goods go out of the freezer they were packed into. What decides whether they may
-  // leave is the QC verdict, already checked above — there is no defrost step to wait
-  // on, so the room they are sitting in no longer gates the dispatch.
+  // Packs go out of whatever storage area they are sitting in: the QC verdict decides
+  // whether they may leave. A hold area is the one exception — only rejected stock is
+  // set aside there, and nothing in one is dispatched.
   if (!row) return { ok: false, error: 'Select released stock.' }
+  if (inHoldArea(state, row.location)) {
+    return { ok: false, error: 'That stock is set aside in a hold area — move it back out before dispatching it.' }
+  }
   if (input.qty <= 0 || input.qty > row.qty) {
     return { ok: false, error: `Dispatch quantity must be between 1 and ${row.qty}.` }
   }

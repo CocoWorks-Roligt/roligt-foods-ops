@@ -18,8 +18,8 @@ import { EmptyState } from '../components/EmptyState'
 import { useApp } from '../context/AppContext'
 import { COCONUT_ITEM } from '../lib/batches'
 import { useLinkedView } from '../lib/linkedView'
-import { defaultPackingStore, defaultRawStore } from '../lib/posting'
-import { itemName as lookupItemName, locationLabel } from '../lib/stock'
+import { defaultPackingStore, defaultRawStore, postedLocation } from '../lib/posting'
+import { itemName as lookupItemName, locationLabel, areaChoices } from '../lib/stock'
 import { fmtDate, fmtQty, inr, toLocalInputValue } from '../lib/utils'
 import type { Grn } from '../types'
 
@@ -163,7 +163,7 @@ export function Procurement() {
 
   const openNew = () => {
     setEditId('')
-    setForm({ ...blankForm, date: toLocalInputValue(), location: defaultRawStore(state) })
+    setForm({ ...blankForm, date: toLocalInputValue(), location: defaultRawStore(state) || '' })
     setOpen(true)
   }
 
@@ -172,7 +172,7 @@ export function Procurement() {
     setForm({
       date: toLocalInputValue(new Date(g.date)),
       purchaseProductId: g.purchaseProductId || '',
-      location: g.location || defaultRawStore(state),
+      location: g.location || postedLocation(state, g.id, 'Raw Material') || '',
       farmerId: g.farmerId,
       farmer: g.farmer || '',
       area: g.area || '',
@@ -205,9 +205,6 @@ export function Procurement() {
   // The unit reads off the product, so the quantity labels stay blank-friendly until
   // one is picked rather than promising pieces of something measured in kilograms.
   const unit = (buying?.uom || 'Piece').toLowerCase()
-  const stores = state.storageLocations.filter(
-    (l) => l.type === 'Dry Store' && l.status === 'Active',
-  )
   // The suppliers a product is actually linked to, so a beetroot receipt does not offer
   // the coconut farmers.
   const sourceOptions = buying?.vendorIds.length
@@ -280,7 +277,7 @@ export function Procurement() {
       ...blankPm,
       date: toLocalInputValue(),
       purchaseProductId: packingProducts[0]?.id || '',
-      location: defaultPackingStore(state),
+      location: defaultPackingStore(state) || '',
     })
     setPmOpen(true)
   }
@@ -316,7 +313,7 @@ export function Procurement() {
               value: viewing.productName || itemName(viewing.itemId || COCONUT_ITEM),
             },
             { label: 'Received on', value: fmtDate(viewing.date) },
-            { label: 'Put away in', value: locationLabel(state, viewing.location || 'RM Store') },
+            { label: 'Storage area', value: viewing.location ? locationLabel(state, viewing.location) : '—' },
             { label: 'Status', value: viewing.status },
             { label: 'Vendor', value: viewing.farmerName || 'Direct farmer purchase' },
             { label: 'Vendor code', value: viewing.farmerId },
@@ -379,7 +376,7 @@ export function Procurement() {
               value: state.vendors.find((v) => v.id === viewingPm.vendorId)?.name || 'Not recorded',
             },
             { label: 'Supplier lot', value: viewingPm.lot },
-            { label: 'Stored in', value: locationLabel(state, viewingPm.location) },
+            { label: 'Storage area', value: locationLabel(state, viewingPm.location) },
           ],
         },
         {
@@ -580,7 +577,7 @@ export function Procurement() {
                   <th className="cell-num cell-tight">Quantity</th>
                   <th className="cell-num cell-tight">Rate</th>
                   <th className="cell-num cell-tight">Value</th>
-                  <th>Stored in</th>
+                  <th>Storage area</th>
                   <th className="cell-actions">Action</th>
                 </tr>
               </thead>
@@ -619,7 +616,7 @@ export function Procurement() {
                         <td data-label="Value" className="cell-num cell-tight">
                           {inr(l.qtyIn * l.unitCost)}
                         </td>
-                        <td data-label="Stored in">{locationLabel(state, l.location)}</td>
+                        <td data-label="Storage area">{locationLabel(state, l.location)}</td>
                         <td className="cell-actions">
                           <div className="row-actions">
                             <button className="btn btn-light" onClick={() => setViewId(l.doc)}>
@@ -732,14 +729,15 @@ export function Procurement() {
             </Select>
           </div>
           <div className="field">
-            <label>Store it in</label>
+            <label>Storage area</label>
             <Select
               value={pmForm.location}
               onChange={(e) => setPmForm((f) => ({ ...f, location: e.target.value }))}
             >
-              {stores.map((l) => (
-                <option key={l.name} value={l.name}>
-                  {l.label}
+              <option value="">Select storage area</option>
+              {areaChoices(state, 'Packing Material', 'Available', pmForm.location).map((c) => (
+                <option key={c.area.id} value={c.value}>
+                  {c.text}
                 </option>
               ))}
             </Select>
@@ -786,7 +784,7 @@ export function Procurement() {
           <div className="note">
             Booking {fmtQty(num(pmForm.qty))} {pmBuying?.uom || 'units'} at{' '}
             <b>{inr(num(pmForm.unitCost))}</b> each — <b>{inr(num(pmForm.qty) * num(pmForm.unitCost))}</b>{' '}
-            into {locationLabel(state, pmForm.location || defaultPackingStore(state))}. This is the
+            into {pmForm.location ? locationLabel(state, pmForm.location) : 'the storage area you pick'}. This is the
             rate every packing run that draws on this lot will cost itself at.
           </div>
         ) : null}
@@ -867,11 +865,12 @@ export function Procurement() {
             </Select>
           </div>
           <div className="field">
-            <label>Put away in</label>
+            <label>Storage area</label>
             <Select value={form.location} onChange={(e) => set('location', e.target.value)}>
-              {stores.map((l) => (
-                <option key={l.name} value={l.name}>
-                  {l.label}
+              <option value="">Select storage area</option>
+              {areaChoices(state, 'Raw Material', 'Available', form.location).map((c) => (
+                <option key={c.area.id} value={c.value}>
+                  {c.text}
                 </option>
               ))}
             </Select>

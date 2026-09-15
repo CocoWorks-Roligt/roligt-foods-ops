@@ -16,7 +16,7 @@ import { Select } from '../components/Select'
 import { StatusBadge } from '../components/StatusBadge'
 import { useApp } from '../context/AppContext'
 import { formatSize } from '../lib/packs'
-import { displayExpiry, locationLabel, parseRowKey, rowKey } from '../lib/stock'
+import { displayExpiry, locationLabel, parseRowKey, rowKey, inHoldArea } from '../lib/stock'
 import { fmtDate, fmtQty, QTY_EPSILON, toLocalInputValue } from '../lib/utils'
 import type { Order, OrderLine } from '../types'
 import { bareAll, keyed, keyedAll, type Keyed } from '../lib/rows'
@@ -54,6 +54,7 @@ export function Orders() {
     >()
     for (const r of rows) {
       if (r.itemType !== 'Finished Goods' || r.status !== 'Released' || r.qty <= QTY_EPSILON) continue
+      if (inHoldArea(state, r.location)) continue
       const list = by.get(r.item) || []
       list.push({
         item: r.item,

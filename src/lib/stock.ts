@@ -1,5 +1,5 @@
 import { QTY_EPSILON } from './utils'
-import type { AppState, StockRow, StorageType } from '../types'
+import type { AppState, AreaPurpose, StockRow, StorageLocation, StorageType } from '../types'
 
 /**
  * Everything that makes one stock row a different row from another.
@@ -244,35 +244,46 @@ export function product(state: AppState, id: string) {
  * a cold room and a chest freezer different kinds of object and left nobody sure
  * whether bulk belonged in a "store" or a "hold".
  */
-export const STORAGE_TYPES: { value: StorageType; label: string; blurb: string }[] = [
+export const STORAGE_TYPES: { value: StorageType; label: string; plural: string; blurb: string }[] = [
   {
     value: 'Cold Room',
     label: 'Cold room',
+    plural: 'Cold rooms',
     blurb:
-      'Temperature-controlled — cold room, chest freezer, blast freezer. Bulk from production is kept here, and packs are filled into it and dispatched straight out of it.',
+      'Temperature-controlled — a cold room, chest freezer or blast freezer. Bulk from production has to be kept in one; finished packs go into one off the line and are dispatched from it; produce can be kept cold too.',
   },
   {
     value: 'Dry Store',
     label: 'Dry store',
-    blurb: 'Ambient storage for what was bought in — produce waiting to be pressed, and packing material.',
+    plural: 'Dry stores',
+    blurb:
+      'Ambient storage for what was bought in — produce waiting to be pressed, and packing material. Bulk can never go into one.',
   },
   {
     value: 'Hold Area',
     label: 'Hold area',
-    blurb: 'Anything set aside — stock QC rejected, goods held until somebody decides what happens to them.',
+    plural: 'Hold areas',
+    blurb:
+      'Where stock QC has rejected is set aside until somebody decides what happens to it. It only takes rejected stock, so nothing in it can be packed, blended or dispatched — write it off from Stock Issues.',
   },
 ]
 
 export const storageTypeLabel = (type: StorageType) =>
   STORAGE_TYPES.find((t) => t.value === type)?.label || type
 
+/** "1 cold room", "2 cold rooms". */
+export const storageTypeCount = (type: StorageType, n: number) => {
+  const t = STORAGE_TYPES.find((x) => x.value === type)
+  return `${n} ${((n === 1 ? t?.label : t?.plural) || type).toLowerCase()}`
+}
+
 /**
- * Which sort of area each sort of stock belongs in.
+ * Which sort of area each sort of stock usually lives in.
  *
- * For everything except bulk this is guidance, not a rule — a plant may genuinely use
- * an area for something unusual and refusing would strand stock. It decides what gets
- * offered first and what gets flagged, so a pallet of juice cannot slide into the
- * packing store unremarked.
+ * Beyond the two rules in `areaRefusal` this is guidance, not a rule — a plant may
+ * genuinely keep something somewhere unusual, and refusing would strand stock. It decides
+ * what is offered first and what gets flagged, so a pallet of bottles cannot slide into a
+ * cold room unremarked.
  */
 export const HOME_TYPES: Record<string, StorageType[]> = {
   'Finished Goods': ['Cold Room'],
@@ -281,12 +292,12 @@ export const HOME_TYPES: Record<string, StorageType[]> = {
   'Packing Material': ['Dry Store'],
 }
 
-/** Whether an area of this type is a usual home for this sort of stock. */
-export const roomSuits = (itemType: string, type: StorageType) =>
-  (HOME_TYPES[itemType] || []).includes(type)
+/** Whether an area of this type is a usual home for this stock. A hold area is the home of rejected stock of any kind. */
+export const roomSuits = (itemType: string, type: StorageType, status?: string) =>
+  type === 'Hold Area' ? status === 'Rejected' : (HOME_TYPES[itemType] || []).includes(type)
 
 /**
- * Bulk is the one thing the app refuses to put anywhere else.
+ * Bulk is the one thing that may never sit in a dry store.
  *
  * What comes out of production is unsealed, unpasteurised and perishable — juice in
  * an open tank, malai in a tub. It goes into a cold room or it spoils, so this is a
@@ -294,16 +305,117 @@ export const roomSuits = (itemType: string, type: StorageType) =>
  */
 export const needsColdRoom = (itemType: string) => itemType === 'Semi Finished'
 
-/** Storage areas this stock may legally be put in — every active one, unless it is bulk. */
-export function allowedAreas(state: AppState, itemType: string) {
-  return state.storageLocations.filter(
-    (s) => s.status === 'Active' && (!needsColdRoom(itemType) || s.type === 'Cold Room'),
-  )
+/**
+ * Why stock of this sort, in this QC status, may not go into an area — or null when it may.
+ *
+ * Two rules, enforced wherever stock is put away or moved:
+ *  - bulk never goes into a dry store: it is unsealed and perishable;
+ *  - a hold area only takes stock QC has rejected. Nothing else may be parked there, so
+ *    nothing sitting in one can be packed, blended or dispatched.
+ * Everything else is allowed, and the screens flag what is unusual.
+ */
+export function areaRefusal(
+  area: StorageLocation | undefined,
+  itemType: string,
+  status = 'Available',
+): string | null {
+  if (!area || area.status !== 'Active') return 'Pick an active storage area.'
+  if (area.type === 'Hold Area' && status !== 'Rejected') {
+    return `${area.label} is a hold area — it only takes stock QC has rejected.`
+  }
+  if (needsColdRoom(itemType) && area.type === 'Dry Store') {
+    return `${area.label} is a dry store. Bulk is unsealed and perishable — it has to go into a cold room.`
+  }
+  return null
 }
 
-/** Active areas other than the one the stock is in, usual homes first. */
-export function moveDestinations(state: AppState, from: string, itemType: string) {
-  return allowedAreas(state, itemType)
-    .filter((s) => s.name !== from)
-    .sort((a, b) => Number(roomSuits(itemType, b.type)) - Number(roomSuits(itemType, a.type)))
+/** Whether stock sitting in this area has been set aside in a hold area. */
+export const inHoldArea = (state: AppState, location: string) =>
+  state.storageLocations.find((s) => s.name === location)?.type === 'Hold Area'
+
+/** Storage areas this stock may be put into, usual homes first. */
+export function allowedAreas(state: AppState, itemType: string, status = 'Available') {
+  return state.storageLocations
+    .filter((s) => !areaRefusal(s, itemType, status))
+    .sort(
+      (a, b) =>
+        Number(roomSuits(itemType, b.type, status)) - Number(roomSuits(itemType, a.type, status)),
+    )
+}
+
+/** Areas the stock in one row can be moved to: every area it may go into but its own. */
+export function moveDestinations(state: AppState, from: string, itemType: string, status = 'Available') {
+  return allowedAreas(state, itemType, status).filter((s) => s.name !== from)
+}
+
+/**
+ * The options a storage-area dropdown lists for stock of this sort.
+ *
+ * Every picker in the app builds its options here so they all read the same way: the
+ * area's name and type, what it is for, and a flag when it is not a usual home. A record
+ * being edited keeps its own area on the list even after that area was deactivated,
+ * marked as such — the dropdown used to show a different area from the one saved.
+ */
+export function areaChoices(state: AppState, itemType: string, status = 'Available', current?: string) {
+  const areas = allowedAreas(state, itemType, status)
+  const own = current ? state.storageLocations.find((s) => s.name === current) : undefined
+  if (own && !areas.includes(own)) areas.unshift(own)
+  const kind = itemTypeLabel(itemType).toLowerCase()
+  return areas.map((area) => {
+    const flag =
+      area.status !== 'Active'
+        ? 'inactive'
+        : areaRefusal(area, itemType, status)
+          ? `no longer takes ${kind}`
+          : roomSuits(itemType, area.type, status)
+            ? ''
+            : `not usually for ${kind}`
+    return {
+      area,
+      value: area.name,
+      text: [`${area.label} · ${storageTypeLabel(area.type)}`, area.holds, flag]
+        .filter(Boolean)
+        .join(' — '),
+    }
+  })
+}
+
+/** The kinds of new stock put away somewhere by default, as the Storage page names them. */
+export const AREA_PURPOSES: { key: AreaPurpose; label: string; itemType: string }[] = [
+  { key: 'produce', label: 'Produce received', itemType: 'Raw Material' },
+  { key: 'packingMaterial', label: 'Packing material received', itemType: 'Packing Material' },
+  { key: 'bulk', label: 'Bulk from production', itemType: 'Semi Finished' },
+  { key: 'packs', label: 'Finished packs off the line', itemType: 'Finished Goods' },
+]
+
+/**
+ * Where new stock of one kind goes unless somebody picks another area: the default set on
+ * the Storage page, for as long as that area is active and may hold the stock. Nothing is
+ * guessed behind it — a default that is not set is not there, and the form asks.
+ */
+export function defaultArea(state: AppState, purpose: AreaPurpose): StorageLocation | undefined {
+  const itemType = AREA_PURPOSES.find((p) => p.key === purpose)?.itemType || ''
+  const area = state.storageLocations.find((s) => s.id === state.config?.defaultAreas?.[purpose])
+  return area && !areaRefusal(area, itemType) ? area : undefined
+}
+
+/** The kinds of new stock an area is the default for. */
+export const defaultsOf = (state: AppState, area: StorageLocation) =>
+  AREA_PURPOSES.filter((p) => state.config?.defaultAreas?.[p.key] === area.id)
+
+/** Why an area cannot be deleted, or null when nothing depends on it. */
+export function areaDeleteBlocker(state: AppState, area: StorageLocation): string | null {
+  if (state.ledger.some((l) => l.location === area.name)) {
+    return `${area.label} has held stock — deactivate it instead.`
+  }
+  const doc =
+    state.batches.find((b) => b.location === area.name)?.id ||
+    state.packingRuns.find((r) => r.location === area.name)?.id ||
+    state.grns.find((g) => g.location === area.name)?.id
+  if (doc) return `${doc} names ${area.label} — deactivate it instead.`
+  const purposes = defaultsOf(state, area)
+  if (purposes.length) {
+    return `${area.label} is the default for ${purposes.map((p) => p.label.toLowerCase()).join(' and ')} — choose another default first.`
+  }
+  return null
 }

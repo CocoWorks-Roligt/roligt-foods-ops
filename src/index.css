@@ -3014,3 +3014,147 @@ tbody tr.subrow > td {
 .audit-trail {
   margin: 4px 0 8px;
 }
+
+/* ── Traceability network ─────────────────────────────────────────────────────
+   The traced chain as a graph, left to right. One colour per stage, so a glance
+   says which records are receipts, batches, verdicts and packs. */
+.trace-view-tabs {
+  margin: 4px 0 12px;
+}
+
+.trace-network {
+  position: relative;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.trace-network-hint {
+  padding: 10px 14px 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* The chart keeps its columns readable and scrolls sideways on a narrow screen,
+   rather than crushing every stage into a phone's width. */
+.trace-network-scroll {
+  overflow-x: auto;
+}
+
+.trace-network-canvas {
+  position: relative;
+}
+
+.trace-network svg {
+  display: block;
+  touch-action: none;
+  user-select: none;
+}
+
+.trace-network-link {
+  stroke: var(--line);
+  stroke-width: 1.5;
+  transition: opacity 120ms ease;
+}
+
+.trace-network-link.lit {
+  stroke: var(--green);
+  stroke-width: 2.25;
+}
+
+.trace-network-link.dim,
+.trace-network-node.dim {
+  opacity: 0.18;
+}
+
+.trace-network-arrowhead {
+  fill: var(--muted);
+}
+
+.trace-network-node {
+  cursor: grab;
+  transition: opacity 120ms ease;
+}
+
+.trace-network-node.openable {
+  cursor: pointer;
+}
+
+.trace-network-node:focus {
+  outline: none;
+}
+
+.trace-network-node circle {
+  fill: var(--swatch);
+  stroke: #fff;
+  stroke-width: 2.5;
+}
+
+.trace-network-node.lit circle,
+.trace-network-node:focus-visible circle {
+  stroke: var(--ink);
+}
+
+.trace-network-label {
+  font-size: 11px;
+  font-weight: 700;
+  fill: var(--ink);
+  paint-order: stroke;
+  stroke: var(--panel);
+  stroke-width: 3px;
+  pointer-events: none;
+}
+
+.trace-network-tooltip {
+  position: absolute;
+  z-index: 2;
+  max-width: 260px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--ink);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.35;
+  box-shadow: var(--shadow);
+  pointer-events: none;
+  transform: translate(-50%, calc(-100% - 10px));
+}
+
+.trace-network-tooltip .small {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.trace-network-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.trace-network-legend span::before {
+  content: '';
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--swatch);
+  vertical-align: -1px;
+}
+
+.kind-source { --swatch: #b8892f; }
+.kind-grn { --swatch: #3e5b45; }
+.kind-batch { --swatch: #253d2b; }
+.kind-melange { --swatch: #5f8a63; }
+.kind-qc { --swatch: #9b6b18; }
+.kind-material { --swatch: #8a8478; }
+.kind-packing { --swatch: #c96543; }
+.kind-order { --swatch: #6a5fa8; }
+.kind-dispatch { --swatch: #3d6c96; }
+.kind-issue { --swatch: #a23f34; }
+.kind-customer { --swatch: #1f251f; }
+.kind-stock { --swatch: #697065; }

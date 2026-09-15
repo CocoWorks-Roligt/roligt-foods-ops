@@ -13,7 +13,7 @@ import { checkArea } from '../../lib/posting'
 import type { MoveStockInput } from '../../lib/posting'
 import { isRow, itemName, locationLabel } from '../../lib/stock'
 import { stockIdOfRow } from '../../lib/stockIds'
-import { deepClone, nowISO, uid } from '../../lib/utils'
+import { deepClone, nowISO, uid, fmtQty } from '../../lib/utils'
 import { POSTED } from './deps'
 import type { CoreDeps } from './deps'
 
@@ -27,7 +27,7 @@ export function useInventory({ state, setState, nextId, log, showToast, rows }: 
       }
       const target = state.storageLocations.find((s) => s.name === to)
       if (!target || target.status !== 'Active') {
-        showToast('Select an active storage area.')
+        showToast('Pick an active storage area.')
         return null
       }
       // Matched on the whole row identity. Two runs off one batch into one freezer are
@@ -42,12 +42,12 @@ export function useInventory({ state, setState, nextId, log, showToast, rows }: 
         return null
       }
       if (qty <= 0 || qty > r.qty) {
-        showToast(`Quantity must be between 1 and ${r.qty}.`)
+        showToast(`Enter a quantity above 0 and no more than ${fmtQty(r.qty)} ${r.uom}.`)
         return null
       }
-      // The Storage screen only offers cold rooms for bulk, but the dropdown is not the
+      // The dialog only offers areas that may take this stock, but the dropdown is not the
       // rule — this is, so a stale form or a second caller cannot route around it.
-      const badArea = checkArea(state, to, r.itemType)
+      const badArea = checkArea(state, to, r.itemType, { status: r.status })
       if (badArea) {
         showToast(badArea)
         return null

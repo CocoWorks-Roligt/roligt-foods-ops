@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Modal } from '../components/Modal'
+import { MoveStockModal } from '../components/MoveStockModal'
 import { Select } from '../components/Select'
 import { DocLink } from '../components/DocLink'
 import { EmptyState } from '../components/EmptyState'
@@ -10,14 +10,12 @@ import {
   fmtRowTotal,
   itemTypeLabel,
   locationLabel,
-  moveDestinations,
-  roomSuits,
   stockRowKey,
   storageTypeLabel,
 } from '../lib/stock'
 import { resolveStockId, stockIdOfRow, stockOrigin } from '../lib/stockIds'
 import { fmtDate, fmtQty, inr, QTY_EPSILON } from '../lib/utils'
-import type { StockRow, StorageLocation, StorageType } from '../types'
+import type { StockRow, StorageLocation } from '../types'
 
 /** One storage area with what it is holding folded in. */
 type LocationRow = StorageLocation & { qty: number; value: number; byUom: Map<string, number> }
@@ -31,14 +29,13 @@ const onHandLabel = (s: { byUom: Map<string, number>; qty: number }) => {
 }
 
 export function Inventory() {
-  const { state, rows, getItemName, moveStock, exportData } = useApp()
+  const { state, rows, getItemName, exportData } = useApp()
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const [type, setType] = useState('')
   const [place, setPlace] = useState('')
   const [moving, setMoving] = useState<StockRow | null>(null)
-  const [move, setMove] = useState({ to: '', qty: 0, note: '' })
 
   const nonPmRows = useMemo(() => rows.filter((r) => r.itemType !== 'Packing Material'), [rows])
 
@@ -55,14 +52,15 @@ export function Inventory() {
       'Finished Goods Value',
       nonPmRows.filter((r) => r.itemType === 'Finished Goods').reduce((a, b) => a + b.value, 0),
     ],
-    ['Total Stock Value', nonPmRows.reduce((a, b) => a + b.value, 0)],
+    // Packing material is valued on its own page; saying so stops this reading as a
+    // different total from the Storage page, which counts everything.
+    ['Total (excl. packing material)', nonPmRows.reduce((a, b) => a + b.value, 0)],
   ] as const
 
   /**
-   * What each storage location is currently holding, freezers first. Quantities are
-   * kept per unit rather than added together: a store holding juice and malai was
-   * reporting "967.50" with no unit, which is litres and kilograms in one number and
-   * means nothing.
+   * What each storage area is currently holding, cold rooms first. Quantities are kept
+   * per unit rather than added together: a store holding juice and malai was reporting
+   * "967.50" with no unit, which is litres and kilograms in one number and means nothing.
    */
   const byLocation: LocationRow[] = useMemo(() => {
     const held = new Map<string, { qty: number; value: number; byUom: Map<string, number> }>()
@@ -79,7 +77,7 @@ export function Inventory() {
         ...s,
         ...(held.get(s.name) || { qty: 0, value: 0, byUom: new Map<string, number>() }),
       }))
-      // A cold room is worth listing even when it is empty — an empty freezer is news.
+      // A cold room is worth listing even when it is empty — an empty cold room is news.
       .filter((s) => s.qty > 0 || s.type === 'Cold Room')
       .sort((a, b) => (a.type === b.type ? 0 : a.type === 'Cold Room' ? -1 : 1))
   }, [nonPmRows, state.storageLocations])
@@ -107,7 +105,7 @@ export function Inventory() {
    * Every line is now an item, named by the stock ID printed on it and handed as-is to
    * Traceability. The product is what it is, not what it is called.
    *
-   * An item split across two rooms, or half released, is still one item: its places
+   * An item split across two areas, or half released, is still one item: its places
    * open underneath it.
    */
   const stock = useMemo(() => {
@@ -138,22 +136,6 @@ export function Inventory() {
       )
   }, [filtered, getItemName, state])
 
-  const openMove = (r: StockRow) => {
-    setMoving(r)
-    setMove({ to: '', qty: r.qty, note: '' })
-  }
-
-  /** See HOME_TYPES in lib/stock — shared with the Storage page so the two Move
-   *  dialogs cannot drift apart. */
-  const suits = (type: StorageType) => !moving || roomSuits(moving.itemType, type)
-
-  const destinations = useMemo(
-    () => (moving ? moveDestinations(state, moving.location, moving.itemType) : []),
-    [state, moving],
-  )
-
-  const movingToOddPlace = destinations.find((s) => s.name === move.to && !suits(s.type))
-
   return (
     <>
       <div className="grid grid-4">
@@ -171,14 +153,17 @@ export function Inventory() {
           <div className="section-head">
             <div>
               <h3>Storage areas</h3>
-              <span>Where stock is physically sitting right now</span>
+              <span>
+                Where raw material, bulk and packs are sitting right now. Packing material is on
+                its own page.
+              </span>
             </div>
           </div>
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>Area</th>
+                  <th>Storage area</th>
                   <th>Type</th>
                   <th>On Hand</th>
                   <th>Value</th>
@@ -187,7 +172,7 @@ export function Inventory() {
               <tbody>
                 {byLocation.map((s) => (
                   <tr key={s.id}>
-                    <td data-label="Area">
+                    <td data-label="Storage area">
                       <b>{s.label}</b>
                       <div className="cell-sub">{s.holds || storageTypeLabel(s.type)}</div>
                       {s.status !== 'Active' && <div className="cell-sub">Inactive</div>}
@@ -231,10 +216,11 @@ export function Inventory() {
             <option>Finished Goods</option>
           </Select>
           <Select value={place} onChange={(e) => setPlace(e.target.value)}>
-            <option value="">All locations</option>
+            <option value="">All storage areas</option>
             {state.storageLocations.map((s) => (
               <option key={s.id} value={s.name}>
                 {s.label}
+                {s.status !== 'Active' ? ' (inactive)' : ''}
               </option>
             ))}
           </Select>
@@ -328,7 +314,7 @@ export function Inventory() {
                             <button
                               className="btn btn-light"
                               type="button"
-                              onClick={() => openMove(single)}
+                              onClick={() => setMoving(single)}
                             >
                               Move
                             </button>
@@ -355,7 +341,7 @@ export function Inventory() {
                                 <button
                                   className="btn btn-light"
                                   type="button"
-                                  onClick={() => openMove(r)}
+                                  onClick={() => setMoving(r)}
                                 >
                                   Move
                                 </button>
@@ -373,78 +359,7 @@ export function Inventory() {
         </div>
       </div>
 
-      <Modal
-        open={!!moving}
-        title={moving ? `Move ${moving.item} · ${moving.lot}` : 'Move stock'}
-        saveLabel="Move Stock"
-        onClose={() => setMoving(null)}
-        onSave={() => {
-          if (!moving) return
-          const ok = moveStock({
-            item: moving.item,
-            lot: moving.lot,
-            status: moving.status,
-            from: moving.location,
-            // Two runs off one batch into one cold room are two rows under two dates;
-            // without it the move could not find a finished-goods row at all.
-            expiry: moving.expiry,
-            to: move.to,
-            qty: move.qty,
-            note: move.note,
-          })
-          if (ok) setMoving(null)
-        }}
-      >
-        <div className="form-grid">
-          <div className="field">
-            <label>From</label>
-            <input value={moving ? locationLabel(state, moving.location) : ''} disabled />
-          </div>
-          <div className="field">
-            <label>Move to</label>
-            <Select value={move.to} onChange={(e) => setMove((m) => ({ ...m, to: e.target.value }))}>
-              <option value="">Select destination</option>
-              {destinations.map((s) => (
-                <option key={s.id} value={s.name}>
-                  {s.label} · {storageTypeLabel(s.type)}
-                  {suits(s.type) ? '' : ` — not usually for ${itemTypeLabel(moving?.itemType || '')}`}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div className="field">
-            <label>Quantity (max {moving?.qty.toFixed(2) || 0})</label>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={move.qty}
-              onChange={(e) => setMove((m) => ({ ...m, qty: Number(e.target.value) }))}
-            />
-          </div>
-          {movingToOddPlace ? (
-            <div className="field span-3">
-              <div className="note warning-note">
-                {movingToOddPlace.label} normally holds {movingToOddPlace.holds.toLowerCase()}, not{' '}
-                {itemTypeLabel(moving?.itemType || '').toLowerCase()}. The move is allowed — just
-                check it is the shelf you meant.
-              </div>
-            </div>
-          ) : null}
-          <div className="field span-3">
-            <label>Note (optional)</label>
-            <input
-              value={move.note}
-              onChange={(e) => setMove((m) => ({ ...m, note: e.target.value }))}
-              placeholder="e.g. moved to the overflow freezer"
-            />
-          </div>
-        </div>
-        <div className="note">
-          A move relocates stock without revaluing it — the unit cost travels with the packs.
-          Released packs are dispatched out of whichever freezer they are sitting in.
-        </div>
-      </Modal>
+      <MoveStockModal row={moving} onClose={() => setMoving(null)} />
     </>
   )
 }

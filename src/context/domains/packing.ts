@@ -8,7 +8,7 @@
 
 import { useCallback, useMemo } from 'react'
 import { fmtBulk } from '../../lib/batches'
-import { checkPacking, defaultPackingStore, postPackingLines } from '../../lib/posting'
+import { checkPacking, defaultPackingStore, postPackingLines, checkArea } from '../../lib/posting'
 import type { PackingInput } from '../../lib/posting'
 import { itemName } from '../../lib/stock'
 import { deepClone, nowISO, QTY_EPSILON, uid } from '../../lib/utils'
@@ -164,6 +164,11 @@ export function usePacking({ state, setState, nextId, log, showToast, announceme
         showToast(problem)
         return null
       }
+      const badArea = checkArea(state, input.location || defaultPackingStore(state), 'Packing Material')
+      if (badArea) {
+        showToast(badArea)
+        return null
+      }
       let createdId = ''
       setState((prev) => {
         const draft = deepClone(prev)
@@ -181,7 +186,7 @@ export function usePacking({ state, setState, nextId, log, showToast, announceme
           item: item.id,
           itemType: 'Packing Material',
           lot: input.lot.trim(),
-          location: input.location || defaultPackingStore(draft),
+          location: input.location || defaultPackingStore(draft) || '',
           status: 'Available',
           qtyIn: input.qty,
           qtyOut: 0,
@@ -225,6 +230,13 @@ export function usePacking({ state, setState, nextId, log, showToast, announceme
         (input.location || line.location) !== line.location
       if (consumed && materialMoved) {
         showToast('This stock is already in a packing run — only the supplier can be edited.')
+        return null
+      }
+      const badArea = checkArea(state, input.location || line.location, 'Packing Material', {
+        keep: line.location,
+      })
+      if (badArea) {
+        showToast(badArea)
         return null
       }
       setState((prev) => {

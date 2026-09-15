@@ -11,6 +11,7 @@ import {
   stickerLines,
   templateFor,
   type StickerCandidate,
+  stickerReferenceLabel,
 } from '../lib/stickers'
 import { fmtDate } from '../lib/utils'
 import type { StickerStage, StickerTemplate } from '../types'
@@ -407,7 +408,7 @@ export function Stickers() {
                       {stageLabel(p.stage)}
                     </td>
                     <td data-label="For">
-                      <b>{p.reference}</b>
+                      <b>{stickerReferenceLabel(state, p.stage, p.reference)}</b>
                     </td>
                     <td data-label="Copies" className="cell-tight">
                       {p.copies}

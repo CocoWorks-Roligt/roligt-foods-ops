@@ -14,7 +14,7 @@
  */
 
 import { batchKind, runBulkItem } from './batches'
-import { resolveStockId } from './stockIds'
+import { dispatchRuns, happenedAt, receiptsFor, resolveStockId, runsFilling } from './stockIds'
 import type { AppState } from '../types'
 
 export type DocKind =
@@ -110,15 +110,6 @@ export function linkedRecords(state: AppState, raw: string): LinkedRecords {
     if (!list.some((r) => r.id === found.id)) list.push(found)
   }
   const issues = state.stockIssues || []
-  /** Runs that filled this pack off this batch — told apart by expiry when both carry one. */
-  const runsPacking = (batchId: string, sku: string, expiry?: string) =>
-    state.packingRuns.filter(
-      (r) =>
-        r.batchId === batchId &&
-        r.lines.some((l) => l.sku === sku && (!expiry || !l.expiry || l.expiry === expiry)),
-    )
-  const receiptOf = (item: string, lot: string) =>
-    state.ledger.find((l) => l.type === 'PM Receipt' && l.item === item && l.lot === lot)?.doc
 
   switch (ref.kind) {
     case 'grn': {
@@ -162,9 +153,24 @@ export function linkedRecords(state: AppState, raw: string): LinkedRecords {
       // received in one step rather than by way of the batch.
       b?.sourceLines.forEach((s) => add(cameFrom, s.lot))
       ;(b?.blendLines || []).forEach((l) => add(cameFrom, l.lot))
-      // The packs this verdict covers: filled from this batch, from this product.
+      // Everything that drew the product this verdict covers — packs filled from it, blends
+      // that took it, and bulk issued out — and nothing that drew the batch's other products.
       state.packingRuns.forEach((r) => {
         if (r.batchId === q.batchId && runBulkItem(r) === q.item) add(wentInto, r.id)
+      })
+      state.batches.forEach((m) => {
+        if ((m.blendLines || []).some((l) => l.lot === q.batchId && l.item === q.item)) {
+          add(wentInto, m.id)
+        }
+      })
+      issues.forEach((i) => {
+        if (
+          i.lines.some(
+            (l) => l.itemType === 'Semi Finished' && l.lot === q.batchId && l.item === q.item,
+          )
+        ) {
+          add(wentInto, i.id)
+        }
       })
       break
     }
@@ -174,18 +180,30 @@ export function linkedRecords(state: AppState, raw: string): LinkedRecords {
       add(cameFrom, state.qcs.find((q) => q.batchId === r.batchId && q.item === runBulkItem(r))?.id)
       state.ledger.forEach((l) => {
         if (l.doc === r.id && l.type === 'Packing Consume' && l.itemType === 'Packing Material') {
-          add(cameFrom, receiptOf(l.item, l.lot))
+          receiptsFor(state, l.item, l.lot, {
+            location: l.location,
+            time: happenedAt(state, l),
+          }).forEach((doc) => add(cameFrom, doc))
         }
       })
+      // A dispatch or an issue came from this run only if it drew this run's packs — not
+      // another run of the same pack off the same batch that happens to share its date.
       state.dispatches.forEach((d) => {
-        if (runsPacking(d.batchId, d.sku, d.expiry).some((x) => x.id === r.id)) add(wentInto, d.id)
+        if (d.batchId === r.batchId && dispatchRuns(state, d).some((x) => x.id === r.id)) {
+          add(wentInto, d.id)
+        }
       })
       issues.forEach((i) => {
         if (
           i.lines.some(
             (l) =>
               l.itemType === 'Finished Goods' &&
-              runsPacking(l.lot, l.item, l.expiry).some((x) => x.id === r.id),
+              l.lot === r.batchId &&
+              runsFilling(state, l.lot, l.item, {
+                expiry: l.expiry,
+                location: l.location,
+                time: i.date,
+              }).some((x) => x.id === r.id),
           )
         ) {
           add(wentInto, i.id)
@@ -195,20 +213,25 @@ export function linkedRecords(state: AppState, raw: string): LinkedRecords {
     }
     case 'material': {
       const receipt = state.ledger.find((l) => l.type === 'PM Receipt' && l.doc === ref.id)!
+      // Drawn from this receipt — not from another delivery that shares its supplier lot.
+      const fromIt = (item: string, lot: string, location: string, time: string) =>
+        item === receipt.item &&
+        lot === receipt.lot &&
+        receiptsFor(state, item, lot, { location, time }).includes(ref.id)
       state.ledger.forEach((l) => {
-        if (l.type === 'Packing Consume' && l.item === receipt.item && l.lot === receipt.lot) {
+        if (l.type === 'Packing Consume' && fromIt(l.item, l.lot, l.location, happenedAt(state, l))) {
           add(wentInto, l.doc)
         }
       })
       issues.forEach((i) => {
-        if (i.lines.some((l) => l.item === receipt.item && l.lot === receipt.lot)) add(wentInto, i.id)
+        if (i.lines.some((l) => fromIt(l.item, l.lot, l.location, i.date))) add(wentInto, i.id)
       })
       break
     }
     case 'dispatch': {
       const d = state.dispatches.find((x) => x.id === ref.id)!
       add(cameFrom, d.orderId)
-      runsPacking(d.batchId, d.sku, d.expiry).forEach((r) => add(cameFrom, r.id))
+      dispatchRuns(state, d).forEach((r) => add(cameFrom, r.id))
       add(cameFrom, d.batchId)
       break
     }
@@ -221,10 +244,11 @@ export function linkedRecords(state: AppState, raw: string): LinkedRecords {
     case 'issue': {
       const i = issues.find((x) => x.id === ref.id)!
       for (const l of i.lines) {
+        const at = { expiry: l.expiry, location: l.location, time: i.date }
         if (l.itemType === 'Finished Goods') {
-          runsPacking(l.lot, l.item, l.expiry).forEach((r) => add(cameFrom, r.id))
+          runsFilling(state, l.lot, l.item, at).forEach((r) => add(cameFrom, r.id))
         } else if (l.itemType === 'Packing Material') {
-          add(cameFrom, receiptOf(l.item, l.lot))
+          receiptsFor(state, l.item, l.lot, at).forEach((doc) => add(cameFrom, doc))
         } else {
           // A receipt's lot, or a batch.
           add(cameFrom, l.lot)

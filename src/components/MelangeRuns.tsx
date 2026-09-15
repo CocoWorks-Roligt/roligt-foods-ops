@@ -19,12 +19,12 @@ import { StatusBadge } from './StatusBadge'
 import { useApp } from '../context/AppContext'
 import { batchInputQty, batchLabel, batchOutputs, bulkItems, fmtBulk, mainOutput } from '../lib/batches'
 import { useLinkedView } from '../lib/linkedView'
-import { DRAWABLE, defaultBulkStore } from '../lib/posting'
+import { DRAWABLE, defaultBulkStore, postedLocation } from '../lib/posting'
 import {
   itemName as lookupItemName,
   poolByLot,
   stockRowsExcluding,
-  storageTypeLabel,
+  areaChoices,
 } from '../lib/stock'
 import { fmtDate, fmtQty, inr, QTY_EPSILON, toLocalInputValue } from '../lib/utils'
 import type { Batch } from '../types'
@@ -91,8 +91,8 @@ export function MelangeRuns() {
    */
   /** A blend is bulk like any other: unsealed, perishable and cold-room only. */
   const bulkRooms = useMemo(
-    () => state.storageLocations.filter((l) => l.status === 'Active' && l.type === 'Cold Room'),
-    [state.storageLocations],
+    () => areaChoices(state, 'Semi Finished', 'Quarantine', outLocation),
+    [outLocation, state],
   )
 
   const runBulks = useMemo(
@@ -120,7 +120,7 @@ export function MelangeRuns() {
     setMelangeId('')
     setDraws([])
     setOutQty('')
-    setOutLocation(defaultBulkStore(state))
+    setOutLocation(defaultBulkStore(state) || '')
     setRunOpen(true)
   }
 
@@ -130,7 +130,7 @@ export function MelangeRuns() {
     setMelangeId(b.melangeId || '')
     setDraws(keyedAll((b.blendLines || []).map((l) => ({ item: l.item, lot: l.lot, qty: l.qty }))))
     setOutQty(mainOutput(b)?.qty ?? '')
-    setOutLocation(b.location || defaultBulkStore(state))
+    setOutLocation(b.location || postedLocation(state, b.id, 'Semi Finished') || '')
     setRunOpen(true)
   }
 
@@ -275,8 +275,8 @@ export function MelangeRuns() {
         </div>
 
         <div className="note">
-          A run draws bulk from the batches that pressed it and books the blend as a new lot in{' '}
-          <b>Quarantine</b>, carrying the full cost of everything it drew. Blending loss raises the
+          A run draws bulk from the batches that pressed it and books the blend as a new lot in the cold room you pick, marked{' '}
+          <b>Awaiting QC</b>, carrying the full cost of everything it drew. Blending loss raises the
           cost per litre, which is exactly what it does on the floor. Clear the blend in{' '}
           <b>Quality Control</b>, then fill packs on <b>Packing</b>.
         </div>
@@ -454,15 +454,18 @@ export function MelangeRuns() {
           </div>
           {/* The blend used to land in the bulk store no matter what rooms exist. */}
           <div className="field span-3">
-            <label>Put the blend in</label>
+            <label>Storage area</label>
             <Select
               value={outLocation}
               disabled={locked}
               onChange={(e) => setOutLocation(e.target.value)}
             >
-              {bulkRooms.map((l) => (
-                <option key={l.id} value={l.name}>
-                  {l.label} · {storageTypeLabel(l.type)}
+              <option value="">
+                {bulkRooms.length ? 'Select a cold room' : 'No active cold room — add one on the Storage page'}
+              </option>
+              {bulkRooms.map((c) => (
+                <option key={c.area.id} value={c.value}>
+                  {c.text}
                 </option>
               ))}
             </Select>
@@ -634,7 +637,7 @@ export function MelangeRuns() {
           <div className="note warning-note">
             {editingRun
               ? 'Saving returns the bulk this run drew to its batches, then draws again from the new lines.'
-              : 'Posting draws each component out of its batch and books the blend as a new lot in Quarantine. The whole cost of what was drawn lands on the blend, so any loss shows up as a higher cost per unit.'}
+              : 'Posting draws each component out of its batch and books the blend as a new lot in the cold room you pick, marked Awaiting QC. The whole cost of what was drawn lands on the blend, so any loss shows up as a higher cost per unit.'}
           </div>
         )}
       </Modal>

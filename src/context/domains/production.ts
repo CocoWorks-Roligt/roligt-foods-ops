@@ -14,8 +14,10 @@ import {
   checkBatch,
   describeOutputs,
   postBatchLines,
+  postedLocation,
 } from '../../lib/posting'
 import type { BatchInput } from '../../lib/posting'
+import { itemName } from '../../lib/stock'
 import { deepClone } from '../../lib/utils'
 import { POSTED } from './deps'
 import type { CoreDeps } from './deps'
@@ -98,6 +100,10 @@ export function useProduction({ state, setState, nextId, log, showToast, announc
           id,
           `${blending ? 'Blended' : 'Consumed'} ${posted.inputQty} ${posted.inputUom} into ${describeOutputs(draft, posted.outputLines)}.`,
         )
+        // Each QC record its own entry, as one raised from the Quality page gets.
+        posted.outputLines.forEach((line, i) => {
+          if (qcIds[i]) log(draft, 'Raised QC record', qcIds[i], `${itemName(draft, line.item)} from ${id}.`)
+        })
         createdId = id
         announcement.current = `${id} posted. Each bulk it made has its own QC record — release them one product at a time.`
         return draft
@@ -121,6 +127,16 @@ export function useProduction({ state, setState, nextId, log, showToast, announc
         )
         return null
       }
+      // Where the bulk sits is on its ledger lines, not only on the batch. Changing the
+      // area without re-posting them left the record and the stock disagreeing.
+      const postedAt = existing.location || postedLocation(state, id, 'Semi Finished')
+      const moved = !!input.location && !!postedAt && input.location !== postedAt
+      if (drawnOn && moved) {
+        showToast(
+          'This batch has already been packed, blended or reviewed by QC — move its bulk from the Storage page instead of changing the area here.',
+        )
+        return null
+      }
       const error = checkBatch(state, input, id)
       if (error) {
         showToast(error)
@@ -134,8 +150,8 @@ export function useProduction({ state, setState, nextId, log, showToast, announc
         b.date = new Date(input.date).toISOString()
         b.spoiled = input.spoiled
         b.melangeId = input.melangeId
-        b.location = input.location
-        if (qtyChanged) {
+        b.location = moved || !postedAt ? input.location : postedAt
+        if (qtyChanged || moved) {
           // Reverse this batch's own stock lines and re-post them from the new figures.
           draft.ledger = draft.ledger.filter((l) => l.doc !== id)
           const posted = postBatchLines(draft, id, input)
@@ -167,8 +183,10 @@ export function useProduction({ state, setState, nextId, log, showToast, announc
           )
           for (const item of produced) {
             if (draft.qcs.some((q) => q.batchId === id && q.item === item)) continue
+            const qcId = nextId(draft, 'qc')
+            log(draft, 'Raised QC record', qcId, `${itemName(draft, item)} from ${id}.`)
             draft.qcs.push({
-              id: nextId(draft, 'qc'),
+              id: qcId,
               batchId: id,
               item,
               micro: 'Pending',
@@ -189,7 +207,7 @@ export function useProduction({ state, setState, nextId, log, showToast, announc
           draft,
           existing.kind === 'Melange' ? 'Edited melange' : 'Edited production',
           id,
-          qtyChanged
+          qtyChanged || moved
             ? `Re-posted ${b.inputQty} ${b.inputUom} into ${describeOutputs(draft, batchOutputs(b))}.`
             : 'Updated batch details; stock unchanged.',
         )

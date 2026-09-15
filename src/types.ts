@@ -30,6 +30,9 @@ export type ViewId =
   | 'settings'
   | 'audit'
 
+/** The kinds of new stock that are put away somewhere by default. */
+export type AreaPurpose = 'produce' | 'packingMaterial' | 'bulk' | 'packs'
+
 export interface Config {
   yieldTolerance: number
   pmTolerance: number
@@ -48,6 +51,11 @@ export interface Config {
   stickerHeightMm?: number
   /** Admin-set shape of each auto-numbered series. Absent means the built-in shape. */
   numbering?: NumberingRule[]
+  /**
+   * Where new stock goes when nobody picks another area: one storage area, by id, for
+   * each kind of stock that arrives. Set on the Storage page.
+   */
+  defaultAreas?: Partial<Record<AreaPurpose, string>>
 }
 
 /**
