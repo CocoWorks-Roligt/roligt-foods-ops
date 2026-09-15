@@ -1,0 +1,3016 @@
+:root {
+  --bg: #f5f0e6;
+  --panel: #fffdf7;
+  --ink: #1f251f;
+  --muted: #697065;
+  --green: #253d2b;
+  --green-2: #3e5b45;
+  --accent: #c96543;
+  --gold: #d9a847;
+  --line: #d8d0c1;
+  --danger: #a23f34;
+  --warning: #9b6b18;
+  --success: #2f6b42;
+  --shadow: 0 10px 30px rgba(31, 37, 31, 0.08);
+  --radius: 16px;
+  font-family: 'Segoe UI', 'Source Sans 3', system-ui, sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+#root {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.app {
+  display: grid;
+  /* minmax(0, …) rather than 1fr: a bare 1fr floors at the track's min-content
+     width, which lets a wide child stretch the whole shell past the viewport. */
+  grid-template-columns: 250px minmax(0, 1fr);
+  min-height: 100vh;
+  min-height: 100dvh;
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+/* Locked while the mobile navigation drawer is open. */
+body.drawer-open {
+  overflow: hidden;
+}
+
+.sidebar {
+  background: var(--green);
+  color: white;
+  padding: 24px 18px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow: auto;
+}
+
+.brand {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 28px;
+}
+
+.mark {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: var(--gold);
+  display: grid;
+  place-items: center;
+  color: var(--green);
+  font-weight: 900;
+  font-size: 20px;
+}
+
+.brand h1 {
+  font-size: 18px;
+  line-height: 1.1;
+  margin: 0;
+}
+
+.brand small {
+  display: block;
+  color: #d7e1d6;
+  margin-top: 4px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.nav-title {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #9fb29f;
+  margin: 18px 10px 8px;
+}
+
+/* A sub-heading inside a nav list — quieter than a section title, so the two
+   production stages read as one job rather than two unrelated pages. */
+/* An inline "undo the filter" action inside an empty table cell. */
+/* A card's chips carry a different relationship in each section — suppliers here,
+   packs there, materials below. Identical pills with no caption made three unrelated
+   things look like one. */
+.chip-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.chip-row-label {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted, #6b6455);
+  flex: 0 0 auto;
+}
+
+.link-btn {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--green, #253d2b);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.nav-group {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #7f927f;
+  margin: 12px 10px 4px;
+}
+
+.nav .nav-group:first-child {
+  margin-top: 4px;
+}
+
+.nav button {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: #e8efe8;
+  padding: 11px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  margin: 2px 0;
+}
+
+.nav button:hover,
+.nav button.active {
+  background: rgba(255, 255, 255, 0.11);
+  color: white;
+}
+
+.sidebar-footer {
+  margin-top: 30px;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  padding-top: 18px;
+}
+
+.sidebar-footer label {
+  font-size: 11px;
+  color: #c4d1c4;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.sidebar-footer select {
+  width: 100%;
+  background: #1c3022;
+  color: white;
+  border: 1px solid #58705d;
+  border-radius: 9px;
+  padding: 9px;
+}
+
+.main {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.content {
+  min-width: 0;
+}
+
+.topbar {
+  background: rgba(255, 253, 247, 0.92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+  padding: 17px 26px;
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.topbar h2 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.topbar p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  /* A long page subtitle used to squeeze this group until "Sign out" wrapped;
+     the title beside it is what gives way now. */
+  flex: 0 0 auto;
+}
+
+.topbar > :first-child {
+  min-width: 0;
+}
+
+.pill {
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: #e8efe8;
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* ---------------------------------------------------------------------------
+   Mobile shell: app bar, drawer and bottom nav.
+   Hidden on desktop, switched on below the 900px breakpoint.
+   --------------------------------------------------------------------------- */
+
+.mobile-appbar,
+.bottom-nav,
+.drawer-scrim {
+  display: none;
+}
+
+.icon-btn {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.icon-btn:active {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* Declared after .icon-btn so the shared display rule does not win it back. */
+.icon-btn.drawer-close {
+  display: none;
+}
+
+/* Two classes deep so it survives .btn, which is declared further down. */
+.btn.btn-chip {
+  background: rgba(255, 255, 255, 0.16);
+  color: white;
+  font-size: 12px;
+  min-height: 36px;
+  padding: 8px 13px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.sidebar-footer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.install-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Floated clear of the layout so the iOS tip never stretches an app bar or toolbar. */
+.install-hint {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 70;
+  width: max-content;
+  max-width: min(260px, 70vw);
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 12px 30px rgba(31, 37, 31, 0.18);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.sidebar-footer .install-hint {
+  right: auto;
+  left: 0;
+  bottom: calc(100% + 8px);
+  top: auto;
+}
+
+/* ---------------------------------------------------------------------------
+   Connectivity + service-worker surfaces
+   --------------------------------------------------------------------------- */
+
+.offline-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 26px;
+  background: #fbf1dc;
+  border-bottom: 1px solid #ead9b0;
+  color: #6d4d12;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.offline-dot {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--warning);
+  animation: offline-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes offline-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .offline-dot {
+    animation: none;
+  }
+}
+
+.pwa-prompt {
+  position: fixed;
+  left: 50%;
+  bottom: calc(20px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 80;
+  width: min(440px, calc(100vw - 32px));
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 18px 50px rgba(31, 37, 31, 0.22);
+}
+
+.pwa-prompt-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pwa-prompt-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+.content {
+  padding: 24px 26px 60px;
+}
+
+.grid {
+  display: grid;
+  gap: 16px;
+  align-items: start;
+}
+
+.grid-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.grid-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.grid-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px;
+}
+
+.metric .label {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.metric .value {
+  font-size: 28px;
+  font-weight: 800;
+  margin: 8px 0 2px;
+}
+
+.metric .sub {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.metric-expandable {
+  padding: 0;
+}
+
+.metric-expand-toggle {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  padding: 18px;
+  font: inherit;
+  color: inherit;
+}
+
+.metric-chevron {
+  color: var(--muted);
+  transition: transform 0.15s ease;
+  line-height: 1;
+  margin-top: 2px;
+}
+
+.metric-chevron.open {
+  transform: rotate(180deg);
+}
+
+.metric-breakdown {
+  border-top: 1px dashed var(--line);
+  padding: 4px 18px 14px;
+}
+
+.metric-breakdown-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  padding: 8px 0;
+  border-bottom: 1px solid #f0ece3;
+}
+
+.metric-breakdown-row:last-child {
+  border-bottom: 0;
+}
+
+.metric-breakdown-row span {
+  color: var(--muted);
+}
+
+.metric-breakdown-row b {
+  font-variant-numeric: tabular-nums;
+}
+
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 4px 0 14px;
+  gap: 12px;
+  /* Between the phone breakpoint and a wide desktop the actions can genuinely run
+     out of room. Dropping the whole group to a second line beats overflowing the
+     card, and beats the group splitting its own buttons across two rows. */
+  flex-wrap: wrap;
+}
+
+.collapsible-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+}
+
+.collapsible-toggle .metric-chevron {
+  font-size: 18px;
+}
+
+.section-head-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  /* Nothing but the actions themselves sets this group's width, so a long
+     subtitle beside it can no longer squeeze the buttons onto two rows. */
+  flex: 0 0 auto;
+  /* When the row does wrap, the group stays on the right rather than sliding to
+     the left edge under the heading. */
+  margin-left: auto;
+}
+
+/* The heading half gives way first when the row runs out of room. */
+.section-head > :first-child {
+  min-width: 0;
+}
+
+.section-head h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.section-head h4 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.section-head span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.btn {
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-weight: 700;
+  /* A wrapped label ("+ Add\nBulk") reads as a broken control, and every action
+     button here is short enough to keep on one line. */
+  white-space: nowrap;
+}
+
+.btn-primary {
+  background: var(--green);
+  color: white;
+}
+
+.btn-primary:hover {
+  background: var(--green-2);
+}
+
+.btn-accent {
+  background: var(--accent);
+  color: white;
+}
+
+.btn-light {
+  background: #ece7dc;
+  color: var(--ink);
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: white;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.toolbar input,
+.toolbar select {
+  border: 1px solid var(--line);
+  background: white;
+  border-radius: 10px;
+  padding: 9px 10px;
+}
+
+/* A search box narrower than its own placeholder reads as a broken field —
+   "Search customer, GST, p…" told the operator nothing about what it searches. */
+.toolbar input {
+  min-width: min(320px, 100%);
+}
+
+.table-wrap {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 760px;
+  background: white;
+}
+
+th,
+td {
+  padding: 11px 12px;
+  border-bottom: 1px solid #ece7dd;
+  text-align: left;
+  font-size: 13px;
+  vertical-align: top;
+}
+
+th {
+  background: #f0ece3;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #556055;
+  position: sticky;
+  top: 0;
+}
+
+tr:last-child td {
+  border-bottom: 0;
+}
+
+.selectable-row:hover td {
+  background: #f6f3ec;
+}
+
+.row-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* Inside a table the actions must stay on one line — wrapping them stacks the
+   buttons and triples the height of every row. */
+.table-wrap .row-actions {
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+}
+
+.table-wrap .cell-actions {
+  white-space: nowrap;
+  text-align: right;
+  vertical-align: middle;
+}
+
+/* width:1% shrinks a column to its content, so the slack lands on the columns
+   holding variable-length text instead of pooling in front of the buttons. */
+.table-wrap .cell-actions,
+.table-wrap .cell-tight {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.table-wrap .cell-actions .btn {
+  padding: 7px 11px;
+  font-size: 12px;
+  border-radius: 8px;
+}
+
+/* Identifiers and money read as one token — never break them mid-value. */
+.cell-id,
+.cell-num {
+  white-space: nowrap;
+}
+
+/* Every data table renders its record's id as the bold lead of the first cell, and
+   browsers happily break BAT-2026-0001 at its hyphens — at laptop width that turned
+   one code into three stacked fragments and dragged every row three lines tall. The
+   table would rather be a little wider and scroll inside .table-wrap than crush the
+   one column people scan by. */
+.table-wrap td > b {
+  white-space: nowrap;
+}
+
+.cell-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+th.cell-num {
+  text-align: right;
+}
+
+.cell-sub {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: #7d857e;
+  line-height: 1.35;
+}
+
+.status {
+  display: inline-block;
+  padding: 5px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.status.success {
+  background: #dff0e3;
+  color: var(--success);
+}
+
+.status.warning {
+  background: #f7ebcf;
+  color: var(--warning);
+}
+
+.status.danger {
+  background: #f4dcd7;
+  color: var(--danger);
+}
+
+.status.neutral {
+  background: #e8ebe8;
+  color: #556055;
+}
+
+.status.info {
+  background: #dde9f4;
+  color: #2f5f87;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field.span-2 {
+  grid-column: span 2;
+}
+
+.field.span-3 {
+  grid-column: span 3;
+}
+
+label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #4f5b50;
+}
+
+input,
+select,
+textarea {
+  border: 1px solid var(--line);
+  background: white;
+  border-radius: 10px;
+  padding: 10px 11px;
+  outline: none;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--green-2);
+  box-shadow: 0 0 0 3px rgba(62, 91, 69, 0.12);
+}
+
+textarea {
+  min-height: 90px;
+  resize: vertical;
+}
+
+/* Read-only record views (DetailView). */
+.detail-section + .detail-section {
+  margin-top: 18px;
+}
+
+.detail-section h4 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--green-2);
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  background: #f7f5f0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 9px 11px;
+  min-width: 0;
+}
+
+.detail-item.wide {
+  grid-column: 1 / -1;
+}
+
+.detail-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #7d857e;
+}
+
+.detail-value {
+  font-size: 14px;
+  color: #2c3730;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .detail-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Fields locked because the record they price has already moved on. */
+input:disabled,
+select:disabled,
+textarea:disabled {
+  background: #f2f0ea;
+  color: #7d857e;
+  cursor: not-allowed;
+}
+
+.note {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #eef3ec;
+  border-left: 4px solid var(--green-2);
+  font-size: 13px;
+  color: #435044;
+  margin: 12px 0;
+}
+
+.warning-note {
+  background: #fbf1dc;
+  border-left-color: var(--gold);
+}
+
+.danger-note {
+  background: #f8e4df;
+  border-left-color: var(--danger);
+}
+
+/* A refusal said in place, inside the row that caused it. */
+.warning-text {
+  color: var(--danger);
+}
+
+.empty {
+  text-align: center;
+  padding: 34px;
+  color: var(--muted);
+}
+
+.kpi-list {
+  display: grid;
+  gap: 8px;
+}
+
+.kpi-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 10px;
+  border-bottom: 1px solid #ece7dd;
+  align-items: center;
+}
+
+.kpi-row:last-child {
+  border-bottom: 0;
+}
+
+.exception-category {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  background: #ece7dd;
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+.bar {
+  height: 8px;
+  background: #e8e2d7;
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 6px;
+}
+
+.bar span {
+  display: block;
+  height: 100%;
+  background: var(--green-2);
+}
+
+/* Roomy on desktop, but never wider than the phone it is sitting on. */
+.trace-search {
+  min-width: min(360px, 100%);
+}
+
+/* The chain runs wider than the card on any real trace. It scrolled, but silently:
+   the answer visibly stopped at whatever card met the edge, with no scrollbar, no
+   fade and nothing to say there was more. */
+.trace-chain-wrap {
+  position: relative;
+}
+
+.trace-chain-wrap::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 10px;
+  width: 48px;
+  pointer-events: none;
+  background: linear-gradient(to right, rgba(255, 253, 247, 0), var(--panel, #fffdf7));
+  opacity: var(--trace-fade, 1);
+  transition: opacity 0.15s ease;
+}
+
+.trace-chain {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 10px 0 14px;
+  scrollbar-width: thin;
+}
+
+.trace-chain::-webkit-scrollbar {
+  height: 8px;
+}
+
+.trace-chain::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 4px;
+}
+
+.trace-chain::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.node {
+  min-width: 180px;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 13px;
+}
+
+.arrow {
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  font-weight: 900;
+}
+
+/* The date a link in the chain happened on. Set apart from the rest of the node,
+   because a trace is read twice — once for what came from what, and once for when. */
+.trace-date {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--line);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+/* Proof photographs on a delivery. Every image behind these is fetched through a
+   short-lived signed URL, so a tile can legitimately have nothing to show yet. */
+.proof-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.proof-thumb {
+  margin: 0;
+  width: 132px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.proof-thumb-open {
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  overflow: hidden;
+  cursor: pointer;
+  line-height: 0;
+}
+
+.proof-thumb-open img {
+  width: 132px;
+  height: 100px;
+  object-fit: cover;
+  display: block;
+}
+
+.proof-thumb-fallback {
+  display: grid;
+  place-items: center;
+  width: 132px;
+  min-height: 100px;
+  padding: 8px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.proof-thumb figcaption {
+  overflow-wrap: anywhere;
+}
+
+.proof-thumb-remove {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+/* A row opened out under the row it belongs to — the lots behind one packing
+   material. It is a continuation of that row, so it drops the zebra striping. */
+tbody tr.subrow > td {
+  background: #faf8f3;
+  padding-top: 0;
+}
+
+/* Stacking order of the shell, low to high:
+   topbar 4 · app bar 30 · bottom nav 40 · drawer scrim 50 · drawer 60 ·
+   install hint 70 · update prompt 80 · modal 90 · toast 100.
+   The modal must clear the app bar and bottom nav, or its header and Save
+   button end up hidden underneath them on a phone. */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 18, 12, 0.5);
+  display: flex;
+  /* Anchored to the top, not centred. Every form here grows as you fill it — a live
+     total appears, a warning resolves — and a centred dialog re-centres on each of
+     those, sliding the fields you have not reached yet up under your cursor. Growing
+     downwards leaves everything above the change exactly where it was. */
+  align-items: flex-start;
+  justify-content: center;
+  /* The gap above and below the dialog is the box's own margin, not this element's
+     padding. Padding sits outside the scrollport, so a sticky header pinned to
+     `top: 0` stopped short of the viewport edge and scrolled body content showed
+     through the strip above it — and below the sticky footer. */
+  padding: 0 20px;
+  z-index: 90;
+  overflow-y: auto;
+}
+
+.modal-box {
+  background: var(--panel);
+  border-radius: 18px;
+  max-width: 960px;
+  width: 100%;
+  /* The backdrop scrolls now, so the dialog itself does not need to cap its height
+     and trap a second scrollbar inside the first. */
+  max-height: none;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.25);
+  margin: clamp(20px, 6vh, 64px) 0 20px;
+}
+
+.modal-box:has(.qc-review-grid) {
+  max-width: 1100px;
+}
+
+.modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  z-index: 2;
+}
+
+.modal-head h3 {
+  margin: 0;
+}
+
+.modal-body {
+  padding: 20px;
+}
+
+/* With record-level exports on the left, the footer holds two groups instead of one. */
+.modal-foot.split {
+  justify-content: space-between;
+}
+
+.modal-foot-left {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.modal-foot {
+  padding: 16px 20px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  position: sticky;
+  bottom: 0;
+  background: var(--panel);
+}
+
+.close {
+  border: 0;
+  background: transparent;
+  font-size: 24px;
+  cursor: pointer;
+}
+
+.toast {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1f2e22;
+  color: white;
+  padding: 12px 16px;
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  z-index: 100;
+  max-width: min(420px, calc(100vw - 32px));
+  /* Never intercept a click: a validation message must not block the button that
+     produced it. */
+  pointer-events: none;
+  text-align: center;
+}
+
+.small {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.login-page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px calc(24px + env(safe-area-inset-bottom));
+}
+
+.login-card {
+  width: 360px;
+  max-width: 100%;
+}
+
+.login-offline {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding-top: env(safe-area-inset-top);
+}
+
+.login-offline .offline-bar {
+  border-radius: 0;
+}
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
+  gap: 16px;
+}
+
+.subform {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.subform-head {
+  background: #f0ece3;
+  padding: 10px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 800;
+  font-size: 13px;
+}
+
+.subform-row {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid #ece7dd;
+  background: white;
+}
+
+.subform-row input,
+.subform-row select {
+  width: 100%;
+  padding: 8px;
+}
+
+/* A unit suffix beside a field — "% of blend", "per pack". It used to be a disabled
+   input, which read as a box the operator had failed to fill in. */
+/* A value the plant cannot change — printed as text so it is never mistaken for
+   an input nobody has filled in. */
+.field-fixed {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f2eee5;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.subform-unit {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* A component drawn well away from the share its recipe names. */
+.subform-unit.off-recipe {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+/* Packing line: product, then the type and size the admin fixed, then the quantity
+   and the total those three produce. */
+.pack-row {
+  grid-template-columns:
+    minmax(0, 3fr) minmax(0, 1.2fr) minmax(0, 1fr)
+    minmax(0, 0.9fr) minmax(0, 1.1fr) auto;
+  align-items: center;
+}
+
+/* A fill line names its pack by format and size instead of by product, so the two
+   pickers share the width the single product column used to take. */
+.fill-row {
+  grid-template-columns:
+    minmax(0, 1.5fr) minmax(0, 1.6fr) minmax(0, 0.9fr)
+    minmax(0, 0.7fr) minmax(0, 1.1fr) auto;
+}
+
+/* A blend line carries a lot code where a packing line carries a size, so the
+   batch-lot column needs the room and the two percentage columns do not. */
+.blend-row {
+  grid-template-columns:
+    minmax(0, 2.2fr) minmax(0, 0.8fr) minmax(0, 2fr)
+    minmax(0, 0.9fr) minmax(0, 0.9fr) auto;
+}
+
+.pack-row-head {
+  background: #faf7f0;
+  border-top: none;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted, #6b6455);
+}
+
+/* The trailing cell sits under the remove button, which the header has no use for. */
+.pack-row-head span:last-child {
+  min-width: 34px;
+}
+
+.subform-body {
+  padding: 16px 14px;
+  background: white;
+}
+
+.subform-body + .subform-body {
+  border-top: 1px solid #ece7dd;
+}
+
+.subform-body .table-wrap {
+  border: none;
+  border-radius: 0;
+  margin: -16px -14px;
+}
+
+.autocomplete {
+  position: relative;
+}
+
+.autocomplete-list {
+  z-index: 1000;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.autocomplete-option {
+  padding: 8px 10px;
+  border-radius: 7px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.autocomplete-option:hover,
+.autocomplete-option.active {
+  background: #f0ece3;
+}
+
+.table-cell-input {
+  width: 100%;
+  min-width: 120px;
+  padding: 6px 8px;
+}
+
+.ui-select {
+  display: inline-flex;
+  min-width: 150px;
+  position: relative;
+}
+
+.field .ui-select,
+.subform-row .ui-select,
+.qc-review-card .ui-select {
+  display: flex;
+  width: 100%;
+  /* The 150px floor above is for a select standing on its own. Inside a field or a
+     subform cell the select must fit its cell, or it spills over the input next to
+     it — a narrow grid track would otherwise leave the lot dropdown sitting on top
+     of the quantity box. */
+  min-width: 0;
+}
+
+.ui-select-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid var(--line);
+  background: white;
+  border-radius: 10px;
+  padding: 10px 11px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ui-select-trigger:hover {
+  border-color: #c7bfae;
+}
+
+.ui-select-trigger[aria-expanded='true'] {
+  border-color: var(--green-2);
+  box-shadow: 0 0 0 3px rgba(62, 91, 69, 0.12);
+}
+
+.ui-select-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.ui-select-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-select-placeholder {
+  color: var(--muted);
+}
+
+.ui-select-chevron {
+  color: var(--muted);
+  transition: transform 0.15s ease;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.ui-select-chevron.open {
+  transform: rotate(180deg);
+}
+
+.ui-select-list {
+  z-index: 1000;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.ui-select-option {
+  padding: 8px 10px;
+  border-radius: 7px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ui-select-option:hover {
+  background: #f0ece3;
+}
+
+.ui-select-option.active {
+  background: var(--green-2);
+  color: white;
+}
+
+/* Where the keyboard is, which is not necessarily what is selected. Outlined rather
+   than filled so it stays visible on top of the selected row. */
+.ui-select-option.focused {
+  outline: 2px solid var(--green-2);
+  outline-offset: -2px;
+  background: #f0ece3;
+}
+
+.ui-select-option.active.focused {
+  background: var(--green-2);
+  outline-color: var(--gold);
+}
+
+.ui-select-option.disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.toolbar .ui-select {
+  min-width: 170px;
+}
+
+@media (max-width: 1100px) {
+  .grid-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .field.span-3 {
+    grid-column: span 2;
+  }
+  .split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .content {
+    padding: 16px;
+  }
+  .grid-4,
+  .grid-3,
+  .grid-2,
+  .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .field.span-2,
+  .field.span-3 {
+    grid-column: auto;
+  }
+  .subform-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  /* Two columns is too tight for six fields, so the packing line stacks: product
+     across the top, then type/size and qty/total in pairs. */
+  .pack-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .pack-row > *:first-child {
+    grid-column: 1 / -1;
+  }
+  /* Column captions cannot survive the stack — each field keeps its placeholder. */
+  .pack-row-head {
+    display: none;
+  }
+}
+
+/* Vendors page */
+.vendors-page {
+  display: grid;
+  gap: 16px;
+}
+
+.vendors-stats .metric .value {
+  font-size: 32px;
+}
+
+.vendors-panel {
+  padding: 22px;
+}
+
+.vendors-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.vendors-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.type-tabs {
+  display: inline-flex;
+  padding: 4px;
+  gap: 4px;
+  background: #efe9dc;
+  border-radius: 999px;
+}
+
+.type-tab {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 8px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.type-tab.active {
+  background: var(--green);
+  color: white;
+}
+
+.vendors-search {
+  min-width: min(320px, 100%);
+  border: 1px solid var(--line);
+  background: white;
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.vendor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.vendor-card {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fffef9 0%, #f7f2e8 100%);
+  padding: 16px;
+  display: grid;
+  gap: 14px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.vendor-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+}
+
+.vendor-card.is-farmer {
+  border-top: 3px solid var(--green-2);
+}
+
+.vendor-card.is-vendor {
+  border-top: 3px solid var(--accent);
+}
+
+.vendor-card-top {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.vendor-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  color: white;
+}
+
+.vendor-avatar.farmer {
+  background: var(--green-2);
+}
+
+.vendor-avatar.vendor {
+  background: var(--accent);
+}
+
+.vendor-card-title h4 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.type-chip {
+  font-size: 11px;
+  font-weight: 800;
+  padding: 5px 9px;
+  border-radius: 999px;
+}
+
+.type-chip.farmer {
+  background: #dff0e3;
+  color: var(--success);
+}
+
+.type-chip.vendor {
+  background: #f8e4df;
+  color: var(--accent);
+}
+
+.vendor-meta {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.vendor-meta .meta-label {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 2px;
+}
+
+.vendor-meta b {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.vendor-notes {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  padding-top: 4px;
+  border-top: 1px dashed var(--line);
+}
+
+.vendor-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 8px;
+  margin-top: 4px;
+  border-top: 1px dashed var(--line);
+}
+
+.vendor-card-actions .btn {
+  font-size: 12px;
+  padding: 4px 10px;
+}
+
+.vendors-empty {
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  background: #faf6ee;
+}
+
+/* A QC card carries no avatar, so the title took the fixed column and grew until it
+   pushed the disposition badge — the most important thing on the card — off the edge.
+   The title flexes; the badge keeps its width and stays at the top when it wraps. */
+.qc-card .vendor-card-top,
+/* A room card has no avatar, so its title takes the first column and the status badge
+   the last. Left on the three-column default the badge landed in the title's slot and
+   sat on top of the description. */
+.room-card .vendor-card-top {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.room-card .vendor-card-top .status {
+  white-space: nowrap;
+}
+
+/* A dropdown sitting inline in a sentence, sized to its own content. */
+.inline-select {
+  display: inline-block;
+  min-width: 180px;
+  vertical-align: middle;
+}
+
+/* What a room is holding, listed inside its own card. */
+.room-stock {
+  margin-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.room-stock-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid #ece7dd;
+}
+
+.room-stock-row > div {
+  min-width: 0;
+}
+
+.qc-card .vendor-card-top .status {
+  white-space: nowrap;
+}
+
+.qc-mini-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.qc-mini {
+  display: grid;
+  gap: 4px;
+}
+
+.qc-review-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.qc-review-card {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fffef9 0%, #f7f2e8 100%);
+  padding: 16px;
+  display: grid;
+  gap: 6px;
+}
+
+.qc-review-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.qc-review-head h4 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.qc-upload-block {
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+  display: grid;
+  gap: 8px;
+}
+
+.qc-file-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.qc-file-row a,
+.qc-file-row .link-button {
+  color: var(--green);
+  font-weight: 700;
+  font-size: 13px;
+  word-break: break-all;
+}
+
+/* A lab report is fetched behind a signed URL rather than followed as a plain href,
+   so the control is a button. It should still read as the link it replaced. */
+.link-button {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--green);
+  font-weight: 700;
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+  word-break: break-all;
+}
+
+.link-button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+@media (max-width: 900px) {
+  .qc-review-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.products-page {
+  display: grid;
+  gap: 16px;
+}
+
+.products-panel {
+  padding: 22px;
+}
+
+.product-card .btn {
+  justify-self: start;
+}
+
+/* A card that carries more than one action groups them, so the group is what has
+   to hug the left edge — the buttons inside it are laid out by the flex row. */
+.product-card .row-actions {
+  justify-self: start;
+}
+
+.supplier-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.supplier-chip {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #e8efe8;
+  color: var(--green);
+}
+
+.supplier-picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+  margin-top: 6px;
+}
+
+.supplier-group {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: #fffef9;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.check-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.check-row input {
+  margin-top: 2px;
+}
+
+@media (max-width: 760px) {
+  .supplier-picker {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.kind-picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.kind-option {
+  text-align: left;
+  border: 1px solid var(--line);
+  background: white;
+  border-radius: 14px;
+  padding: 14px;
+  cursor: pointer;
+  display: grid;
+  gap: 4px;
+}
+
+.kind-option strong {
+  font-size: 15px;
+}
+
+.kind-option span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.kind-option.active.farmer {
+  border-color: var(--green-2);
+  background: #eef5ef;
+  box-shadow: 0 0 0 3px rgba(62, 91, 69, 0.12);
+}
+
+.kind-option.active.vendor {
+  border-color: var(--accent);
+  background: #fbf0eb;
+  box-shadow: 0 0 0 3px rgba(201, 101, 67, 0.12);
+}
+
+@media (max-width: 760px) {
+  .vendors-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .vendors-search {
+    min-width: 0;
+  }
+  .kind-picker {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.report-sheet {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18mm 16mm;
+  width: 100%;
+  max-width: 210mm;
+  min-height: 297mm;
+  box-sizing: border-box;
+  margin: 0 auto;
+}
+
+.report-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.report-logo {
+  height: 110px;
+  width: auto;
+  object-fit: contain;
+}
+
+.report-title {
+  text-align: center;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.report-subtitle {
+  text-align: center;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.report-top-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 6px;
+}
+
+.report-row {
+  margin-bottom: 6px;
+}
+
+.report-results-title {
+  text-align: center;
+  font-weight: 700;
+  text-decoration: underline;
+  margin: 18px 0 12px;
+}
+
+.report-details-table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+  border-collapse: collapse;
+  border: 1px solid var(--line);
+}
+
+.report-details-table td {
+  border: 1px solid var(--line);
+  padding: 8px 12px;
+  font-size: 13px;
+  vertical-align: top;
+  word-break: break-word;
+}
+
+.report-details-table td:first-child {
+  width: 34%;
+  font-weight: 700;
+  background: #f6f3ec;
+}
+
+.report-results-table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.report-results-table th,
+.report-results-table td {
+  border: 1px solid var(--line);
+  padding: 6px 8px;
+  font-size: 11.5px;
+  text-align: left;
+  word-break: break-word;
+}
+
+.report-details-table tr:last-child td,
+.report-results-table tr:last-child td {
+  border-bottom: 1px solid var(--line);
+}
+
+.report-results-table th {
+  white-space: nowrap;
+  background: #f0ece3;
+}
+
+.report-results-table th:nth-child(1),
+.report-results-table td:nth-child(1) {
+  width: 10%;
+}
+
+.report-results-table th:nth-child(2),
+.report-results-table td:nth-child(2) {
+  width: 29%;
+}
+
+.report-results-table th:nth-child(3),
+.report-results-table td:nth-child(3) {
+  width: 25%;
+}
+
+.report-results-table th:nth-child(4),
+.report-results-table td:nth-child(4) {
+  width: 16%;
+}
+
+.report-results-table th:nth-child(5),
+.report-results-table td:nth-child(5) {
+  width: 20%;
+}
+
+.report-end-of-report {
+  text-align: center;
+  font-weight: 700;
+  margin-top: 20px;
+}
+
+.report-signature {
+  margin-top: 48px;
+  margin-left: auto;
+  width: 240px;
+  text-align: center;
+}
+
+.report-signature-line {
+  border-top: 1px solid var(--line);
+  margin-bottom: 8px;
+  height: 40px;
+}
+
+.report-signature-name {
+  font-weight: 700;
+}
+
+.report-footer {
+  margin-top: 24px;
+  text-align: center;
+}
+
+/* ===========================================================================
+   Mobile shell (<= 900px): sidebar becomes an off-canvas drawer, the desktop
+   topbar is replaced by an app bar, and a bottom nav carries the four screens
+   an operator uses most.
+   =========================================================================== */
+
+@media (max-width: 900px) {
+  .app {
+    grid-template-columns: minmax(0, 1fr);
+    /* Only the app bar and <main> are in flow here (drawer, scrim and bottom nav
+       are fixed). Without explicit rows the grid spreads the leftover 100dvh
+       across both, which stretches the app bar into a tall green slab. */
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  /* --- App bar --- */
+  .topbar {
+    display: none;
+  }
+
+  .mobile-appbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    min-width: 0;
+    max-width: 100%;
+    background: var(--green);
+    color: white;
+    padding: 8px 12px 8px 6px;
+    padding-top: calc(8px + env(safe-area-inset-top));
+    padding-left: calc(6px + env(safe-area-inset-left));
+    padding-right: calc(12px + env(safe-area-inset-right));
+  }
+
+  /* flex-basis 0 (not auto) so the long page subtitle never sets the bar's width;
+     it ellipsises instead. */
+  .mobile-appbar-title {
+    min-width: 0;
+    flex: 1 1 0;
+    overflow: hidden;
+  }
+
+  .mobile-appbar-title h2 {
+    margin: 0;
+    font-size: 17px;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mobile-appbar-title p {
+    margin: 2px 0 0;
+    font-size: 11px;
+    color: #adc0ae;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* --- Drawer --- */
+  .drawer-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: rgba(10, 18, 12, 0.5);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.24s ease;
+  }
+
+  .drawer-scrim.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    height: 100%;
+    width: min(86vw, 300px);
+    z-index: 60;
+    transform: translateX(-102%);
+    transition: transform 0.24s ease;
+    overscroll-behavior: contain;
+    padding-top: calc(20px + env(safe-area-inset-top));
+    padding-bottom: calc(24px + env(safe-area-inset-bottom));
+    padding-left: calc(18px + env(safe-area-inset-left));
+  }
+
+  .sidebar.open {
+    transform: none;
+    box-shadow: 0 0 44px rgba(0, 0, 0, 0.4);
+  }
+
+  .brand {
+    align-items: flex-start;
+  }
+
+  .icon-btn.drawer-close {
+    display: grid;
+    margin: -8px -6px 0 auto;
+    color: #d7e1d6;
+  }
+
+  /* Comfortable thumb targets for the 15 drawer destinations. */
+  .nav button {
+    padding: 14px 12px;
+    font-size: 15px;
+  }
+
+  /* --- Bottom nav --- */
+  .bottom-nav {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    background: rgba(255, 253, 247, 0.97);
+    backdrop-filter: blur(10px);
+    border-top: 1px solid var(--line);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .bottom-nav button {
+    position: relative;
+    display: grid;
+    justify-items: center;
+    align-content: center;
+    gap: 3px;
+    min-height: 58px;
+    padding: 8px 2px;
+    border: 0;
+    background: none;
+    color: var(--muted);
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .bottom-nav button svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  .bottom-nav button.active {
+    color: var(--green);
+  }
+
+  .bottom-nav button.active::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 22%;
+    right: 22%;
+    height: 3px;
+    border-radius: 0 0 3px 3px;
+    background: var(--green);
+  }
+
+  /* Keep the last row of content clear of the fixed bottom nav. */
+  .content {
+    padding-bottom: calc(80px + env(safe-area-inset-bottom));
+  }
+
+  .offline-bar {
+    padding: 10px 16px;
+  }
+
+  .toast {
+    left: 16px;
+    right: 16px;
+    transform: none;
+    max-width: none;
+    top: calc(12px + env(safe-area-inset-top));
+  }
+
+  .pwa-prompt {
+    bottom: calc(74px + env(safe-area-inset-bottom));
+  }
+
+  /* --- Touch targets and iOS zoom --- */
+  /* 16px is the threshold below which iOS Safari zooms in on focus. */
+  input,
+  select,
+  textarea,
+  .ui-select-trigger {
+    font-size: 16px;
+  }
+
+  .btn {
+    min-height: 44px;
+    padding: 12px 16px;
+  }
+
+  .close {
+    width: 44px;
+    height: 44px;
+  }
+
+  .type-tab {
+    min-height: 42px;
+  }
+
+  /* --- Modals become full-screen sheets --- */
+  .modal-backdrop {
+    padding: 0;
+    align-items: stretch;
+  }
+
+  .modal-box {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: none;
+    height: 100vh;
+    height: 100dvh;
+    max-height: none;
+    border-radius: 0;
+    overflow: hidden;
+    /* The desktop dialog floats with a margin; a phone one fills the screen. */
+    margin: 0;
+  }
+
+  .modal-head {
+    padding: 14px 16px;
+    padding-top: calc(14px + env(safe-area-inset-top));
+  }
+
+  .modal-head h3 {
+    font-size: 17px;
+  }
+
+  .modal-body {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    padding: 16px;
+  }
+
+  .modal-foot {
+    padding: 12px 16px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+
+  .modal-foot .btn {
+    flex: 1 1 0;
+  }
+}
+
+/* ===========================================================================
+   Phone layout (<= 760px): data tables reflow into stacked cards, and page
+   headers/toolbars go full width.
+   =========================================================================== */
+
+@media (max-width: 760px) {
+  .section-head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .section-head > .btn,
+  .vendors-actions .btn {
+    width: 100%;
+  }
+
+  .section-head-actions {
+    /* The header is a full-width column on a phone; an auto margin here would
+       shrink the group back to its content and pull it off the right edge. */
+    margin-left: 0;
+  }
+
+  .section-head-actions .btn {
+    flex: 1 1 0;
+    width: auto;
+  }
+
+  .vendors-actions {
+    flex-direction: column;
+  }
+
+  .toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .toolbar input,
+  .toolbar select,
+  .toolbar .ui-select,
+  .toolbar .btn {
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* Grid and flex items default to min-width:auto, so they refuse to shrink below
+     their min-content and drag the whole page wider than the screen. Cards are the
+     items that wrap scrollable content (filter strips, tables), so they must yield. */
+  .card,
+  .grid > *,
+  .split > *,
+  .products-page > *,
+  .vendors-page > *,
+  .form-grid > * {
+    min-width: 0;
+  }
+
+  /* Five QC filters cannot share 382px. Keep them on one row and let the strip
+     scroll — a grid would floor at min-content and push the whole card wide. */
+  .type-tabs {
+    display: flex;
+    flex-wrap: nowrap;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+
+  .type-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .type-tab {
+    flex: 0 0 auto;
+  }
+
+  .vendors-toolbar,
+  .vendors-toolbar > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  /* --- Tables as cards ---
+     Each row becomes a card and every cell prints its column name from the
+     data-label attribute, so a 10-column table stays readable at 390px. */
+  .table-wrap {
+    border: 0;
+    border-radius: 0;
+    overflow: visible;
+    background: transparent;
+  }
+
+  .table-wrap table {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    background: transparent;
+  }
+
+  .table-wrap thead {
+    /* Column names move into each cell's ::before. */
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .table-wrap tbody {
+    display: grid;
+    gap: 10px;
+  }
+
+  .table-wrap tr {
+    display: block;
+    background: white;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 2px 13px;
+  }
+
+  .table-wrap td {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 14px;
+    padding: 10px 0;
+    border-bottom: 1px solid #f2eee5;
+    text-align: right;
+  }
+
+  .table-wrap tr td:last-child {
+    border-bottom: 0;
+  }
+
+  .table-wrap td[data-label]::before {
+    content: attr(data-label);
+    flex: 0 0 40%;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+  }
+
+  /* Full-width cells: the empty state and any action row. */
+  .table-wrap td.empty,
+  .table-wrap td.cell-actions {
+    display: block;
+    text-align: center;
+  }
+
+  .table-wrap td.cell-actions .btn {
+    width: 100%;
+  }
+
+  .table-wrap td.cell-actions .row-actions .btn {
+    flex: 1 1 0;
+    width: auto;
+  }
+
+  /* Card rows are full-width flex cells — the desktop shrink-to-content widths
+     would squeeze them to nothing and spill their contents. */
+  .table-wrap .cell-tight,
+  .table-wrap .cell-actions {
+    width: auto;
+  }
+
+  .table-wrap .cell-id,
+  .table-wrap .cell-num,
+  .table-wrap .cell-tight {
+    white-space: normal;
+  }
+
+  /* Card rows have the width to breathe, so undo the compact desktop sizing. */
+  .table-wrap .row-actions {
+    flex-wrap: wrap;
+    justify-content: stretch;
+  }
+
+  .table-wrap .cell-actions .btn {
+    padding: 10px 14px;
+    font-size: inherit;
+    border-radius: 10px;
+  }
+
+  .table-wrap .cell-num {
+    text-align: right;
+  }
+
+  /* Card cells are flex rows, so a sub-line would sit beside its value.
+     Push it onto its own line under the value instead. */
+  .table-wrap td {
+    flex-wrap: wrap;
+  }
+
+  .table-wrap td .cell-sub {
+    flex: 1 0 100%;
+    text-align: right;
+    margin-top: 0;
+  }
+
+  .table-wrap tr:has(td.empty) {
+    border-style: dashed;
+    background: #faf6ee;
+  }
+
+  .table-wrap .table-cell-input {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  /* Nested tables inside a subform lose their desktop bleed. */
+  .subform-body .table-wrap {
+    margin: 0;
+  }
+
+  .login-card {
+    width: 100%;
+  }
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+  .sidebar,
+  .topbar,
+  .mobile-appbar,
+  .bottom-nav,
+  .drawer-scrim,
+  .offline-bar,
+  .pwa-prompt,
+  .toast,
+  .no-print {
+    display: none !important;
+  }
+  .content {
+    padding: 0 !important;
+  }
+  .report-sheet {
+    border: none;
+    box-shadow: none;
+    padding: 0;
+    width: auto;
+    min-height: 0;
+  }
+}
+
+/* Export pair: CSV and PDF, now only in the footer of a record's View dialog. The
+   page-level list exports were a second way of reading the same table and had to be
+   kept in step with it by hand. */
+.export-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* The dashboard's summary heading, above the cards it labels. */
+.dashboard-export {
+  margin-bottom: 16px;
+}
+
+/* "Main" sits inline with the output row rather than reading as a form field. */
+.main-output-pick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .export-actions {
+    flex: 1 1 100%;
+  }
+  .export-actions .btn {
+    flex: 1 1 0;
+  }
+}
+
+/* ── Stickers ─────────────────────────────────────────────────────────────────
+   The page reads top to bottom the way the job does: what am I labelling, which
+   record, what does it look like, print. */
+.stickers-page {
+  display: grid;
+  gap: 16px;
+}
+
+.stage-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+
+.stage-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.stage-card:hover {
+  border-color: var(--green-2);
+}
+
+.stage-card.active {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+}
+
+.stage-card span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.stage-card.active span {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.sticker-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.pick-list {
+  display: grid;
+  gap: 6px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.pick-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.pick-row:hover {
+  border-color: var(--green-2);
+}
+
+.pick-row.active {
+  border-color: var(--green);
+  box-shadow: inset 0 0 0 1px var(--green);
+  background: var(--bg);
+}
+
+/* The preview holds the real label's proportions, so what is too long to fit on
+   the stock is too long to fit here. */
+.sticker-stage {
+  display: flex;
+  justify-content: center;
+  padding: 12px;
+  background: var(--bg);
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+}
+
+.sticker-preview {
+  width: 100%;
+  max-width: 420px;
+  background: #fff;
+  color: #000;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 12px 14px;
+  overflow: hidden;
+  font-size: 13px;
+  container-type: inline-size;
+}
+
+.sticker-preview-title {
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid #000;
+  padding-bottom: 4px;
+  margin-bottom: 6px;
+}
+
+/* The preview claims to be exactly what prints, so the app's table styling —
+   sticky uppercase headers, striping, a 760px floor — is undone here rather than
+   left to make the preview disagree with the sheet. */
+.sticker-preview table {
+  width: 100%;
+  min-width: 0;
+  border-collapse: collapse;
+  background: transparent;
+}
+
+.sticker-preview th,
+.sticker-preview td {
+  border-bottom: none;
+  font-size: inherit;
+  vertical-align: top;
+  text-align: left;
+}
+
+.sticker-preview th {
+  position: static;
+  background: transparent;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+  color: #444;
+  width: 38%;
+  padding: 1px 8px 1px 0;
+  white-space: nowrap;
+}
+
+.sticker-preview td {
+  font-weight: 700;
+  padding: 1px 0;
+  color: #000;
+  word-break: break-word;
+}
+
+.print-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.print-bar .field {
+  max-width: 160px;
+  margin: 0;
+}
+
+.print-bar .btn {
+  flex: 1 1 auto;
+}
+
+.size-presets {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.size-presets .btn.active {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+}
+
+.field-table {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.field-row {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.field-row.on {
+  background: var(--panel);
+  border-color: var(--green-2);
+}
+
+.field-row .check-row {
+  margin: 0;
+}
+
+@media (max-width: 900px) {
+  .sticker-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .field-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ── Production stages ────────────────────────────────────────────────────────
+   Extraction and Melange are the same operation on different inputs, so they read
+   as two tabs on one page rather than two entries in the sidebar. Reuses the
+   sticker page's stage cards. */
+.production-page {
+  display: grid;
+  /* Without an explicit track the single auto column sizes to the stage picker's
+     max-content (two 220px cards side by side) and overflows a phone, where
+     overflow-x: clip then makes the Melange tab and Export PDF unreachable.
+     minmax(0, 1fr) keeps the track inside the page. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+
+.stage-picker-2 {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  max-width: 640px;
+}
+
+/* The melange page's "no recipes yet" prompt: one line of explanation and the button
+   that fixes it, side by side, wrapping to two rows on a phone. */
+.melange-setup-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.melange-setup-note .btn {
+  flex: none;
+}
+
+/* First-run guide on the dashboard. Shown only until the first receipt is posted, so
+   an empty plant reads as a list of things to do rather than four zeros. */
+.setup-card {
+  margin-bottom: 16px;
+}
+
+.setup-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.setup-steps li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.setup-steps .setup-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.setup-steps li.done .setup-label {
+  color: var(--muted);
+}
+
+.setup-tick {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.setup-steps li.done .setup-tick {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+}
+
+/* A record number that opens the record. It reads as part of the text it sits in — a
+   batch code in a sentence, a lot in a table cell — and underlines to say it goes
+   somewhere. */
+.doc-link {
+  color: var(--green);
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-color: rgba(37, 61, 43, 0.35);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.doc-link:hover,
+.doc-link:focus-visible {
+  text-decoration-color: currentColor;
+}
+
+/* The trail of one transaction, opened under its line on the Audit Log. */
+.audit-trail {
+  margin: 4px 0 8px;
+}
