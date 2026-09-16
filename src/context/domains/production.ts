@@ -17,6 +17,7 @@ import {
   postedLocation,
 } from '../../lib/posting'
 import type { BatchInput } from '../../lib/posting'
+import { requiredCategoryKeys } from '../../lib/qcCategories'
 import { itemName } from '../../lib/stock'
 import { deepClone } from '../../lib/utils'
 import { POSTED } from './deps'
@@ -50,6 +51,7 @@ export function useProduction({ state, setState, nextId, log, showToast, announc
             id: qcId,
             batchId: id,
             item: line.item,
+            requiredTests: requiredCategoryKeys(draft),
             micro: 'Pending',
             pesticides: 'Pending',
             heavyMetals: 'Pending',
@@ -189,6 +191,7 @@ export function useProduction({ state, setState, nextId, log, showToast, announc
               id: qcId,
               batchId: id,
               item,
+              requiredTests: requiredCategoryKeys(draft),
               micro: 'Pending',
               pesticides: 'Pending',
               heavyMetals: 'Pending',

@@ -10,9 +10,10 @@ import { useApp } from '../context/AppContext'
 import { bulkItems, fmtBulk, itemUom } from '../lib/batches'
 import { bulkItemOf, formatSize } from '../lib/packs'
 import { useLinkedView } from '../lib/linkedView'
-import { DRAWABLE, defaultPackStore, sampleLitres } from '../lib/posting'
+import { DRAWABLE, defaultPackStore, sampleBulk } from '../lib/posting'
+import { addDays, retentionDays, sampleProductName, sampleStatus } from '../lib/controlSamples'
 import { itemName as lookupItemName, stockRowsExcluding, areaChoices } from '../lib/stock'
-import { fmtDate, inr, toLocalInputValue, QTY_EPSILON } from '../lib/utils'
+import { fmtDate, inr, toDateKey, toLocalInputValue, QTY_EPSILON } from '../lib/utils'
 import type { PackingRun } from '../types'
 import { keyed, keyedAll, type Keyed } from '../lib/rows'
 
@@ -29,6 +30,19 @@ interface PackRow {
 }
 
 const blankRow: PackRow = { type: '', sku: '', packs: '' }
+
+/** One product's control samples: what they went into, how many, and who took them. */
+interface SampleRow {
+  /** A pack product, `OTHER` for another container, or empty until picked. */
+  sku: string
+  sizeMl: number | ''
+  count: number | ''
+  collectedBy: string
+}
+
+/** Stands for a container that is not one of the plant's packs. */
+const OTHER = '__other'
+const blankSample: SampleRow = { sku: '', sizeMl: 100, count: '', collectedBy: '' }
 /** Stands in for a pack saved before a type was required, so it is still selectable. */
 const UNTYPED = 'Unspecified'
 const num = (v: number | '') => Number(v) || 0
@@ -45,8 +59,7 @@ export function Packing() {
   const [bulkItem, setBulkItem] = useState('')
   const [packRows, setPackRows] = useState<Keyed<PackRow>[]>([keyed(blankRow)])
   const [location, setLocation] = useState('')
-  const [sampleCount, setSampleCount] = useState<number | ''>('')
-  const [sampleSize, setSampleSize] = useState<number | ''>(100)
+  const [sampleRows, setSampleRows] = useState<Keyed<SampleRow>[]>([keyed(blankSample)])
 
   const itemName = (id: string) => lookupItemName(state, id)
   const bulkUom = bulkItem ? itemUom(state, bulkItem) : 'Litre'
@@ -141,9 +154,20 @@ export function Packing() {
   /** What one line draws: the pack's own size × how many, in base units. */
   const lineDraw = (r: PackRow) =>
     num(r.packs) * (state.products.find((x) => x.id === r.sku)?.packVolume || 0)
-  const willDraw =
-    packRows.reduce((a, r) => a + lineDraw(r), 0) +
-    sampleLitres({ count: num(sampleCount), sizeMl: num(sampleSize) || 100 })
+  /** The control-sample lines, in the shape the posting reads. */
+  const sampleInputs = sampleRows
+    .filter((r) => r.sku || num(r.count) > 0)
+    .map((r) => ({
+      sku: r.sku && r.sku !== OTHER ? r.sku : undefined,
+      count: num(r.count),
+      sizeMl: r.sku === OTHER ? num(r.sizeMl) : undefined,
+      collectedBy: r.collectedBy,
+    }))
+  const sampleDraw = sampleInputs.reduce((a, s) => a + sampleBulk(state, s), 0)
+  const willDraw = packRows.reduce((a, r) => a + lineDraw(r), 0) + sampleDraw
+  const keepDays = retentionDays(state.config)
+  const packedOn = new Date(date)
+  const sampleExpiry = Number.isNaN(packedOn.getTime()) ? '' : addDays(toDateKey(packedOn), keepDays)
 
   const openForm = () => {
     if (!fillable.length) {
@@ -156,8 +180,7 @@ export function Packing() {
     setBulkItem('')
     setPackRows([keyed(blankRow)])
     setLocation(defaultPackStore(state) || '')
-    setSampleCount('')
-    setSampleSize(100)
+    setSampleRows([keyed(blankSample)])
     setOpen(true)
   }
 
@@ -178,8 +201,18 @@ export function Packing() {
         : [keyed(blankRow)],
     )
     setLocation(run.location || '')
-    setSampleCount(run.samples?.count || '')
-    setSampleSize(run.samples?.sizeMl || 100)
+    setSampleRows(
+      run.controlSamples?.length
+        ? keyedAll(
+            run.controlSamples.map((s) => ({
+              sku: s.sku || OTHER,
+              sizeMl: s.sizeMl || 100,
+              count: s.count,
+              collectedBy: s.collectedBy || '',
+            })),
+          )
+        : [keyed(blankSample)],
+    )
     setOpen(true)
   }
 
@@ -223,6 +256,20 @@ export function Packing() {
             },
           ],
         },
+        ...(viewing.controlSamples?.length
+          ? [
+              {
+                title: 'Control samples',
+                fields: viewing.controlSamples.map((s) => ({
+                  label: sampleProductName(state, viewing, s),
+                  value: `${s.count} bottle(s)${s.collectedBy ? ` · collected by ${s.collectedBy}` : ''} · expires ${
+                    s.expiresOn ? fmtDate(s.expiresOn) : '—'
+                  } · ${sampleStatus(s)}${s.destroyedOn ? ` ${fmtDate(s.destroyedOn)}` : ''}`,
+                  wide: true,
+                })),
+              },
+            ]
+          : []),
         {
           title: 'Cost',
           fields: [
@@ -252,8 +299,9 @@ export function Packing() {
         the batch that made it and creates the finished goods. Each pack's type, size and bulk come
         from the <b>Products &amp; Materials</b> page, so a run only picks the pack and says how many. Packs go into
         the storage area you pick as they come off the line and stay there — the lab works while they sit, and
-        QC clears or rejects them where they stand. Take the lab's sample bottles off the same run
-        so the bulk they use is accounted for.
+        QC clears or rejects them where they stand. Record the control samples kept back off the
+        run on the same form, so the bulk and bottles they use are accounted for and they go on the
+        Control Samples register.
       </div>
 
       <div className="toolbar">
@@ -366,14 +414,16 @@ export function Packing() {
           setEditId('')
         }}
         onSave={() => {
+          if (sampleRows.some((r) => !r.sku && num(r.count) > 0)) {
+            showToast('Pick what each control sample was filled into.')
+            return
+          }
           const input = {
             date,
             batchId,
             bulkItem,
             location,
-            samples: num(sampleCount)
-              ? { count: num(sampleCount), sizeMl: num(sampleSize) || 100 }
-              : undefined,
+            controlSamples: sampleInputs,
             lines: packRows
               .filter((r) => r.sku && num(r.packs) > 0)
               .map((r) => ({ sku: r.sku, packs: num(r.packs) })),
@@ -398,6 +448,7 @@ export function Packing() {
                 setBulkItem(e.target.value)
                 setBatchId('')
                 setPackRows([keyed(blankRow)])
+                setSampleRows([keyed(blankSample)])
               }}
             >
               <option value="">Select bulk</option>
@@ -548,50 +599,94 @@ export function Packing() {
           </div>
         </div>
 
-        {/* Bottles pulled for the lab as the packs go into the freezer. They take bulk
-            like a pack does, so the run has to know about them, but they are never
-            stock and never carry a batch code. */}
+        {/* Control samples kept back as the packs go into the cold room. They take bulk —
+            and a pack's bottle and cap — like a pack does, so the run has to know about
+            them, but they are never stock and never carry a stock ID. */}
         <div className="subform">
           <div className="subform-head">
-            <span>Samples drawn for testing</span>
-            <span className="small" style={{ fontWeight: 400 }}>
-              {num(sampleCount) > 0
-                ? `Takes ${fmtBulk(sampleLitres({ count: num(sampleCount), sizeMl: num(sampleSize) || 100 }), bulkUom)} off the batch`
-                : 'Leave blank if none were taken'}
-            </span>
+            <span>Control samples kept</span>
+            <button
+              className="btn btn-light"
+              type="button"
+              onClick={() => setSampleRows((r) => [...r, keyed(blankSample)])}
+            >
+              + Add line
+            </button>
           </div>
           <div className="subform-body">
-            <div className="form-grid">
-              <div className="field">
-                <label>How many bottles</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  placeholder="0"
-                  value={sampleCount}
-                  onChange={(e) =>
-                    setSampleCount(e.target.value === '' ? '' : Number(e.target.value))
-                  }
-                />
-              </div>
-              <div className="field">
-                <label>Size of each (ml)</label>
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
-                  value={sampleSize}
-                  onChange={(e) =>
-                    setSampleSize(e.target.value === '' ? '' : Number(e.target.value))
-                  }
-                />
-              </div>
+            <div className="subform-row sample-row pack-row-head">
+              <span>Filled into</span>
+              <span>Size</span>
+              <span>Bottles</span>
+              <span>Collected by</span>
+              <span />
             </div>
-            <div className="small">
-              Samples are not stock and get no batch code — they never appear on the
-              stickers list or in dispatch. Their bulk is absorbed by the packs the run
-              filled, the same way any other loss on the run is.
+            {sampleRows.map((row, idx) => {
+              const p = products.find((x) => x.id === row.sku)
+              const update = (patch: Partial<SampleRow>) =>
+                setSampleRows((all) => all.map((r, i) => (i === idx ? { ...r, ...patch } : r)))
+              return (
+                <div className="subform-row sample-row" key={row.rowId}>
+                  <Select
+                    value={row.sku}
+                    disabled={!bulkItem}
+                    onChange={(e) => update({ sku: e.target.value })}
+                  >
+                    <option value="">{bulkItem ? 'Select pack' : 'Pick a bulk first'}</option>
+                    {products.map((x) => (
+                      <option key={x.id} value={x.id}>
+                        {x.name}
+                      </option>
+                    ))}
+                    <option value={OTHER}>Other container</option>
+                  </Select>
+                  {row.sku === OTHER ? (
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      placeholder={bulkUom === 'Kg' ? 'g each' : 'ml each'}
+                      value={row.sizeMl}
+                      onChange={(e) => update({ sizeMl: e.target.value === '' ? '' : Number(e.target.value) })}
+                    />
+                  ) : (
+                    <input disabled placeholder="Size" value={p ? formatSize(p.size, p.unit) : ''} />
+                  )}
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    placeholder="0"
+                    value={row.count}
+                    onChange={(e) => update({ count: e.target.value === '' ? '' : Number(e.target.value) })}
+                  />
+                  <input
+                    placeholder="Name"
+                    value={row.collectedBy}
+                    onChange={(e) => update({ collectedBy: e.target.value })}
+                  />
+                  <button
+                    className="btn btn-danger"
+                    type="button"
+                    onClick={() =>
+                      setSampleRows((all) =>
+                        all.length > 1 ? all.filter((_, i) => i !== idx) : [keyed(blankSample)],
+                      )
+                    }
+                  >
+                    ×
+                  </button>
+                </div>
+              )
+            })}
+            <div className="small" style={{ marginTop: 10 }}>
+              {sampleDraw > 0
+                ? `Takes ${fmtBulk(sampleDraw, bulkUom)} off the batch. `
+                : 'Leave blank if none were kept. '}
+              Control samples are never stock — no stock ID, and never in inventory, stickers or
+              dispatch. One filled into a pack also uses that pack&apos;s bottle and cap. They go on the{' '}
+              <b>Control Samples</b> register and expire {keepDays} day{keepDays === 1 ? '' : 's'} after
+              the day they were packed{sampleExpiry ? ` — ${fmtDate(sampleExpiry)}` : ''}.
             </div>
           </div>
         </div>

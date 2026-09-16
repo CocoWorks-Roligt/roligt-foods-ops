@@ -10,6 +10,7 @@ import { itemName, locationLabel, stockRowKey } from '../lib/stock'
 import { traceChain, type TraceResult } from '../lib/trace'
 import { sourceKey, traceGraph } from '../lib/traceGraph'
 import { outputStockIds, packStockIds, receiptsFor, runsFilling, stockIdsOfRow } from '../lib/stockIds'
+import { sampleProductName } from '../lib/controlSamples'
 import { fmtDate, fmtQty, inr, localDay } from '../lib/utils'
 import type { QcRecord, StockIssue } from '../types'
 
@@ -171,6 +172,14 @@ export function Traceability() {
       // that says whether stock still in the trade is fit to be there.
       for (const expiry of [...new Set(lines.map((l) => l.expiry).filter(Boolean))]) {
         add(expiry, 'Best before', id, 'Packs from this run')
+      }
+      // Control samples are not stock, but they are part of what the run made and the
+      // record an auditor asks for: who kept them, when they expired, when they went.
+      for (const s of p.controlSamples || []) {
+        const what = `${s.count} × ${sampleProductName(state, p, s)}`
+        add(p.date, 'Control samples kept', id, `${what}${s.collectedBy ? ` · collected by ${s.collectedBy}` : ''}`)
+        add(s.expiresOn, 'Control samples expire', id, what)
+        add(s.destroyedOn, 'Control samples destroyed', id, `${what}${s.remark ? ` · ${s.remark}` : ''}`)
       }
     }
     for (const id of result.dispatches) {
@@ -360,6 +369,13 @@ export function Traceability() {
                   <span className="cell-id">{l.stockId}</span> · {l.packs} × {getItemName(l.sku)}
                 </div>
               ))}
+              {p
+                ? (p.controlSamples || []).map((s, i) => (
+                    <div className="small" key={`sample-${i}`}>
+                      Control samples · {s.count} × {sampleProductName(state, p, s)}
+                    </div>
+                  ))
+                : null}
               <div className="trace-date">
                 Packed {day(p?.date) || '—'}
                 {expiries.length

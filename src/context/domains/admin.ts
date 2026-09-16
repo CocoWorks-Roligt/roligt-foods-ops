@@ -1,5 +1,5 @@
 /**
- * Plant-wide settings, document numbering, stickers, export and record cleanup.
+ * Plant-wide settings, document numbering, stickers and export.
  *
  * Split out of AppContext, which had grown to nearly three thousand lines and every
  * write the application can make. Nothing here changed in the move: the rules, the
@@ -7,7 +7,6 @@
  */
 
 import { useCallback, useMemo } from 'react'
-import { applyCleanup, planCleanup } from '../../lib/cleanup'
 import { checkNumbering, formatDocNo, seriesDef } from '../../lib/numbering'
 import { printStickerSheet } from '../../lib/stickerPrint'
 import { DEFAULT_STICKER_HEIGHT_MM, DEFAULT_STICKER_WIDTH_MM, stageLabel, stickerOwner, stickerReferenceLabel } from '../../lib/stickers'
@@ -162,45 +161,6 @@ export function useAdmin({ state, setState, nextId, log, showToast, forbidden }:
     [forbidden, log, setState, showToast, state],
   )
 
-  /**
-   * Removes the test run and leaves the plant's real history alone. Everything dated
-   * from `cutoff` onwards goes; everything before it stays. See `planCleanup` for why
-   * the split is by date and not by who entered the record.
-   */
-  const clearRecordsFrom = useCallback(
-    (cutoff: string) => {
-      if (forbidden('Clearing records')) return
-      const plan = planCleanup(state, cutoff)
-      if (plan.blockers.length) {
-        showToast(`Cannot clear: ${plan.blockers[0]}. Nothing was deleted.`)
-        return
-      }
-      const total =
-        plan.remove.grns.length +
-        plan.remove.batches.length +
-        plan.remove.packingRuns.length +
-        plan.remove.dispatches.length +
-        plan.remove.orders.length
-      if (!total) {
-        showToast(`Nothing is dated on or after ${cutoff}.`)
-        return
-      }
-      setState((prev) => {
-        const draft = deepClone(prev)
-        applyCleanup(draft, plan)
-        log(
-          draft,
-          'Cleared records from ' + cutoff,
-          'CLEANUP',
-          `Removed ${plan.remove.grns.length} receipt(s), ${plan.remove.batches.length} batch(es), ${plan.remove.packingRuns.length} packing run(s) ${plan.remove.dispatches.length} dispatch(es) and ${plan.remove.orders.length} order(s) dated on or after ${cutoff}, with their QC, ledger and sticker history. Everything earlier was kept.`,
-        )
-        return draft
-      })
-      showToast(`Cleared ${total} document(s) from ${cutoff} onwards.`)
-    },
-    [forbidden, log, setState, showToast, state],
-  )
-
   const exportData = useCallback(() => {
     const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' })
     const a = document.createElement('a')
@@ -217,7 +177,6 @@ export function useAdmin({ state, setState, nextId, log, showToast, forbidden }:
       saveStickerTemplate,
       saveStickerSize,
       saveNumbering,
-      clearRecordsFrom,
       exportData,
     }),
     [
@@ -226,7 +185,6 @@ export function useAdmin({ state, setState, nextId, log, showToast, forbidden }:
       saveStickerTemplate,
       saveStickerSize,
       saveNumbering,
-      clearRecordsFrom,
       exportData,
     ],
   )

@@ -56,9 +56,13 @@ export const PAGES: Record<string, [string, string]> = {
   ],
   quality: [
     'Quality Control',
-    'Each product a batch made is tested on its own — the coconut water and the malai from one pressing are two records, and either can be released while the other waits. Pass all four checks to release a product; one fail marks its stock Rejected where it stands, so it can no longer be packed, blended or dispatched.',
+    'Each product a batch made is tested on its own — the coconut water and the malai from one pressing are two records, and either can be released while the other waits. Pass every test needed for release to release a product; a fail on any test marks its stock Rejected where it stands, so it can no longer be packed, blended or dispatched.',
   ],
-  reports: ['Lab Reports', 'Generate lab test reports from saved test parameters and attach them to QC.'],
+  'control-samples': [
+    'Control Samples',
+    'The bottles kept back off each packing run — who collected them, when they expire and when they were destroyed. Never stock; kept as a record.',
+  ],
+  reports: ['Lab Reports', 'Generate lab test reports and sensory evaluations for a batch, then attach them to QC.'],
   orders: [
     'Orders',
     'What each customer asked for. Raised once the goods are packed and cleared, and sent out complete on one challan.',
@@ -91,7 +95,10 @@ export const PAGES: Record<string, [string, string]> = {
     'Products & Materials',
     'Everything the plant handles, in the order it handles it: what you buy, what you press it into, the blends you make from that, the materials a pack consumes, and the packs themselves. Every one of them is created here and nowhere else.',
   ],
-  'test-parameters': ['Test Parameters', 'Fixed test blueprints — parameter, method and unit per category.'],
+  'test-parameters': [
+    'Test Parameters',
+    'The report types a product is tested on and what each one tests — parameters for a lab certificate, weighted attributes for a scored evaluation.',
+  ],
   settings: ['Settings', 'Operational tolerances and plant configuration.'],
   audit: ['Audit Log', 'Every posting, in order. Entries are never edited or removed.'],
 }
@@ -188,7 +195,9 @@ export function statusClass(s?: string) {
     )
   )
     return 'success'
-  if (['fail', 'rejected', 'reversed', 'expired', 'destroyed'].some((x) => v.includes(x)))
+  // "reject" rather than "rejected", so a sensory decision to reject / hold reads as the
+  // failure it is and not as the amber of an ordinary hold.
+  if (['fail', 'reject', 'reversed', 'expired', 'destroyed'].some((x) => v.includes(x)))
     return 'danger'
   if (
     [

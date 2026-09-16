@@ -13,13 +13,13 @@ import { useToast } from './ToastContext'
 import { useAdmin } from './domains/admin'
 import { useBulkProducts } from './domains/bulk'
 import { useCatalog } from './domains/catalog'
-import type { CoreDeps, DeliveryInput, PackingStockInput } from './domains/deps'
+import type { ControlSamplePatch, CoreDeps, DeliveryInput, PackingStockInput } from './domains/deps'
 import { useInventory } from './domains/inventory'
 import { usePacking } from './domains/packing'
 import { useParties } from './domains/parties'
 import { useProcurement } from './domains/procurement'
 import { useProduction } from './domains/production'
-import { useQuality } from './domains/quality'
+import { useQuality, type LabReportInput, type TestCategoryInput, type TestParameterPatch } from './domains/quality'
 import { useSales } from './domains/sales'
 import { useStorageLocations } from './domains/storage'
 import { seed } from '../data/seed'
@@ -56,7 +56,6 @@ import type {
   OrderLine,
   StickerTemplate,
   Customer,
-  LabReport,
   NumberingRule,
   PurchaseProduct,
   QcRecord,
@@ -65,7 +64,7 @@ import type {
   Vendor,
 } from '../types'
 
-export type { DeliveryInput, PackingStockInput }
+export type { ControlSamplePatch, DeliveryInput, LabReportInput, PackingStockInput, TestCategoryInput, TestParameterPatch }
 
 export type {
   BatchInput,
@@ -140,17 +139,21 @@ interface AppContextValue {
   addPackingStock: (input: PackingStockInput) => string | null
   updatePackingStock: (doc: string, input: PackingStockInput) => string | null
   deletePackingStock: (doc: string) => void
+  updateControlSample: (runId: string, index: number, patch: ControlSamplePatch) => string | null
   moveStock: (input: MoveStockInput) => string | null
   addStorageLocation: (input: StorageLocationInput) => string | null
   updateStorageLocation: (id: string, patch: StorageLocationInput) => string | null
   setStorageLocationStatus: (id: string, status: string) => void
   deleteStorageLocation: (id: string) => void
   setDefaultArea: (purpose: AreaPurpose, id: string) => string | null
+  saveTestCategory: (input: TestCategoryInput, key?: string) => string | null
+  setTestCategoryStatus: (key: string, status: string) => void
+  deleteTestCategory: (key: string) => void
   addTestParameter: (input: Omit<TestParameter, 'id'>) => string | null
-  updateTestParameter: (id: string, patch: Omit<TestParameter, 'id' | 'category'>) => string | null
+  updateTestParameter: (id: string, patch: TestParameterPatch) => string | null
   deleteTestParameter: (id: string) => void
-  generateReport: (input: Omit<LabReport, 'id' | 'createdAt'>) => string | null
-  updateReport: (id: string, input: Omit<LabReport, 'id' | 'createdAt'>) => string | null
+  generateReport: (input: LabReportInput) => string | null
+  updateReport: (id: string, input: LabReportInput) => string | null
   deleteReport: (id: string) => void
   saveConfig: (config: Config) => void
   printStickers: (jobs: StickerJob[]) => string | null
@@ -161,7 +164,6 @@ interface AppContextValue {
   updateStockIssue: (id: string, input: StockIssueInput) => string | null
   deleteStockIssue: (id: string) => void
   exportData: () => void
-  clearRecordsFrom: (cutoff: string) => void
   saveOrder: (
     input: { customerId: string; date: string; lines: OrderLine[]; notes?: string },
     id?: string,
@@ -245,8 +247,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   /**
    * Refuses an action that is not this user's to take, and says so.
    *
-   * Note what this is and is not. It stops an operator changing a tolerance, rewriting
-   * a numbering series or clearing records — real accidents, on screens they have no
+   * Note what this is and is not. It stops an operator changing a tolerance or rewriting
+   * a numbering series — real accidents, on screens they have no
    * reason to be on. It is not a security boundary: the whole plant is one JSON blob
    * and an operator must be able to write it to do their job, so the database cannot
    * tell one kind of edit from another. That only becomes enforceable when the state

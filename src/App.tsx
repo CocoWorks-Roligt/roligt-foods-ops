@@ -25,6 +25,7 @@ import { Settings } from './pages/Settings'
 import { StockIssues } from './pages/StockIssues'
 import { Storage } from './pages/Storage'
 import { Stickers } from './pages/Stickers'
+import { ControlSamples } from './pages/ControlSamples'
 import { TestParameters } from './pages/TestParameters'
 import { Traceability } from './pages/Traceability'
 import { Vendors } from './pages/Vendors'
@@ -63,6 +64,7 @@ function AuthGate() {
             <Route path="production" element={<Production />} />
             <Route path="packing" element={<Packing />} />
             <Route path="quality" element={<Quality />} />
+            <Route path="control-samples" element={<ControlSamples />} />
             <Route path="reports" element={<Reports />} />
             <Route path="reports/:id" element={<ReportView />} />
             <Route path="orders" element={<Orders />} />

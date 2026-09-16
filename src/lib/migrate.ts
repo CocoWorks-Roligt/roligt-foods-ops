@@ -10,7 +10,8 @@ import {
   defaultTemplates,
 } from './stickers'
 import { expiryFor } from './stock'
-import { deepClone } from './utils'
+import { addDays, retentionDays } from './controlSamples'
+import { deepClone, localDay } from './utils'
 
 /** Best guess at a pack format for a product saved before the type was recorded. */
 function inferPackType(name = '', bom: BomLine[] = []) {
@@ -297,10 +298,28 @@ export function migrateState(raw: unknown, opts: MigrateOptions = {}): AppState 
   })
 
   // Runs posted before more than one juice existed drew whichever bulk their medium names.
-  next.packingRuns = next.packingRuns.map((r) => ({
-    ...r,
-    bulkItem: r.bulkItem || (r.medium === 'Malai' ? 'SF-TCW-MALAI' : 'SF-TCW-WATER'),
-  }))
+  // Runs posted before control samples were a register counted their sample bottles and
+  // nothing else; they become one register line each, expiring the way a new one does.
+  next.packingRuns = next.packingRuns.map((r) => {
+    const { samples, ...rest } = r
+    const legacy =
+      !r.controlSamples?.length && samples && samples.count > 0 && samples.sizeMl > 0
+        ? [
+            {
+              count: samples.count,
+              sizeMl: samples.sizeMl,
+              perBottle: samples.sizeMl / 1000,
+              collectedBy: '',
+              expiresOn: addDays(localDay(r.date), retentionDays(next.config)),
+            },
+          ]
+        : undefined
+    return {
+      ...rest,
+      bulkItem: r.bulkItem || (r.medium === 'Malai' ? 'SF-TCW-MALAI' : 'SF-TCW-WATER'),
+      ...(legacy ? { controlSamples: legacy } : {}),
+    }
+  })
 
   /**
    * Expiry used to be looked up from the batch, which could only ever answer with one

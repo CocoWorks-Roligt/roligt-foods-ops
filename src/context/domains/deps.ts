@@ -6,7 +6,7 @@ import type { Attachment, AppState, StockRow } from '../../types'
  *
  * `AppContext` used to be one file of nearly three thousand lines holding every write
  * the application can make — procurement, production, packing, QC, dispatch, six
- * masters, stickers, numbering and cleanup — which is about as clear a Single
+ * masters, stickers and numbering — which is about as clear a Single
  * Responsibility failure as a codebase produces. The operations themselves were
  * already grouped by domain and already closed over the same handful of things; this
  * is that handful, named, so each group can live in its own file.
@@ -71,4 +71,15 @@ export interface DeliveryInput {
   note?: string
   /** Photographs taken at the door. */
   photos?: Attachment[]
+}
+
+/**
+ * What the control sample register records against a line after the run is posted.
+ * None of it touches stock, so it stays editable after the packs have gone.
+ */
+export interface ControlSamplePatch {
+  collectedBy: string
+  /** Empty while the bottles are still kept. */
+  destroyedOn: string
+  remark: string
 }

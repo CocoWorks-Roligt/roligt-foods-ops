@@ -2146,6 +2146,146 @@ tbody tr.subrow > td {
   text-align: center;
 }
 
+/* A sensory evaluation prints twenty-four attributes and eight columns on one A4 width,
+   so its table runs smaller than a lab certificate's. */
+.report-sensory-table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.report-sensory-table th,
+.report-sensory-table td {
+  border: 1px solid var(--line);
+  padding: 4px 6px;
+  font-size: 10.5px;
+  text-align: left;
+  vertical-align: top;
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Headers read as the sheet writes them. The app's capitalised, letter-spaced table
+   heading is too wide for eight columns on A4 and broke "Weight" in half. */
+.report-sensory-table th {
+  background: #f0ece3;
+  text-transform: none;
+  letter-spacing: normal;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+
+/* A batch or run code wraps as a whole, never mid-code. */
+.register-doc .link-button {
+  word-break: normal;
+  white-space: nowrap;
+}
+
+.report-sensory-table .num {
+  text-align: center;
+  padding-left: 3px;
+  padding-right: 3px;
+}
+
+.report-decision {
+  font-weight: 800;
+}
+
+.report-comments {
+  border: 1px solid var(--line);
+  padding: 8px 12px;
+  min-height: 48px;
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
+/* The scoring form is a wide table; the dialog gets the room a printed sheet has. */
+.modal-box:has(.sensory-form) {
+  max-width: 1200px;
+}
+
+.sensory-form {
+  display: grid;
+  gap: 14px;
+}
+
+.sensory-table td {
+  vertical-align: middle;
+}
+
+.sensory-table .table-cell-input {
+  min-width: 140px;
+}
+
+.score-picker {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.score-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: white;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.score-btn.active {
+  background: var(--green);
+  border-color: var(--green);
+  color: white;
+}
+
+/* A critical attribute scored below 3 holds the product — the pressed button says so. */
+.score-btn.low.active {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+.sensory-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.sensory-summary > div {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: #fffef9;
+  display: grid;
+  gap: 4px;
+  align-content: start;
+}
+
+.sensory-summary b {
+  font-size: 18px;
+}
+
+.sensory-guide summary {
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+/* Control sample line: what it went into, its size, how many, and who took them. */
+.sample-row {
+  grid-template-columns:
+    minmax(0, 2fr) minmax(0, 0.9fr) minmax(0, 0.8fr)
+    minmax(0, 1.4fr) auto;
+  align-items: center;
+}
+
+@media (max-width: 760px) {
+  .sample-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
 /* ===========================================================================
    Mobile shell (<= 900px): sidebar becomes an off-canvas drawer, the desktop
    topbar is replaced by an app bar, and a bottom nav carries the four screens

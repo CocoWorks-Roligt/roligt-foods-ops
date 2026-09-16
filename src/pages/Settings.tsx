@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Modal } from '../components/Modal'
 import { Select } from '../components/Select'
+import { DEFAULT_CONTROL_SAMPLE_DAYS } from '../lib/controlSamples'
 import { useApp } from '../context/AppContext'
-import { planCleanup } from '../lib/cleanup'
 import {
   DATE_TOKENS,
   SERIES_GROUPS,
@@ -14,7 +13,6 @@ import {
   ruleFor,
   type SeriesDef,
 } from '../lib/numbering'
-import { toDateKey } from '../lib/utils'
 import type { AppState, NumberingRule } from '../types'
 
 /**
@@ -169,15 +167,10 @@ function NumberingRow({
 }
 
 export function Settings() {
-  const { state, saveConfig, saveNumbering, exportData, clearRecordsFrom } = useApp()
+  const { state, saveConfig, saveNumbering } = useApp()
   const navigate = useNavigate()
   const [config, setConfig] = useState(state.config)
   useEffect(() => setConfig(state.config), [state.config])
-
-  const [resetOpen, setResetOpen] = useState(false)
-  const [resetPhrase, setResetPhrase] = useState('')
-  const [backedUp, setBackedUp] = useState(false)
-  const [cutoff, setCutoff] = useState(() => toDateKey())
 
   /**
    * Each block has its own Save button, so each one must save its own fields and
@@ -189,15 +182,6 @@ export function Settings() {
     const patch = Object.fromEntries(keys.map((k) => [k, config[k]]))
     saveConfig({ ...state.config, ...patch })
   }
-
-  const plan = useMemo(() => planCleanup(state, cutoff), [state, cutoff])
-  const going =
-    plan.remove.grns.length +
-    plan.remove.batches.length +
-    plan.remove.packingRuns.length +
-    plan.remove.dispatches.length +
-    plan.remove.orders.length
-  const staying = plan.keep.grns + plan.keep.batches + plan.keep.packingRuns + plan.keep.dispatches
 
   return (
     <div className="card">
@@ -299,6 +283,41 @@ export function Settings() {
           }
         >
           Save Report Defaults
+        </button>
+      </div>
+
+      <div className="section-head" style={{ marginTop: 28 }}>
+        <div>
+          <h3>Control Samples</h3>
+          <span>How long the bottles kept back off each packing run are held before they expire</span>
+        </div>
+      </div>
+      <div className="form-grid">
+        <div className="field">
+          <label>Keep control samples for (days)</label>
+          <input
+            type="number"
+            min={1}
+            step={1}
+            value={config.controlSampleDays ?? DEFAULT_CONTROL_SAMPLE_DAYS}
+            onChange={(e) => setConfig((c) => ({ ...c, controlSampleDays: Number(e.target.value) }))}
+          />
+        </div>
+      </div>
+      <div className="note">
+        Counted from the day the run packed them. A change applies to samples recorded from now on —
+        those already on the register keep the expiry they were given.
+      </div>
+      <div style={{ marginTop: 14 }}>
+        <button
+          className="btn btn-primary"
+          disabled={
+            !Number.isInteger(config.controlSampleDays ?? DEFAULT_CONTROL_SAMPLE_DAYS) ||
+            (config.controlSampleDays ?? DEFAULT_CONTROL_SAMPLE_DAYS) < 1
+          }
+          onClick={() => saveSection(['controlSampleDays'])}
+        >
+          Save Control Samples
         </button>
       </div>
 
@@ -429,132 +448,6 @@ export function Settings() {
         {state.storageLocations.filter((s) => s.status === 'Active').length === 1 ? '' : 's'}.
       </div>
 
-      {/* A tested app handed to a live plant carries the test run's records and its
-          numbering. There is no author on a record to filter by, so the split is by
-          date — see planCleanup. Everything is shown before anything is deleted. */}
-      <div className="section-head" style={{ marginTop: 28 }}>
-        <div>
-          <h3>Clear the test run</h3>
-          <span>Remove records entered from a date onwards and keep everything before it</span>
-        </div>
-      </div>
-      <div className="form-grid">
-        <div className="field">
-          <label>Delete records dated on or after</label>
-          <input type="date" value={cutoff} onChange={(e) => setCutoff(e.target.value)} />
-        </div>
-      </div>
-
-      <div className={`note${going ? ' warning-note' : ''}`} style={{ marginTop: 12 }}>
-        {going ? (
-          <>
-            <b>Would delete {going} document{going === 1 ? '' : 's'}</b> dated {cutoff} or later —{' '}
-            {plan.remove.grns.length} receipt{plan.remove.grns.length === 1 ? '' : 's'},{' '}
-            {plan.remove.batches.length} batch{plan.remove.batches.length === 1 ? '' : 'es'},{' '}
-            {plan.remove.packingRuns.length} packing run
-            {plan.remove.packingRuns.length === 1 ? '' : 's'}, {plan.remove.dispatches.length}{' '}
-            dispatch{plan.remove.dispatches.length === 1 ? '' : 'es'}, {plan.remove.orders.length}{' '}
-            order{plan.remove.orders.length === 1 ? '' : 's'} — plus{' '}
-            {plan.remove.stockIssues.length} stock issue
-            {plan.remove.stockIssues.length === 1 ? '' : 's'}, {plan.remove.qcs.length} QC record
-            {plan.remove.qcs.length === 1 ? '' : 's'} and{' '}
-            {plan.remove.ledgerRows} stock ledger line
-            {plan.remove.ledgerRows === 1 ? '' : 's'} behind them.
-            {plan.remove.grns.length + plan.remove.batches.length ? (
-              <div className="small" style={{ marginTop: 6 }}>
-                {[...plan.remove.grns, ...plan.remove.batches].join(', ')}
-              </div>
-            ) : null}
-          </>
-        ) : (
-          <>Nothing is dated {cutoff} or later. Pick an earlier date to see what would go.</>
-        )}
-      </div>
-      <div className="note" style={{ marginTop: 10 }}>
-        <b>Keeps</b> the {staying} document{staying === 1 ? '' : 's'} dated before {cutoff}, their
-        stock and their audit trail — and every master: items, bulks, melanges, packs, packing
-        materials, suppliers, customers, storage locations and test parameters. Numbering carries
-        on from the highest number still in use, so no live document code is ever reissued.
-      </div>
-      {plan.blockers.length ? (
-        <div className="note warning-note" style={{ marginTop: 10 }}>
-          <b>Blocked.</b> Something you are keeping was built from something this cutoff would
-          delete, so removing it would leave its stock wrong: {plan.blockers.slice(0, 3).join('; ')}
-          {plan.blockers.length > 3 ? `, and ${plan.blockers.length - 3} more` : ''}. Move the date
-          later, or delete those records individually first.
-        </div>
-      ) : null}
-
-      <div className="row-actions" style={{ marginTop: 12 }}>
-        <button
-          className="btn btn-light"
-          type="button"
-          onClick={() => {
-            exportData()
-            setBackedUp(true)
-          }}
-        >
-          Back up all data first
-        </button>
-        <button
-          className="btn btn-danger"
-          type="button"
-          disabled={!going || plan.blockers.length > 0}
-          onClick={() => {
-            setResetPhrase('')
-            setResetOpen(true)
-          }}
-        >
-          Delete {going} document{going === 1 ? '' : 's'}
-        </button>
-      </div>
-
-      <Modal
-        open={resetOpen}
-        title={`Delete ${going} document${going === 1 ? '' : 's'} from ${cutoff}`}
-        saveLabel="Delete them"
-        saveDisabled={resetPhrase.trim().toUpperCase() !== 'DELETE'}
-        onClose={() => setResetOpen(false)}
-        onSave={() => {
-          clearRecordsFrom(cutoff)
-          setResetOpen(false)
-        }}
-      >
-        <div className="note warning-note">
-          Going: {[...plan.remove.grns, ...plan.remove.batches, ...plan.remove.packingRuns, ...plan.remove.dispatches].join(', ') || 'nothing'}.
-          <br />
-          Staying: the {staying} document{staying === 1 ? '' : 's'} dated before {cutoff}. There is
-          no undo — the only way back is the backup file.
-        </div>
-        {!backedUp ? (
-          <div className="note" style={{ marginTop: 12 }}>
-            You have not downloaded a backup in this session.{' '}
-            <button
-              type="button"
-              className="link-btn"
-              onClick={() => {
-                exportData()
-                setBackedUp(true)
-              }}
-            >
-              Download one now
-            </button>
-            .
-          </div>
-        ) : (
-          <div className="note" style={{ marginTop: 12 }}>
-            Backup downloaded. Keep that file somewhere safe before going on.
-          </div>
-        )}
-        <div className="field" style={{ marginTop: 14 }}>
-          <label>Type DELETE to confirm</label>
-          <input
-            value={resetPhrase}
-            placeholder="DELETE"
-            onChange={(e) => setResetPhrase(e.target.value)}
-          />
-        </div>
-      </Modal>
     </div>
   )
 }

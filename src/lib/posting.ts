@@ -11,7 +11,8 @@ import { COCONUT_ITEM, batchOutputs, fmtBulk, itemUom } from './batches'
 import { bulkItemOf, mediumForUom } from './packs'
 import { withStockIds } from './stockIds'
 import { isRow, itemName, product, rowKey, stockRows, areaRefusal, defaultArea, inHoldArea } from './stock'
-import { fitsWithin, nowISO, toDateKey, QTY_EPSILON, sameQty, uid } from './utils'
+import { fitsWithin, localDay, nowISO, toDateKey, QTY_EPSILON, sameQty, uid } from './utils'
+import { addDays, retentionDays } from './controlSamples'
 import type {
   AppState,
   Batch,
@@ -19,9 +20,10 @@ import type {
   BlendLine,
   BomLine,
   BulkOutputLine,
+  ControlSample,
   MelangeComponent,
   PackUnit,
-  QcAttachment,
+  QcTestResult,
   PackingLine,
   PackingRun,
   SourceLine,
@@ -71,8 +73,30 @@ export interface PackingInput {
   lines: { sku: string; packs: number }[]
   /** Where the filled packs are put away. */
   location?: string
-  /** Bottles pulled off the run for lab testing — they draw bulk but make no stock. */
-  samples?: { count: number; sizeMl: number }
+  /** Bottles kept back as control samples — they draw bulk but make no stock. */
+  controlSamples?: ControlSampleInput[]
+}
+
+/** One product's control samples, as the packing form states them. */
+export interface ControlSampleInput {
+  /** Pack the bottles were filled into; empty for any other container. */
+  sku?: string
+  count: number
+  /** Another container only: what one held, in ml (g for bulk sold by weight). */
+  sizeMl?: number
+  collectedBy?: string
+}
+
+/** Which line of a run's samples this is, across an edit of the run. */
+const sampleKey = (s: { sku?: string; sizeMl?: number }) =>
+  s.sku ? `sku:${s.sku}` : `ml:${Number(s.sizeMl) || 0}`
+
+/** Bulk one control-sample line takes off the batch, in the bulk's base unit. */
+export function sampleBulk(state: AppState, s: { sku?: string; count: number; sizeMl?: number }) {
+  const count = Number(s.count) || 0
+  if (count <= 0) return 0
+  if (s.sku) return count * (product(state, s.sku)?.packVolume || 0)
+  return (count * (Number(s.sizeMl) || 0)) / 1000
 }
 
 /** Everything the admin sets on a pack product; `medium` and `packVolume` follow
@@ -116,40 +140,12 @@ export interface MelangeInput {
   description: string
 }
 
-export interface QcUpdate {
-  micro: string
-  pesticides: string
-  heavyMetals: string
-  physico: string
-  microNote?: string
-  pesticidesNote?: string
-  heavyMetalsNote?: string
-  physicoNote?: string
-  microReport?: QcAttachment | null
-  pesticidesReport?: QcAttachment | null
-  heavyMetalsReport?: QcAttachment | null
-  physicoReport?: QcAttachment | null
-}
-
 /**
- * What four test verdicts add up to.
- *
- * A fail is a fail whatever else passed; a retest holds the batch; everything has to
- * pass before anything the batch made can be used. Pure, so the screen can say what a
- * review is about to decide before it decides it — and so the disposition is not read
- * back out of a variable a `setState` updater happened to assign.
+ * A QC review: each test's result, by report type. What the results add up to is
+ * `qcDecision` in lib/qcCategories.
  */
-export function qcDisposition(v: {
-  micro: string
-  pesticides: string
-  heavyMetals: string
-  physico: string
-}): 'Pending' | 'Retest' | 'Rejected' | 'Released' {
-  const all = [v.micro, v.pesticides, v.heavyMetals, v.physico]
-  if (all.includes('Fail')) return 'Rejected'
-  if (all.includes('Retest')) return 'Retest'
-  if (all.every((x) => x === 'Pass')) return 'Released'
-  return 'Pending'
+export interface QcUpdate {
+  tests: Record<string, QcTestResult>
 }
 
 /**
@@ -565,10 +561,6 @@ export type PackingMath = Checked<{
   uom: string
 }>
 
-/** Bulk a run's sample bottles take, in the medium's base unit. */
-export const sampleLitres = (s?: { count: number; sizeMl: number }) =>
-  s && s.count > 0 && s.sizeMl > 0 ? (s.count * s.sizeMl) / 1000 : 0
-
 export function checkPacking(state: AppState, input: PackingInput, ignoreDoc?: string): PackingMath {
   const batch = state.batches.find((b) => b.id === input.batchId)
   if (!batch) return { ok: false, error: 'Select a batch.' }
@@ -606,11 +598,42 @@ export function checkPacking(state: AppState, input: PackingInput, ignoreDoc?: s
     for (const c of p.bom) pmNeeds[c.item] = (pmNeeds[c.item] || 0) + c.qty * l.packs
   }
 
-  // Sample bottles come out of the same tank as the packs, so they have to be drawn
-  // too — otherwise the batch keeps showing bulk that physically went to the lab.
-  const sampleDrawn = sampleLitres(input.samples)
-  if (sampleDrawn < 0) return { ok: false, error: 'Sample count and size cannot be negative.' }
-  drawn += sampleDrawn
+  /**
+   * Control samples come out of the same tank as the packs, so they have to be drawn
+   * too — otherwise the batch keeps showing bulk that physically went into them. A
+   * sample filled into one of the run's packs also uses that pack's bottle and cap,
+   * which the plant has to have on the shelf like any other.
+   */
+  const keptBefore = (editingRun?.controlSamples || []).map(sampleKey)
+  for (const s of input.controlSamples || []) {
+    if (!s.sku && !Number(s.count) && !Number(s.sizeMl) && !s.collectedBy?.trim()) continue
+    const count = Number(s.count)
+    if (!Number.isInteger(count) || count <= 0) {
+      return { ok: false, error: 'Control samples are counted in whole bottles — enter how many were kept.' }
+    }
+    if (s.sku) {
+      const p = product(state, s.sku)
+      if (!p) return { ok: false, error: `Unknown pack ${s.sku}` }
+      if (bulkItemOf(p) !== bulkItem) {
+        return { ok: false, error: `${p.name} is not filled from ${itemName(state, bulkItem)}.` }
+      }
+      if (!(p.packVolume > 0)) {
+        return { ok: false, error: `${p.name} has no pack size — set it on the Products & Materials page first.` }
+      }
+      drawn += count * p.packVolume
+      for (const c of p.bom) pmNeeds[c.item] = (pmNeeds[c.item] || 0) + c.qty * count
+    } else {
+      if (!(Number(s.sizeMl) > 0)) {
+        return { ok: false, error: 'Say how much each control sample container holds.' }
+      }
+      drawn += (count * Number(s.sizeMl)) / 1000
+    }
+    // The register's "collected by" is not optional. Only a line saved before the run
+    // asked for it may stay blank, so an old run can still be corrected.
+    if (!s.collectedBy?.trim() && !keptBefore.includes(sampleKey(s))) {
+      return { ok: false, error: 'Say who collected the control samples.' }
+    }
+  }
 
   const base = stockRows(withoutDoc(state, ignoreDoc))
   const bulkAvailable = base
@@ -753,6 +776,16 @@ export function postPackingLines(
     const drawn = pmDrawn[item]
     return drawn && drawn.qty ? drawn.cost / drawn.qty : 0
   }
+  /**
+   * A control sample filled into a pack uses that pack's bottle and cap as well as its
+   * juice, and that cost lands on the packs the run did fill the same way the juice
+   * does — left out, it would sit on no row at all and quietly shrink inventory.
+   */
+  const samplePm = (input.controlSamples || []).reduce((a, s) => {
+    const p = s.sku && Number(s.count) > 0 ? product(draft, s.sku) : undefined
+    return a + (p ? Number(s.count) * p.bom.reduce((x, c) => x + pmUnitCost(c.item) * c.qty, 0) : 0)
+  }, 0)
+  const samplePmPerUnit = packedVolume ? samplePm / packedVolume : 0
   const packLines: PackingLine[] = lines.map((l) => {
     const p = product(draft, l.sku)!
     const packPm = p.bom.reduce((a, c) => a + pmUnitCost(c.item) * c.qty, 0)
@@ -762,7 +795,7 @@ export function postPackingLines(
     const lineDrawn = l.packs * perPack
     // Malai is sold by weight, juice and water by the pack.
     const qty = medium === 'Malai' ? lineDrawn : l.packs
-    const cost = lineDrawn * bulkPerUnit + l.packs * packPm
+    const cost = lineDrawn * (bulkPerUnit + samplePmPerUnit) + l.packs * packPm
     return {
       sku: l.sku,
       packs: l.packs,
@@ -800,13 +833,40 @@ export function postPackingLines(
     })
   }
 
+  /**
+   * The register lines. They expire a set number of days after the day they were
+   * produced, fixed when they are posted like a pack's best-before; an edit keeps
+   * what was recorded against them since — who took them, when they were destroyed —
+   * and only moves the expiry if the run's own day moved.
+   */
+  const madeOn = toDateKey(date)
+  const previousRun = draft.packingRuns.find((r) => r.id === id)
+  const sameDay = !!previousRun && localDay(previousRun.date) === madeOn
+  const unclaimed = [...(previousRun?.controlSamples || [])]
+  const controlSamples: ControlSample[] = (input.controlSamples || [])
+    .filter((s) => Number(s.count) > 0)
+    .map((s) => {
+      const at = unclaimed.findIndex((b) => sampleKey(b) === sampleKey(s))
+      const kept = at >= 0 ? unclaimed.splice(at, 1)[0] : undefined
+      return {
+        ...(s.sku ? { sku: s.sku } : { sizeMl: Number(s.sizeMl) }),
+        count: Number(s.count),
+        perBottle: s.sku ? product(draft, s.sku)?.packVolume || 0 : (Number(s.sizeMl) || 0) / 1000,
+        collectedBy: s.collectedBy?.trim() || kept?.collectedBy || '',
+        expiresOn:
+          sameDay && kept?.expiresOn ? kept.expiresOn : addDays(madeOn, retentionDays(draft.config)),
+        ...(kept?.destroyedOn ? { destroyedOn: kept.destroyedOn } : {}),
+        ...(kept?.remark ? { remark: kept.remark } : {}),
+      }
+    })
+
   return {
     id,
     date: date.toISOString(),
     batchId: batch.id,
     location: input.location || freezer,
     bulkItem: math.bulkItem,
-    samples: input.samples?.count ? input.samples : undefined,
+    ...(controlSamples.length ? { controlSamples } : {}),
     medium,
     lines: numbered,
     drawn: math.drawn,

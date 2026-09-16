@@ -10,11 +10,12 @@ import { useCallback, useMemo } from 'react'
 import { fmtBulk } from '../../lib/batches'
 import { checkPacking, defaultPackingStore, postPackingLines, checkArea } from '../../lib/posting'
 import type { PackingInput } from '../../lib/posting'
+import { sampleProductName } from '../../lib/controlSamples'
 import { itemName } from '../../lib/stock'
-import { deepClone, nowISO, QTY_EPSILON, uid } from '../../lib/utils'
+import { deepClone, localDay, nowISO, QTY_EPSILON, toDateKey, uid } from '../../lib/utils'
 import type { AppState } from '../../types'
 import { POSTED } from './deps'
-import type { CoreDeps, PackingStockInput } from './deps'
+import type { ControlSamplePatch, CoreDeps, PackingStockInput } from './deps'
 
 /**
  * The stock item a receipt books. The Procurement form picks a purchase product, so
@@ -294,6 +295,64 @@ export function usePacking({ state, setState, nextId, log, showToast, announceme
     [log, packingReceiptConsumed, setState, showToast, state],
   )
 
+  /**
+   * Records what happened to a run's control samples after it was posted — who took
+   * them, the day they were destroyed, a remark. Nothing here is stock, so it is written
+   * straight onto the line, and stays open after the run's packs are released or gone.
+   */
+  const updateControlSample = useCallback(
+    (runId: string, index: number, patch: ControlSamplePatch): string | null => {
+      const run = state.packingRuns.find((r) => r.id === runId)
+      const sample = run?.controlSamples?.[index]
+      if (!run || !sample) return null
+      // Samples counted before the register existed never said who took them, and nobody
+      // may now know — that must not stop anyone recording that they were destroyed.
+      const collectedBy = patch.collectedBy.trim()
+      if (!collectedBy && sample.collectedBy) {
+        showToast('Say who collected the control samples.')
+        return null
+      }
+      const destroyedOn = patch.destroyedOn
+      if (destroyedOn && destroyedOn < localDay(run.date)) {
+        showToast('They cannot have been destroyed before the day they were produced.')
+        return null
+      }
+      if (destroyedOn && destroyedOn > toDateKey()) {
+        showToast('The day they were destroyed cannot be in the future.')
+        return null
+      }
+      const remark = patch.remark.trim()
+      setState((prev) => {
+        const draft = deepClone(prev)
+        const target = draft.packingRuns.find((r) => r.id === runId)
+        const s = target?.controlSamples?.[index]
+        if (!target || !s) return prev
+        const destroyed = !!destroyedOn && !s.destroyedOn
+        const restored = !destroyedOn && !!s.destroyedOn
+        s.collectedBy = collectedBy
+        if (destroyedOn) s.destroyedOn = destroyedOn
+        else delete s.destroyedOn
+        if (remark) s.remark = remark
+        else delete s.remark
+        const what = `${s.count} × ${sampleProductName(draft, target, s)} from ${target.batchId}`
+        log(
+          draft,
+          destroyed ? 'Destroyed control samples' : restored ? 'Cleared control sample destruction' : 'Edited control samples',
+          runId,
+          destroyed
+            ? `${what} destroyed on ${destroyedOn}${remark ? ` — ${remark}` : ''}.`
+            : restored
+              ? `${what} recorded as still kept.`
+              : `${what} · collected by ${collectedBy}${remark ? ` · ${remark}` : ''}.`,
+        )
+        return draft
+      })
+      showToast(destroyedOn && !sample.destroyedOn ? 'Control samples recorded as destroyed.' : 'Control samples updated.')
+      return runId
+    },
+    [log, setState, showToast, state.packingRuns],
+  )
+
   return useMemo(
     () => ({
       createPackingRun,
@@ -302,6 +361,7 @@ export function usePacking({ state, setState, nextId, log, showToast, announceme
       addPackingStock,
       updatePackingStock,
       deletePackingStock,
+      updateControlSample,
     }),
     [
       createPackingRun,
@@ -310,6 +370,7 @@ export function usePacking({ state, setState, nextId, log, showToast, announceme
       addPackingStock,
       updatePackingStock,
       deletePackingStock,
+      updateControlSample,
     ],
   )
 }

@@ -31,6 +31,7 @@ const OPS: NavItem[] = [
   // used to mean jumping back up the list mid-run.
   { id: 'production', path: '/production', label: 'Production', group: 'Production' },
   { id: 'quality', path: '/quality', label: 'Quality Control' },
+  { id: 'control-samples', path: '/control-samples', label: 'Control Samples' },
   { id: 'packing', path: '/packing', label: 'Packing', group: 'After production' },
   { id: 'orders', path: '/orders', label: 'Orders' },
   { id: 'dispatch', path: '/dispatch', label: 'Dispatch' },
@@ -46,8 +47,8 @@ const OPS: NavItem[] = [
 
 /**
  * Admin only. These are the screens that rewrite what everything else is measured
- * against — the item masters, the tolerances, the document numbering, and the button
- * that clears records from a date. An operator receiving a load does not need them,
+ * against — the item masters, the report types, the tolerances and the document
+ * numbering. An operator receiving a load does not need them,
  * and an accidental edit here is felt by every document posted afterwards.
  */
 const MASTERS: NavItem[] = [

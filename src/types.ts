@@ -16,6 +16,7 @@ export type ViewId =
   | 'production'
   | 'packing'
   | 'quality'
+  | 'control-samples'
   | 'reports'
   | 'dispatch'
   | 'inventory'
@@ -56,6 +57,13 @@ export interface Config {
    * each kind of stock that arrives. Set on the Storage page.
    */
   defaultAreas?: Partial<Record<AreaPurpose, string>>
+  /**
+   * The kinds of test report the plant issues and which of them a product needs to
+   * pass before release. Absent means the built-in list — see `lib/qcCategories`.
+   */
+  testCategories?: TestCategoryDef[]
+  /** Days a control sample is kept, counted from the day it was produced. */
+  controlSampleDays?: number
 }
 
 /**
@@ -406,16 +414,41 @@ export interface PackingLine {
   expiry: string
 }
 
+/**
+ * Bottles kept back off a packing run as control samples — the plant's control
+ * sampling tracking sheet. They draw bulk and, when filled into a pack, its packing
+ * material, but they are never stock: nothing can dispatch, issue or move them. What
+ * is kept is the record — who collected them, when they expire and when they went.
+ */
+export interface ControlSample {
+  /** Pack product the bottles were filled into. Absent for any other container. */
+  sku?: string
+  count: number
+  /** Another container only: what one held, in ml (g for bulk sold by weight). */
+  sizeMl?: number
+  /** Bulk one bottle drew, in the bulk's base unit, as it stood when the run was posted. */
+  perBottle?: number
+  collectedBy?: string
+  /** The day the bottles expire: the day they were produced plus the retention days. */
+  expiresOn?: string
+  /** The day they were destroyed. Empty while they are still kept. */
+  destroyedOn?: string
+  remark?: string
+}
+
 export interface PackingRun {
   id: string
   date: string
   batchId: string
   /** Where the filled packs were put away. */
   location?: string
-  /** Bottles drawn off the run for the lab. They consume bulk like a pack does but
-   *  are never sellable stock and carry no batch code, so they are counted here
-   *  rather than as a pack line. */
+  /** @deprecated read once into `controlSamples` — bottles counted with no record of
+   *  what they were, who took them or when they expire */
   samples?: { count: number; sizeMl: number }
+  /** Bottles kept back off the run as control samples. They draw bulk like a pack
+   *  does but are never stock and carry no stock ID, so they are recorded here rather
+   *  than as a pack line. */
+  controlSamples?: ControlSample[]
   /** Bulk item the run drew. Runs posted before more than one juice existed drew
    *  whichever bulk their `medium` names. */
   bulkItem?: string
@@ -472,12 +505,76 @@ export interface QcRecord {
   pesticidesReport?: QcAttachment | null
   heavyMetalsReport?: QcAttachment | null
   physicoReport?: QcAttachment | null
+  /**
+   * Every test beyond the four above — the sensory evaluation, and any report type an
+   * admin adds — by its key. The four keep their own fields, which is what every record
+   * saved before report types were configurable already carries.
+   */
+  tests?: Record<string, QcTestResult>
+  /**
+   * The tests this record was judged on when it was last reviewed. A product released
+   * before a new required test existed stays released on the tests it passed; a record
+   * still waiting is judged on whatever is required now.
+   */
+  requiredTests?: string[]
   disposition: string
   reviewedBy: string
   reviewedAt: string
 }
 
-export type TestCategory = 'micro' | 'pesticides' | 'heavyMetals' | 'physico'
+/** One test's result on a QC record. */
+export interface QcTestResult {
+  status: string
+  note?: string
+  report?: QcAttachment | null
+}
+
+/**
+ * Which report type a test parameter, a lab report or a QC result belongs to — one of
+ * the four the plant started with (`micro`, `pesticides`, `heavyMetals`, `physico`),
+ * the sensory evaluation, or one an admin has added since.
+ */
+export type TestCategory = string
+
+/**
+ * How a report type writes its results down. A lab certificate is a table of
+ * parameter, method, unit and result; a sensory evaluation scores weighted
+ * attributes 1–5 and reaches a decision from the total.
+ */
+export type ReportFormat = 'results' | 'scored'
+
+/** What to taste for in one kind of product — the sheet's product-specific checks. */
+export interface SensoryProductGroup {
+  name: string
+  checkpoints: string
+  defects: string
+  focus: string
+}
+
+/**
+ * A kind of test report the plant issues, and whether a product has to pass it before
+ * release. Admin data, kept in config; the built-in list stands until an admin changes it.
+ */
+export interface TestCategoryDef {
+  /** Fixed once created — results, parameters and reports are filed under it. */
+  key: TestCategory
+  title: string
+  format: ReportFormat
+  /** A QC record needs a Pass on this test before its product can be released. */
+  requiredForRelease: boolean
+  /** Active · Inactive. An inactive type takes no new reports and gates nothing. */
+  status: string
+  /** Placeholder for the QC note on this test. */
+  hint?: string
+  /** Printed under the signature on a results report. */
+  signatory?: string
+  /** Scored only: the score out of 100 a product passes at. */
+  passScore?: number
+  /** Scored only: at or above this it passes with minor modification; below, R&D review. */
+  minorScore?: number
+  /** Scored only: what to watch for in each kind of product. */
+  productGroups?: SensoryProductGroup[]
+}
 
 export interface TestParameter {
   id: string
@@ -485,6 +582,12 @@ export interface TestParameter {
   name: string
   method: string
   unit: string
+  /** Scored only: the heading the attribute sits under — Appearance, Aroma … */
+  section?: string
+  /** Scored only: the share of the score out of 100 this attribute carries. */
+  weight?: number
+  /** Scored only: a score below 3 here holds the product whatever the total says. */
+  critical?: boolean
 }
 
 export interface LabReportResult {
@@ -494,19 +597,48 @@ export interface LabReportResult {
   result: string
 }
 
+/** One attribute of a sensory evaluation, as it was scored. */
+export interface SensoryScore {
+  section: string
+  name: string
+  weight: number
+  critical: boolean
+  /** 1–5, or null while it has not been scored. */
+  score: number | null
+  observation: string
+  action: string
+}
+
 export interface LabReport {
   id: string
   category: TestCategory
   customerName: string
   customerAddress: string
   issueDate: string
+  /** The evaluator, on a sensory evaluation. */
   labTechnician: string
   sampleQtyAmount: number
   sampleQtyUnit: string
+  /** The product / variant, on a sensory evaluation. */
   sampleName: string
+  /** The batch or trial number, on a sensory evaluation. */
   batchLotDetails: string
   sampleDate: string
   results: LabReportResult[]
+  /** Scored reports: every attribute as it was scored. Copied off the blueprint, so
+   *  re-weighting an attribute later cannot rescore a report already issued. */
+  scores?: SensoryScore[]
+  /** Scored reports: Coconut Water, Coconut Melange … */
+  productGroup?: string
+  /** Scored reports: that product's checks as they read when it was scored. */
+  productChecks?: SensoryProductGroup
+  servingTemp?: string
+  storageCondition?: string
+  /** R&D / QA comments and corrective action. */
+  comments?: string
+  /** Scored reports: the thresholds it was decided against, copied for the same reason. */
+  passScore?: number
+  minorScore?: number
   createdAt: string
 }
 
