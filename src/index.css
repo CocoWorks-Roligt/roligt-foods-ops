@@ -674,6 +674,143 @@ tr:last-child td {
   background: #f6f3ec;
 }
 
+/* A row whose whole surface opens the record's detail view. The View button
+   stays for keyboard users; the pointer gets the whole row. */
+.row-open {
+  cursor: pointer;
+}
+
+.row-open:hover td {
+  background: #f6f3ec;
+}
+
+/* The row is also the keyboard path to the detail, so the stop has to be visible. */
+.row-open:focus-visible {
+  outline: none;
+}
+
+.row-open:focus-visible td {
+  background: #f0ece3;
+}
+
+/* Sortable column heads — the head itself is the control. */
+.th-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.th-sort:hover,
+.th-sort:focus-visible {
+  color: var(--green-2);
+}
+
+.sort-mark {
+  font-size: 10px;
+  opacity: 0.35;
+}
+
+/* The sorted column says so with more than an arrow — the whole head takes
+   the link colour, so the state reads from across the room. */
+.th-sort.active {
+  color: var(--green-2);
+}
+
+.th-sort.active .sort-mark {
+  opacity: 1;
+}
+
+/* Phones turn the table into cards and the column heads disappear with it, so
+   the sort becomes this select above the list. */
+.sort-select {
+  display: none;
+}
+
+/* The roster week grid: a cell is the whole control — a tap sets the day's shift. */
+.roster-grid td {
+  padding: 4px;
+}
+
+.shift-cell {
+  width: 100%;
+  min-height: 46px;
+  display: grid;
+  gap: 1px;
+  justify-items: start;
+  align-content: center;
+  padding: 4px 8px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.shift-cell:hover,
+.shift-cell:focus-visible {
+  border-color: var(--green-2);
+}
+
+/* A set shift is a filled chip, not a dashed empty one. */
+.shift-cell.set {
+  border-style: solid;
+  background: #eef3ec;
+}
+
+.shift-tag {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--green-2);
+}
+
+/* Attendance marks keep the segmented control but shrink to fit a table cell. */
+.attendance-marks .type-tab {
+  padding: 6px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* Quick-pick chips under a plan form's product field: the plant's own products,
+   one tap away from the free-text field they sit beside. */
+.quick-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.quick-pick {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #f7f5f0;
+  color: #435044;
+  cursor: pointer;
+}
+
+.quick-pick:hover,
+.quick-pick.picked {
+  border-color: var(--green-2);
+  color: var(--green-2);
+}
+
+.roster-week-nav {
+  align-items: center;
+}
+
 .row-actions {
   display: flex;
   gap: 6px;
@@ -929,6 +1066,55 @@ textarea:disabled {
 
 .kpi-row:last-child {
   border-bottom: 0;
+}
+
+/* The reports dialog: one card per document — id leading, verdict on the right. */
+.report-list {
+  display: grid;
+  gap: 8px;
+}
+
+.report-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  padding: 11px 13px;
+  background: #f7f5f0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.report-item-main {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.report-item-title {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.report-item-cat {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.report-item-side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.report-item-date {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
 }
 
 .exception-category {
@@ -2634,6 +2820,12 @@ tbody tr.subrow > td {
   /* --- Tables as cards ---
      Each row becomes a card and every cell prints its column name from the
      data-label attribute, so a 10-column table stays readable at 390px. */
+  .sort-select {
+    display: block;
+    width: 100%;
+    margin: 0 0 10px;
+  }
+
   .table-wrap {
     border: 0;
     border-radius: 0;

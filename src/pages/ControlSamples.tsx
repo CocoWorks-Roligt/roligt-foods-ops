@@ -8,9 +8,17 @@
 
 import { useMemo, useState } from 'react'
 import { DetailView, type DetailSection } from '../components/DetailView'
+import { detailRowProps } from '../components/detailRow'
 import { DocLink } from '../components/DocLink'
 import { EmptyState } from '../components/EmptyState'
 import { Modal } from '../components/Modal'
+import {
+  SortHeader,
+  SortSelect,
+  sortRows,
+  useTableSort,
+  type SortAccessors,
+} from '../components/tableSort'
 import { StatusBadge } from '../components/StatusBadge'
 import { useApp } from '../context/AppContext'
 import { fmtBulk, itemUom, runBulkItem } from '../lib/batches'
@@ -51,6 +59,19 @@ export function ControlSamples() {
           .includes(q),
     )
   }, [all, filter, search])
+
+  const { sort, toggle, setSort } = useTableSort()
+  const sortBy: SortAccessors<ControlSampleRow> = {
+    date: (r) => r.producedOn,
+    product: (r) => r.product,
+    batch: (r) => r.run.batchId,
+    bottles: (r) => r.sample.count,
+    collected: (r) => r.sample.collectedBy,
+    expiry: (r) => r.sample.expiresOn,
+    destroyed: (r) => r.sample.destroyedOn,
+    status: (r) => r.status,
+  }
+  const sorted = sortRows(rows, sort, sortBy)
 
   const count = (status: ControlSampleStatus | '') =>
     status ? all.filter((r) => r.status === status).length : all.length
@@ -131,19 +152,32 @@ export function ControlSamples() {
         />
       </div>
 
+      <SortSelect
+        sort={sort}
+        onPick={setSort}
+        columns={[
+          { k: 'date', label: 'Date', kind: 'date' },
+          { k: 'product', label: 'Product' },
+          { k: 'batch', label: 'Batch no.', kind: 'text' },
+          { k: 'bottles', label: 'Bottles', kind: 'num' },
+          { k: 'expiry', label: 'Expiry', kind: 'date' },
+          { k: 'destroyed', label: 'Destroyed', kind: 'date' },
+          { k: 'status', label: 'Status' },
+        ]}
+      />
       <div className="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Date</th>
-              <th>Name of Product</th>
-              <th>Batch No.</th>
-              <th>Bottles</th>
-              <th>Collected By</th>
-              <th>Date of Expiry</th>
-              <th>Date Destroyed</th>
+              <SortHeader label="Date" k="date" first="desc" sort={sort} onToggle={toggle} />
+              <SortHeader label="Name of Product" k="product" sort={sort} onToggle={toggle} />
+              <SortHeader label="Batch No." k="batch" sort={sort} onToggle={toggle} />
+              <SortHeader label="Bottles" k="bottles" first="desc" sort={sort} onToggle={toggle} />
+              <SortHeader label="Collected By" k="collected" sort={sort} onToggle={toggle} />
+              <SortHeader label="Date of Expiry" k="expiry" sort={sort} onToggle={toggle} />
+              <SortHeader label="Date Destroyed" k="destroyed" first="desc" sort={sort} onToggle={toggle} />
               <th>Remark</th>
-              <th>Status</th>
+              <SortHeader label="Status" k="status" sort={sort} onToggle={toggle} />
               <th>Action</th>
             </tr>
           </thead>
@@ -162,8 +196,8 @@ export function ControlSamples() {
                 </td>
               </tr>
             ) : (
-              rows.map((r) => (
-                <tr key={r.key}>
+              sorted.map((r) => (
+                <tr key={r.key} {...detailRowProps(() => setViewKey(r.key))}>
                   <td data-label="Date">{fmtDate(r.producedOn)}</td>
                   <td data-label="Name of Product">{r.product}</td>
                   <td data-label="Batch No." className="register-doc">
@@ -181,11 +215,8 @@ export function ControlSamples() {
                     <StatusBadge value={r.status} />
                   </td>
                   <td className="cell-actions">
-                    <div className="row-actions">
-                      <button className="btn btn-light" type="button" onClick={() => setViewKey(r.key)}>
-                        View
-                      </button>
-                      <button className="btn btn-light" type="button" onClick={() => openEdit(r)}>
+                      <div className="row-actions">
+                        <button className="btn btn-light" type="button" onClick={() => openEdit(r)}>
                         Edit
                       </button>
                       {r.sample.destroyedOn ? null : (

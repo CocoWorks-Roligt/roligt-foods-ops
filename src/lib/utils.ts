@@ -46,6 +46,11 @@ export const PAGES: Record<string, [string, string]> = {
     'Procurement',
     'Everything received at the gate. Farm produce is graded and landed into its own traceable lot; packing material is booked in against the supplier and the rate every packing run will cost itself at.',
   ],
+  roster: ['Staff Roster', 'Who is on which shift, and who turned up.'],
+  'production-planning': [
+    'Production Planning',
+    'What must ship, what that leaves to make, and the week that makes it.',
+  ],
   production: [
     'Production',
     'Two stages, one page. Extraction presses produce into bulk; a melange blends that bulk to a recipe. Either way you get a batch with its own lot, its own QC and its own packs.',
@@ -190,10 +195,17 @@ export function statusClass(s?: string) {
   // green as an active one. It is settled first, before anything can match it.
   if (v.includes('inactive')) return 'neutral'
   if (
-    ['pass', 'passed', 'posted', 'released', 'delivered', 'accepted', 'active', 'approved'].some(
-      (x) => v.includes(x),
-    )
-  )
+    [
+      'pass',
+      'passed',
+      'posted',
+      'released',
+      'delivered',
+      'accepted',
+      'active',
+      'approved',
+      'done',
+    ].some((x) => v.includes(x)))
     return 'success'
   // "reject" rather than "rejected", so a sensory decision to reject / hold reads as the
   // failure it is and not as the amber of an ordinary hold.
@@ -211,7 +223,8 @@ export function statusClass(s?: string) {
     ].some((x) => v.includes(x))
   )
     return 'warning'
-  if (['dispatched', 'picked', 'sampled', 'in test'].some((x) => v.includes(x))) return 'info'
+  if (['dispatched', 'picked', 'sampled', 'in test', 'in progress'].some((x) => v.includes(x)))
+    return 'info'
   return 'neutral'
 }
 

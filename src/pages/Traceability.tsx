@@ -11,6 +11,8 @@ import { traceChain, type TraceResult } from '../lib/trace'
 import { sourceKey, traceGraph } from '../lib/traceGraph'
 import { outputStockIds, packStockIds, receiptsFor, runsFilling, stockIdsOfRow } from '../lib/stockIds'
 import { sampleProductName } from '../lib/controlSamples'
+import { categoryTitle } from '../lib/qcCategories'
+import { scoreSensory } from '../lib/sensory'
 import { fmtDate, fmtQty, inr, localDay } from '../lib/utils'
 import type { QcRecord, StockIssue } from '../types'
 
@@ -144,6 +146,16 @@ export function Traceability() {
           'QC reviewed',
           `${q.id} · ${id}`,
           `${itemName(state, q.item || '')} ${q.disposition.toLowerCase()}`,
+        )
+      }
+      for (const r of state.labReports.filter((x) => x.batchId === id)) {
+        add(
+          r.scores ? r.sampleDate : r.issueDate,
+          'Tested',
+          r.id,
+          r.scores
+            ? `${categoryTitle(state, r.category)} — ${scoreSensory(r.scores, r).decision.toLowerCase()}`
+            : `${categoryTitle(state, r.category)} for ${r.customerName}`,
         )
       }
     }
@@ -627,6 +639,28 @@ export function Traceability() {
                 state.qcs.some((x) => x.batchId === id && qcShown(x)),
               ) ? (
                 <div className="small">No QC records against this chain.</div>
+              ) : null}
+            </div>
+            <div className="card">
+              <h3>Lab reports</h3>
+              {result.batches.flatMap((id) =>
+                state.labReports
+                  .filter((r) => r.batchId === id)
+                  .map((r) => (
+                    <div className="kpi-row" key={r.id}>
+                      <span>
+                        <DocLink doc={r.id} /> · {categoryTitle(state, r.category)}
+                        <div className="small">
+                          {id}
+                          {r.scores ? ` · ${scoreSensory(r.scores, r).decision.toLowerCase()}` : ''}
+                          {` · ${fmtDate(r.scores ? r.sampleDate : r.issueDate)}`}
+                        </div>
+                      </span>
+                    </div>
+                  )),
+              )}
+              {!result.batches.some((id) => state.labReports.some((r) => r.batchId === id)) ? (
+                <div className="small">No lab reports against this chain.</div>
               ) : null}
             </div>
             <div className="card">

@@ -11,8 +11,16 @@
 import { useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { DetailView, type DetailSection } from '../components/DetailView'
+import { detailRowProps } from '../components/detailRow'
 import { Modal } from '../components/Modal'
 import { Select } from '../components/Select'
+import {
+  SortHeader,
+  SortSelect,
+  sortRows,
+  useTableSort,
+  type SortAccessors,
+} from '../components/tableSort'
 import { StatusBadge } from '../components/StatusBadge'
 import { EmptyState } from '../components/EmptyState'
 import { useApp } from '../context/AppContext'
@@ -21,7 +29,7 @@ import { useLinkedView } from '../lib/linkedView'
 import { defaultPackingStore, defaultRawStore, postedLocation } from '../lib/posting'
 import { itemName as lookupItemName, locationLabel, areaChoices } from '../lib/stock'
 import { fmtDate, fmtQty, inr, toLocalInputValue } from '../lib/utils'
-import type { Grn } from '../types'
+import type { Grn, LedgerEntry } from '../types'
 
 /** Line under the source name: the grower when a vendor is named above it, plus the area. */
 function sourceNote(g: Grn) {
@@ -128,6 +136,18 @@ export function Procurement() {
       .slice()
       .reverse()
   }, [search, state.grns, status])
+
+  const { sort, toggle, setSort } = useTableSort()
+  const sortBy: SortAccessors<Grn> = {
+    id: (g) => g.id,
+    product: (g) => g.productName || lookupItemName(state, g.itemId || COCONUT_ITEM),
+    date: (g) => g.date,
+    source: (g) => g.farmerName || g.farmer,
+    qty: (g) => g.accepted,
+    cost: (g) => g.landed,
+    status: (g) => g.status,
+  }
+  const sorted = sortRows(rows, sort, sortBy)
 
   /** Lots already issued to production are costed into a batch — their numbers are frozen. */
   const lockedLots = useMemo(
@@ -241,6 +261,23 @@ export function Procurement() {
       .slice()
       .sort((a, b) => b.time.localeCompare(a.time))
   }, [pmSearch, state])
+
+  const {
+    sort: pmSort,
+    toggle: pmToggle,
+    setSort: pmSetSort,
+  } = useTableSort()
+  const pmSortBy: SortAccessors<LedgerEntry> = {
+    doc: (l) => l.doc,
+    material: (l) => lookupItemName(state, l.item),
+    lot: (l) => l.lot,
+    supplier: (l) => state.vendors.find((v) => v.id === l.vendorId)?.name,
+    qty: (l) => l.qtyIn,
+    rate: (l) => l.unitCost,
+    value: (l) => l.qtyIn * l.unitCost,
+    storage: (l) => locationLabel(state, l.location),
+  }
+  const pmSorted = sortRows(pmReceipts, pmSort, pmSortBy)
 
   /** Whether a packing run has already drawn on what a receipt brought in. */
   const pmConsumed = (doc: string) => {
@@ -447,18 +484,45 @@ export function Procurement() {
               <option>Posted</option>
             </Select>
           </div>
+          <SortSelect
+            sort={sort}
+            onPick={setSort}
+            columns={[
+              { k: 'id', label: 'Receipt', kind: 'text' },
+              { k: 'product', label: 'Product' },
+              { k: 'date', label: 'Received', kind: 'date' },
+              { k: 'source', label: 'Source' },
+              { k: 'qty', label: 'Quantity', kind: 'num' },
+              { k: 'cost', label: 'Landed cost', kind: 'num' },
+              { k: 'status', label: 'Status' },
+            ]}
+          />
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>Receipt / Lot</th>
-                  <th>Product</th>
-                  <th>Received</th>
-                  <th>Source</th>
-                  <th className="cell-num cell-tight">Quantity</th>
+                  <SortHeader label="Receipt / Lot" k="id" first="desc" sort={sort} onToggle={toggle} />
+                  <SortHeader label="Product" k="product" sort={sort} onToggle={toggle} />
+                  <SortHeader label="Received" k="date" first="desc" sort={sort} onToggle={toggle} />
+                  <SortHeader label="Source" k="source" sort={sort} onToggle={toggle} />
+                  <SortHeader
+                    label="Quantity"
+                    k="qty"
+                    first="desc"
+                    className="cell-num cell-tight"
+                    sort={sort}
+                    onToggle={toggle}
+                  />
                   <th>Grades</th>
-                  <th className="cell-num cell-tight">Landed Cost</th>
-                  <th className="cell-tight">Status</th>
+                  <SortHeader
+                    label="Landed Cost"
+                    k="cost"
+                    first="desc"
+                    className="cell-num cell-tight"
+                    sort={sort}
+                    onToggle={toggle}
+                  />
+                  <SortHeader label="Status" k="status" className="cell-tight" sort={sort} onToggle={toggle} />
                   <th className="cell-actions">Action</th>
                 </tr>
               </thead>
@@ -477,8 +541,8 @@ export function Procurement() {
                     </td>
                   </tr>
                 ) : (
-                  rows.map((g) => (
-                    <tr key={g.id}>
+                  sorted.map((g) => (
+                    <tr key={g.id} {...detailRowProps(() => setViewId(g.id))}>
                       <td data-label="Receipt / Lot" className="cell-id">
                         <b>{g.id}</b>
                         <div className="cell-sub">{g.lot}</div>
@@ -518,9 +582,6 @@ export function Procurement() {
                     </td>
                     <td className="cell-actions">
                       <div className="row-actions">
-                        <button className="btn btn-light" onClick={() => setViewId(g.id)}>
-                          View
-                        </button>
                         <button className="btn btn-light" onClick={() => openEdit(g)}>
                           Edit
                         </button>
@@ -566,18 +627,53 @@ export function Procurement() {
             />
           </div>
 
+          <SortSelect
+            sort={pmSort}
+            onPick={pmSetSort}
+            columns={[
+              { k: 'doc', label: 'Receipt', kind: 'text' },
+              { k: 'material', label: 'Material' },
+              { k: 'lot', label: 'Lot', kind: 'text' },
+              { k: 'supplier', label: 'Supplier' },
+              { k: 'qty', label: 'Quantity', kind: 'num' },
+              { k: 'rate', label: 'Rate', kind: 'num' },
+              { k: 'value', label: 'Value', kind: 'num' },
+              { k: 'storage', label: 'Storage area' },
+            ]}
+          />
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>Receipt</th>
-                  <th>Material</th>
-                  <th>Lot</th>
-                  <th>Supplier</th>
-                  <th className="cell-num cell-tight">Quantity</th>
-                  <th className="cell-num cell-tight">Rate</th>
-                  <th className="cell-num cell-tight">Value</th>
-                  <th>Storage area</th>
+                  <SortHeader label="Receipt" k="doc" first="desc" sort={pmSort} onToggle={pmToggle} />
+                  <SortHeader label="Material" k="material" sort={pmSort} onToggle={pmToggle} />
+                  <SortHeader label="Lot" k="lot" sort={pmSort} onToggle={pmToggle} />
+                  <SortHeader label="Supplier" k="supplier" sort={pmSort} onToggle={pmToggle} />
+                  <SortHeader
+                    label="Quantity"
+                    k="qty"
+                    first="desc"
+                    className="cell-num cell-tight"
+                    sort={pmSort}
+                    onToggle={pmToggle}
+                  />
+                  <SortHeader
+                    label="Rate"
+                    k="rate"
+                    first="desc"
+                    className="cell-num cell-tight"
+                    sort={pmSort}
+                    onToggle={pmToggle}
+                  />
+                  <SortHeader
+                    label="Value"
+                    k="value"
+                    first="desc"
+                    className="cell-num cell-tight"
+                    sort={pmSort}
+                    onToggle={pmToggle}
+                  />
+                  <SortHeader label="Storage area" k="storage" sort={pmSort} onToggle={pmToggle} />
                   <th className="cell-actions">Action</th>
                 </tr>
               </thead>
@@ -593,10 +689,10 @@ export function Procurement() {
                     </td>
                   </tr>
                 ) : (
-                  pmReceipts.map((l) => {
+                  pmSorted.map((l) => {
                     const drawn = pmConsumed(l.doc)
                     return (
-                      <tr key={l.doc}>
+                      <tr key={l.doc} {...detailRowProps(() => setViewId(l.doc))}>
                         <td data-label="Receipt" className="cell-id">
                           <b>{l.doc}</b>
                           <div className="cell-sub">{fmtDate(l.time)}</div>
@@ -619,9 +715,6 @@ export function Procurement() {
                         <td data-label="Storage area">{locationLabel(state, l.location)}</td>
                         <td className="cell-actions">
                           <div className="row-actions">
-                            <button className="btn btn-light" onClick={() => setViewId(l.doc)}>
-                              View
-                            </button>
                             <button className="btn btn-light" onClick={() => openPmEdit(l.doc)}>
                               Edit
                             </button>

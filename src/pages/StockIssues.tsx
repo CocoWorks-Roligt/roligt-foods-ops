@@ -11,9 +11,17 @@
  */
 
 import { useMemo, useState } from 'react'
+import { detailRowProps } from '../components/detailRow'
 import { EmptyState } from '../components/EmptyState'
 import { Modal } from '../components/Modal'
 import { Select } from '../components/Select'
+import {
+  SortHeader,
+  SortSelect,
+  sortRows,
+  useTableSort,
+  type SortAccessors,
+} from '../components/tableSort'
 import { useApp } from '../context/AppContext'
 import { DocLink } from '../components/DocLink'
 import { RecordTrail } from '../components/RecordTrail'
@@ -119,6 +127,17 @@ export function StockIssues() {
     )
   }, [search, state])
 
+  const { sort, toggle, setSort } = useTableSort()
+  const sortBy: SortAccessors<StockIssue> = {
+    id: (i) => i.id,
+    date: (i) => i.date,
+    reason: (i) => i.reason,
+    to: (i) => i.recipient,
+    lines: (i) => i.lines.length,
+    value: (i) => i.value,
+  }
+  const sorted = sortRows(shown, sort, sortBy)
+
   const reset = () => {
     setEditId('')
     setDate(toLocalInputValue())
@@ -197,16 +216,27 @@ export function StockIssues() {
         />
       </div>
 
+      <SortSelect
+        sort={sort}
+        onPick={setSort}
+        columns={[
+          { k: 'id', label: 'Issue', kind: 'text' },
+          { k: 'date', label: 'Date', kind: 'date' },
+          { k: 'reason', label: 'Reason' },
+          { k: 'to', label: 'Issued to' },
+          { k: 'value', label: 'Value', kind: 'num' },
+        ]}
+      />
       <div className="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Issue</th>
-              <th>Date</th>
-              <th>Reason</th>
-              <th>Issued to</th>
-              <th>What went</th>
-              <th>Value</th>
+              <SortHeader label="Issue" k="id" first="desc" sort={sort} onToggle={toggle} />
+              <SortHeader label="Date" k="date" first="desc" sort={sort} onToggle={toggle} />
+              <SortHeader label="Reason" k="reason" sort={sort} onToggle={toggle} />
+              <SortHeader label="Issued to" k="to" sort={sort} onToggle={toggle} />
+              <SortHeader label="What went" k="lines" first="desc" sort={sort} onToggle={toggle} />
+              <SortHeader label="Value" k="value" first="desc" sort={sort} onToggle={toggle} />
               <th>Action</th>
             </tr>
           </thead>
@@ -222,8 +252,8 @@ export function StockIssues() {
                 </td>
               </tr>
             ) : (
-              shown.map((i) => (
-                <tr key={i.id}>
+              sorted.map((i) => (
+                <tr key={i.id} {...detailRowProps(() => setViewId(i.id))}>
                   <td data-label="Issue" className="cell-id">
                     <b>{i.id}</b>
                     <div className="cell-sub">
@@ -243,9 +273,6 @@ export function StockIssues() {
                   </td>
                   <td className="cell-actions">
                     <div className="row-actions">
-                      <button className="btn btn-light" type="button" onClick={() => setViewId(i.id)}>
-                        View
-                      </button>
                       <button className="btn btn-light" type="button" onClick={() => openEdit(i)}>
                         Edit
                       </button>

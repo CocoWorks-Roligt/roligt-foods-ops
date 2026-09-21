@@ -43,6 +43,10 @@ export type CollectionKey =
   | 'stickerTemplates'
   | 'stickerPrints'
   | 'stockIssues'
+  | 'staff'
+  | 'shifts'
+  | 'attendance'
+  | 'productionPlans'
 
 export interface CollectionSpec {
   key: CollectionKey
@@ -75,6 +79,7 @@ export const COLLECTIONS: CollectionSpec[] = [
   { key: 'products', table: 'products', id: byId, adminOnly: true },
   { key: 'melanges', table: 'melanges', id: byId, adminOnly: true },
   { key: 'testParameters', table: 'test_parameters', id: byId, adminOnly: true },
+  { key: 'staff', table: 'staff', id: byId, adminOnly: true },
 
   // ── the day's work ──
   { key: 'grns', table: 'grns', id: byId },
@@ -85,6 +90,9 @@ export const COLLECTIONS: CollectionSpec[] = [
   { key: 'dispatches', table: 'dispatches', id: byId },
   { key: 'stockIssues', table: 'stock_issues', id: byId },
   { key: 'labReports', table: 'lab_reports', id: byId },
+  { key: 'shifts', table: 'shifts', id: byId },
+  { key: 'attendance', table: 'attendance', id: byId },
+  { key: 'productionPlans', table: 'production_plans', id: byId },
   { key: 'stickerTemplates', table: 'sticker_templates', id: (r) => String(r.stage) },
   { key: 'stickerPrints', table: 'sticker_prints', id: byId, immutable: true },
 ]

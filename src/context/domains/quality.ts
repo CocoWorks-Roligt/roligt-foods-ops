@@ -66,6 +66,16 @@ function reportProblem(state: AppState, input: LabReportInput): string | null {
 }
 
 /**
+ * The batch a report's details name, when they name one exactly. A report's batch field
+ * also carries trial numbers for R&D samples that are not batches, so a match has to be
+ * exact rather than guessed — a mistyped id links nothing rather than the wrong batch.
+ */
+const linkedBatchId = (state: AppState, details: string): string | undefined => {
+  const key = (details || '').trim()
+  return key && state.batches.some((b) => b.id === key) ? key : undefined
+}
+
+/**
  * The thresholds and product checks an evaluation was decided against, copied onto it.
  * A report is a record of what was found on the day; changing the pass score next month
  * must not turn a report that passed into one that failed.
@@ -575,7 +585,12 @@ export function useQuality({ state, setState, nextId, log, showToast, actor, ann
       setState((prev) => {
         const draft = deepClone(prev)
         const id = nextId(draft, 'testReport')
-        const report: LabReport = { ...withSnapshot(def, input), id, createdAt: nowISO() }
+        const report: LabReport = {
+          ...withSnapshot(def, input),
+          batchId: linkedBatchId(state, input.batchLotDetails),
+          id,
+          createdAt: nowISO(),
+        }
         draft.labReports.push(report)
         log(draft, 'Generated lab report', id, describeReport(draft, report))
         createdId = id
@@ -607,7 +622,12 @@ export function useQuality({ state, setState, nextId, log, showToast, actor, ann
         // Report number and the date it was generated identify the document, so they
         // survive an edit — anything a QC record has attached still points at it.
         const before = draft.labReports[idx]
-        draft.labReports[idx] = { ...withSnapshot(def, input, before), id, createdAt: before.createdAt }
+        draft.labReports[idx] = {
+          ...withSnapshot(def, input, before),
+          batchId: linkedBatchId(draft, input.batchLotDetails),
+          id,
+          createdAt: before.createdAt,
+        }
         log(draft, 'Edited lab report', id, describeReport(draft, draft.labReports[idx]))
         return draft
       })

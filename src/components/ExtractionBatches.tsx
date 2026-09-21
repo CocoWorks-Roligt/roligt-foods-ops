@@ -8,9 +8,12 @@
 
 import { Fragment, useMemo, useState } from 'react'
 import { DetailView, type DetailSection } from './DetailView'
+import { detailRowProps } from './detailRow'
+import { labReportSection } from './labReportSection'
 import { DocLink } from './DocLink'
 import { Modal } from './Modal'
 import { Select } from './Select'
+import { SortHeader, SortSelect, sortRows, useTableSort, type SortAccessors } from './tableSort'
 import { StatusBadge } from './StatusBadge'
 import { EmptyState } from './EmptyState'
 import { useApp } from '../context/AppContext'
@@ -124,6 +127,21 @@ export function ExtractionBatches() {
     // A batch is named by the item it produced, so the search reads the whole state.
   }, [search, state, status])
 
+  const { sort, toggle, setSort } = useTableSort()
+  const sortBy: SortAccessors<Batch> = {
+    id: (b) => b.id,
+    date: (b) => b.date,
+    product: (b) => batchLabel(state, b),
+    raw: (b) => itemName(b.sourceLines[0]?.item || COCONUT_ITEM),
+    issued: (b) => batchInputQty(b),
+    produced: (b) => mainOutput(b)?.qty ?? null,
+    spoiled: (b) => b.spoiled || 0,
+    yield: (b) => batchYield(b),
+    cost: (b) => b.costPerL,
+    status: (b) => b.status,
+  }
+  const sorted = sortRows(list, sort, sortBy)
+
   const viewing = viewId ? state.batches.find((b) => b.id === viewId) : undefined
   const qcRecords = viewing ? state.qcs.filter((q) => q.batchId === viewing.id) : []
 
@@ -160,6 +178,7 @@ export function ExtractionBatches() {
       </>
     )
   }
+  const labReports = viewing ? labReportSection(state, viewing.id) : null
   const viewSections: DetailSection[] = viewing
     ? [
         {
@@ -247,6 +266,7 @@ export function ExtractionBatches() {
             { label: 'By-products', value: 'Carry no raw-material cost' },
           ],
         },
+        ...(labReports ? [labReports] : []),
       ]
     : []
 
@@ -348,22 +368,36 @@ export function ExtractionBatches() {
           <option>Rejected</option>
         </Select>
       </div>
+      <SortSelect
+        sort={sort}
+        onPick={setSort}
+        columns={[
+          { k: 'id', label: 'Batch', kind: 'text' },
+          { k: 'date', label: 'Date', kind: 'date' },
+          { k: 'product', label: 'Product' },
+          { k: 'issued', label: 'Issued', kind: 'num' },
+          { k: 'produced', label: 'Bulk produced', kind: 'num' },
+          { k: 'yield', label: 'Yield', kind: 'num' },
+          { k: 'cost', label: 'Cost / unit', kind: 'num' },
+          { k: 'status', label: 'Status' },
+        ]}
+      />
       <div className="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Batch</th>
-              <th>Date</th>
-              <th>Product</th>
-              <th>Raw Material</th>
-              <th>Issued</th>
-              <th>Bulk Produced</th>
+              <SortHeader label="Batch" k="id" first="desc" sort={sort} onToggle={toggle} />
+              <SortHeader label="Date" k="date" first="desc" sort={sort} onToggle={toggle} />
+              <SortHeader label="Product" k="product" sort={sort} onToggle={toggle} />
+              <SortHeader label="Raw Material" k="raw" sort={sort} onToggle={toggle} />
+              <SortHeader label="Issued" k="issued" first="desc" sort={sort} onToggle={toggle} />
+              <SortHeader label="Bulk Produced" k="produced" first="desc" sort={sort} onToggle={toggle} />
               {/* The body has always carried this column; without its header every
                   label from Yield rightwards sat over the wrong data on desktop. */}
-              <th>Spoiled / lost</th>
-              <th>Yield</th>
-              <th>Cost / Unit</th>
-              <th>Status</th>
+              <SortHeader label="Spoiled / lost" k="spoiled" first="desc" sort={sort} onToggle={toggle} />
+              <SortHeader label="Yield" k="yield" first="desc" sort={sort} onToggle={toggle} />
+              <SortHeader label="Cost / Unit" k="cost" first="desc" sort={sort} onToggle={toggle} />
+              <SortHeader label="Status" k="status" sort={sort} onToggle={toggle} />
               <th>Action</th>
             </tr>
           </thead>
@@ -382,12 +416,12 @@ export function ExtractionBatches() {
                 </td>
               </tr>
             ) : (
-              list.map((b) => {
+              sorted.map((b) => {
                 const materials = [
                   ...new Set(b.sourceLines.map((s) => itemName(s.item || COCONUT_ITEM))),
                 ]
                 return (
-                  <tr key={b.id}>
+                  <tr key={b.id} {...detailRowProps(() => setViewId(b.id))}>
                     <td data-label="Batch">
                       <b>{b.id}</b>
                     </td>
@@ -440,9 +474,6 @@ export function ExtractionBatches() {
                     </td>
                     <td className="cell-actions">
                       <div className="row-actions">
-                        <button className="btn btn-light" onClick={() => setViewId(b.id)}>
-                          View
-                        </button>
                         <button className="btn btn-light" onClick={() => openEdit(b)}>
                           Edit
                         </button>

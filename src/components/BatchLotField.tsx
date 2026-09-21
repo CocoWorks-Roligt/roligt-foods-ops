@@ -40,6 +40,14 @@ export function BatchLotField({
         }}
         onFocus={openList}
         onBlur={() => setTimeout(() => setShowList(false), 150)}
+        onKeyDown={(e) => {
+          // Escape puts the suggestion list away without leaving the field —
+          // and stops there, so the dialog behind it stays open for a second
+          // Escape rather than vanishing under a half-filled form.
+          if (e.key !== 'Escape' || !showList) return
+          e.stopPropagation()
+          setShowList(false)
+        }}
       />
       {showList && options.length && rect
         ? createPortal(

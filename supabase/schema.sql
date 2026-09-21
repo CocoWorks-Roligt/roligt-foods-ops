@@ -102,7 +102,8 @@ begin
     'vendors', 'customers', 'purchase_products', 'storage_locations', 'items',
     'products', 'melanges', 'test_parameters',
     'grns', 'batches', 'packing_runs', 'orders', 'qcs', 'dispatches',
-    'stock_issues', 'lab_reports', 'sticker_templates', 'sticker_prints'
+    'stock_issues', 'lab_reports', 'sticker_templates', 'sticker_prints',
+    'staff', 'shifts', 'attendance', 'production_plans'
   ]
   loop
     execute format(
@@ -128,7 +129,7 @@ declare t text;
 begin
   foreach t in array array[
     'vendors', 'customers', 'purchase_products', 'storage_locations',
-    'items', 'products', 'melanges', 'test_parameters'
+    'items', 'products', 'melanges', 'test_parameters', 'staff'
   ]
   loop
     execute format('drop policy if exists "read %s" on public.%I', t, t);
@@ -147,7 +148,8 @@ declare t text;
 begin
   foreach t in array array[
     'grns', 'batches', 'packing_runs', 'orders', 'qcs', 'dispatches',
-    'stock_issues', 'lab_reports', 'sticker_templates', 'sticker_prints'
+    'stock_issues', 'lab_reports', 'sticker_templates', 'sticker_prints',
+    'shifts', 'attendance', 'production_plans'
   ]
   loop
     execute format('drop policy if exists "read %s" on public.%I', t, t);
@@ -305,7 +307,9 @@ declare
     ['test_parameters', 'testParameters'], ['grns', 'grns'], ['batches', 'batches'],
     ['packing_runs', 'packingRuns'], ['orders', 'orders'], ['qcs', 'qcs'],
     ['dispatches', 'dispatches'], ['stock_issues', 'stockIssues'],
-    ['lab_reports', 'labReports'], ['sticker_prints', 'stickerPrints']
+    ['lab_reports', 'labReports'], ['sticker_prints', 'stickerPrints'],
+    ['staff', 'staff'], ['shifts', 'shifts'], ['attendance', 'attendance'],
+    ['production_plans', 'productionPlans']
   ];
   i int;
 begin

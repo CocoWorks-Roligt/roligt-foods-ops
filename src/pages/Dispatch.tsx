@@ -2,9 +2,18 @@ import { useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { PhotoStrip } from '../components/Attachments'
 import { DetailView, type DetailSection } from '../components/DetailView'
+import { detailRowProps } from '../components/detailRow'
 import { DocLink } from '../components/DocLink'
+import { EmptyState } from '../components/EmptyState'
 import { Modal } from '../components/Modal'
 import { Select } from '../components/Select'
+import {
+  SortHeader,
+  SortSelect,
+  sortRows,
+  useTableSort,
+  type SortAccessors,
+} from '../components/tableSort'
 import { StatusBadge } from '../components/StatusBadge'
 import { useApp } from '../context/AppContext'
 import {
@@ -51,6 +60,8 @@ export function DispatchPage() {
     photos: [] as Attachment[],
   })
   const [uploading, setUploading] = useState(false)
+  const [search, setSearch] = useState('')
+  const [status, setStatus] = useState('')
   const photoInput = useRef<HTMLInputElement>(null)
   const [viewId, setViewId, closeView] = useLinkedView((id) => state.dispatches.some((d) => d.id === id))
   const navigate = useNavigate()
@@ -182,11 +193,34 @@ export function DispatchPage() {
       ]
     : []
 
-  /** Every dispatch raised, newest first. */
-  const history = useMemo(
-    () => [...state.dispatches].sort((a, b) => b.dispatchTime.localeCompare(a.dispatchTime)),
-    [state.dispatches],
-  )
+  /** Every dispatch raised, newest first, narrowed to what was searched for. */
+  const history = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return [...state.dispatches]
+      .filter(
+        (d) =>
+          (!status || d.status === status) &&
+          (!q ||
+            [d.id, d.customerName, d.challan, d.batchId, d.vehicle, d.notes || '']
+              .join(' ')
+              .toLowerCase()
+              .includes(q)),
+      )
+      .sort((a, b) => b.dispatchTime.localeCompare(a.dispatchTime))
+  }, [search, state.dispatches, status])
+
+  const { sort, toggle, setSort } = useTableSort()
+  const sortBy: SortAccessors<Dispatch> = {
+    id: (d) => d.id,
+    customer: (d) => d.customerName,
+    batch: (d) => d.batchId,
+    qty: (d) => d.qty,
+    challan: (d) => d.challan,
+    vehicle: (d) => d.vehicle,
+    time: (d) => d.dispatchTime,
+    status: (d) => d.status,
+  }
+  const sorted = sortRows(history, sort, sortBy)
 
   const openForm = (stock = '') => {
     if (!packed.length) {
@@ -294,31 +328,63 @@ export function DispatchPage() {
           <span className="small">Every dispatch raised, newest first</span>
         </div>
       </div>
+      <div className="toolbar">
+        <input
+          placeholder="Search dispatch, customer, challan, batch or vehicle"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <Select value={status} onChange={(e) => setStatus(e.target.value)}>
+          <option value="">All statuses</option>
+          <option>Dispatched</option>
+          <option>In Transit</option>
+          <option>Delivered</option>
+        </Select>
+      </div>
+      <SortSelect
+        sort={sort}
+        onPick={setSort}
+        columns={[
+          { k: 'id', label: 'Dispatch', kind: 'text' },
+          { k: 'customer', label: 'Customer' },
+          { k: 'batch', label: 'Batch', kind: 'text' },
+          { k: 'qty', label: 'Qty', kind: 'num' },
+          { k: 'time', label: 'Dispatch time', kind: 'date' },
+          { k: 'status', label: 'Delivery status' },
+        ]}
+      />
       <div className="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Dispatch</th>
-              <th>Customer</th>
-              <th>Batch</th>
-              <th>Qty</th>
-              <th>Challan</th>
-              <th>Vehicle</th>
-              <th>Dispatch Time</th>
-              <th>Delivery Status</th>
+              <SortHeader label="Dispatch" k="id" first="desc" sort={sort} onToggle={toggle} />
+              <SortHeader label="Customer" k="customer" sort={sort} onToggle={toggle} />
+              <SortHeader label="Batch" k="batch" sort={sort} onToggle={toggle} />
+              <SortHeader label="Qty" k="qty" first="desc" sort={sort} onToggle={toggle} />
+              <SortHeader label="Challan" k="challan" sort={sort} onToggle={toggle} />
+              <SortHeader label="Vehicle" k="vehicle" sort={sort} onToggle={toggle} />
+              <SortHeader label="Dispatch Time" k="time" first="desc" sort={sort} onToggle={toggle} />
+              <SortHeader label="Delivery Status" k="status" sort={sort} onToggle={toggle} />
               <th>Action</th>
             </tr>
           </thead>
           <tbody>
-            {!state.dispatches.length ? (
+            {!sorted.length ? (
               <tr>
                 <td colSpan={9} className="empty">
-                  No dispatches.
+                  <EmptyState
+                    filtered={!!search || !!status}
+                    empty="No dispatches yet."
+                    onClear={() => {
+                      setSearch('')
+                      setStatus('')
+                    }}
+                  />
                 </td>
               </tr>
             ) : (
-              history.map((d) => (
-                <tr key={d.id}>
+              sorted.map((d) => (
+                <tr key={d.id} {...detailRowProps(() => setViewId(d.id))}>
                   <td data-label="Dispatch">
                     <b>{d.id}</b>
                   </td>
@@ -338,9 +404,6 @@ export function DispatchPage() {
                   </td>
                   <td className="cell-actions">
                     <div className="row-actions">
-                      <button className="btn btn-light" onClick={() => setViewId(d.id)}>
-                        View
-                      </button>
                       <button className="btn btn-light" onClick={() => openEdit(d)}>
                         Edit
                       </button>

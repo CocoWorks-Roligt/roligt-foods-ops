@@ -1,6 +1,7 @@
 import { Fragment } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import logo from '../assets/logo.png'
+import { DocLink } from '../components/DocLink'
 import { useApp } from '../context/AppContext'
 import { categoryDef, categoryTitle, isLegacyTest } from '../lib/qcCategories'
 import {
@@ -89,10 +90,10 @@ export function ReportView() {
                 <td>Sample Name</td>
                 <td>{report.sampleName}</td>
               </tr>
-              <tr>
-                <td>Batch/Lot/Other Details</td>
-                <td>{report.batchLotDetails || '—'}</td>
-              </tr>
+            <tr>
+              <td>Batch/Lot/Other Details</td>
+              <td>{report.batchId ? <DocLink doc={report.batchId} /> : report.batchLotDetails || '—'}</td>
+            </tr>
               <tr>
                 <td>Date</td>
                 <td>{fmtDate(report.sampleDate)}</td>
@@ -188,7 +189,7 @@ function SensorySheet({ report, title }: { report: LabReport; title: string }) {
           </tr>
           <tr>
             <td>Batch / Trial No.</td>
-            <td>{report.batchLotDetails || '—'}</td>
+            <td>{report.batchId ? <DocLink doc={report.batchId} /> : report.batchLotDetails || '—'}</td>
           </tr>
           <tr>
             <td>Evaluator</td>

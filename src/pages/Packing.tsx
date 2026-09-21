@@ -1,9 +1,17 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { DetailView, type DetailSection } from '../components/DetailView'
+import { detailRowProps } from '../components/detailRow'
 import { DocLink } from '../components/DocLink'
 import { Modal } from '../components/Modal'
 import { Select } from '../components/Select'
+import {
+  SortHeader,
+  SortSelect,
+  sortRows,
+  useTableSort,
+  type SortAccessors,
+} from '../components/tableSort'
 import { StatusBadge } from '../components/StatusBadge'
 import { EmptyState } from '../components/EmptyState'
 import { useApp } from '../context/AppContext'
@@ -146,6 +154,18 @@ export function Packing() {
       .reverse()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, state.packingRuns, state.items])
+
+  const { sort, toggle, setSort } = useTableSort()
+  const sortBy: SortAccessors<PackingRun> = {
+    id: (r) => r.id,
+    date: (r) => r.date,
+    batch: (r) => r.batchId,
+    from: (r) => itemName(runBulk(r)),
+    drawn: (r) => r.drawn,
+    packs: (r) => r.lines.reduce((a, l) => a + l.packs, 0),
+    status: (r) => r.status,
+  }
+  const sorted = sortRows(list, sort, sortBy)
 
   /** Pack products are numbered FG-0001, so a run reads better by name than by code. */
   const skuLabel = (sku: string) => state.products.find((p) => p.id === sku)?.name || sku
@@ -312,17 +332,30 @@ export function Packing() {
         />
       </div>
 
+      <SortSelect
+        sort={sort}
+        onPick={setSort}
+        columns={[
+          { k: 'id', label: 'Run', kind: 'text' },
+          { k: 'date', label: 'Date', kind: 'date' },
+          { k: 'batch', label: 'Batch', kind: 'text' },
+          { k: 'from', label: 'From' },
+          { k: 'drawn', label: 'Bulk drawn', kind: 'num' },
+          { k: 'packs', label: 'Output (packs)', kind: 'num' },
+          { k: 'status', label: 'Status' },
+        ]}
+      />
       <div className="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Run</th>
-              <th>Date</th>
-              <th>Batch</th>
-              <th>From</th>
-              <th>Bulk Drawn</th>
-              <th>Output</th>
-              <th>Status</th>
+              <SortHeader label="Run" k="id" first="desc" sort={sort} onToggle={toggle} />
+              <SortHeader label="Date" k="date" first="desc" sort={sort} onToggle={toggle} />
+              <SortHeader label="Batch" k="batch" sort={sort} onToggle={toggle} />
+              <SortHeader label="From" k="from" sort={sort} onToggle={toggle} />
+              <SortHeader label="Bulk Drawn" k="drawn" first="desc" sort={sort} onToggle={toggle} />
+              <SortHeader label="Output" k="packs" first="desc" sort={sort} onToggle={toggle} />
+              <SortHeader label="Status" k="status" sort={sort} onToggle={toggle} />
               <th>Action</th>
             </tr>
           </thead>
@@ -338,8 +371,8 @@ export function Packing() {
                 </td>
               </tr>
             ) : (
-              list.map((r) => (
-                <tr key={r.id}>
+              sorted.map((r) => (
+                <tr key={r.id} {...detailRowProps(() => setViewId(r.id))}>
                   <td data-label="Run">
                     <b>{r.id}</b>
                   </td>
@@ -357,9 +390,6 @@ export function Packing() {
                   </td>
                   <td className="cell-actions">
                     <div className="row-actions">
-                      <button className="btn btn-light" onClick={() => setViewId(r.id)}>
-                        View
-                      </button>
                       <button className="btn btn-light" onClick={() => openEdit(r)}>
                         Edit
                       </button>

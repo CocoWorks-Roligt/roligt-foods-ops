@@ -24,6 +24,8 @@ export type ViewId =
   | 'stock-issues'
   | 'stickers'
   | 'traceability'
+  | 'roster'
+  | 'production-planning'
   | 'vendors'
   | 'customers'
   | 'purchase-products'
@@ -113,6 +115,66 @@ export interface Vendor {
   email?: string
   notes?: string
 }
+
+/** The shifts a plant day is cut into. */
+export type ShiftName = 'Morning' | 'Evening' | 'General'
+
+/** Someone on the plant roster. Masters like the vendors: never deleted, only deactivated. */
+export interface StaffMember {
+  id: string
+  name: string
+  role: string
+  phone?: string
+  status: 'Active' | 'Inactive'
+  addedOn: string
+}
+
+/**
+ * One person's shift on one day. The id is `staffId|date`, so a second save for the
+ * same person and day replaces the first — there is no such thing as two shifts.
+ */
+export interface ShiftAssignment {
+  id: string
+  staffId: string
+  date: string
+  shift: ShiftName
+  /** What they are on that day — Extraction, Packing, QC, Dispatch, General. */
+  line: string
+  note?: string
+}
+
+/** Whether one person turned up on one day. Id is `staffId|date`, as with shifts. */
+export interface AttendanceRecord {
+  id: string
+  staffId: string
+  date: string
+  status: 'Present' | 'Absent' | 'Leave' | 'Half day'
+}
+
+/** The stages a plan can be for — the same three the plant actually runs. */
+export type PlanStage = 'Extraction' | 'Melange' | 'Packing'
+
+export type PlanStatus = 'Planned' | 'In progress' | 'Done' | 'Cancelled'
+
+/**
+ * What the plant intends to make on a day, written before it makes it. A plan is
+ * not a batch: nothing is issued, nothing is booked, and it can be cancelled
+ * without a trace on stock. When the day comes, the run is posted as usual on
+ * the Production or Packing page — the plan only ever said what was coming.
+ */
+export interface ProductionPlan {
+  id: string
+  date: string
+  stage: PlanStage
+  /** Free text: a bulk item, a melange, or a pack product name. */
+  product: string
+  qty: number
+  uom: 'Litre' | 'Kg' | 'Packs'
+  note?: string
+  status: PlanStatus
+  createdOn: string
+}
+
 
 export interface Customer {
   id: string
@@ -623,6 +685,9 @@ export interface LabReport {
   sampleName: string
   /** The batch or trial number, on a sensory evaluation. */
   batchLotDetails: string
+  /** The batch this report tested, when its details name one exactly. The free-text
+   *  field stays as it is: trial numbers name R&D samples that are not batches. */
+  batchId?: string
   sampleDate: string
   results: LabReportResult[]
   /** Scored reports: every attribute as it was scored. Copied off the blueprint, so
@@ -761,6 +826,10 @@ export interface Counters {
    *  code that no series could configure or audit. */
   pmReceipt?: number
   storageLocation: number
+  /** People on the plant roster. */
+  staff?: number
+  /** Production plans. */
+  plan?: number
   /** legacy */
   farmer?: number
 }
@@ -798,6 +867,10 @@ export interface AppState {
   stickerTemplates: StickerTemplate[]
   stickerPrints: StickerPrint[]
   stockIssues: StockIssue[]
+  staff: StaffMember[]
+  shifts: ShiftAssignment[]
+  attendance: AttendanceRecord[]
+  productionPlans: ProductionPlan[]
 }
 
 /** The stages a sticker can be printed for, in the order the plant works through them. */

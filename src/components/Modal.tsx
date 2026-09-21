@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 
 interface ModalProps {
   title: string
@@ -30,13 +30,19 @@ export function Modal({
   // The backdrop deliberately does not close the dialog. Every form here is one an
   // operator fills in over a minute or two, and a stray click on the dimmed area used
   // to throw the whole thing away without a word. Escape, Cancel and the × still close it.
+  const backdrop = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
-      // A dropdown open on top of the dialog takes the key first. Without this,
-      // dismissing a dropdown threw away the whole half-filled form behind it.
-      if (document.querySelector('.ui-select-list')) return
+      // A dropdown open on top of the dialog takes the key first — both the
+      // select and the batch autocomplete close themselves on Escape. Without
+      // this check, dismissing one threw away the half-filled form behind it.
+      if (document.querySelector('.ui-select-list, .autocomplete-list')) return
+      // With dialogs stacked — a record link opened from inside another dialog —
+      // Escape belongs to the top one only.
+      const stacked = Array.from(document.querySelectorAll('.modal-backdrop'))
+      if (stacked.length > 1 && stacked[stacked.length - 1] !== backdrop.current) return
       onClose()
     }
     document.addEventListener('keydown', onKeyDown)
@@ -45,7 +51,7 @@ export function Modal({
 
   if (!open) return null
   return (
-    <div className="modal-backdrop">
+    <div className="modal-backdrop" ref={backdrop}>
       <div className="modal-box">
         <div className="modal-head">
           <h3>{title}</h3>

@@ -98,6 +98,7 @@ export const NUMBER_SERIES: SeriesDef[] = [
   series('dispatch', 'Sales', 'Dispatch', 'One line of goods leaving', 'DSP'),
   series('challan', 'Sales', 'Delivery challan', 'The document that travels with the vehicle', 'DC', '{P}{N}/{YYYY}'),
   series('issue', 'Stock', 'Stock issue', 'Stock out for something that is not a sale', 'ISS'),
+  series('plan', 'Planning', 'Production plan', 'What the plant intends to make on a day', 'PLN'),
   series('pmReceipt', 'Stock', 'Packing material receipt', 'Packing material booked into store', 'PMR'),
   series('qc', 'Quality', 'QC record', 'The check a batch is released on', 'QC'),
   series('testReport', 'Quality', 'Lab report', 'An issued certificate of analysis', 'TR'),
@@ -110,6 +111,7 @@ export const NUMBER_SERIES: SeriesDef[] = [
   series('bulkProduct', 'Masters', 'Bulk product', 'A semi-finished output', 'SF', PLAIN),
   series('melange', 'Masters', 'Melange recipe', 'A blend the plant can run', 'MLG', PLAIN),
   series('storageLocation', 'Masters', 'Storage area', 'A cold room, dry store or hold area', 'LOC', PLAIN),
+  series('staff', 'Masters', 'Staff member', 'Someone on the plant roster', 'STF', PLAIN),
 ]
 
 /** The groups, in listing order, with their series. */
@@ -323,6 +325,10 @@ export function issuedCodes(state: AppState, key: string): string[] {
       return (state.melanges || []).map((m) => m.id)
     case 'storageLocation':
       return state.storageLocations.map((l) => l.id)
+    case 'staff':
+      return state.staff.map((s) => s.id)
+    case 'plan':
+      return state.productionPlans.map((p) => p.id)
     default:
       return []
   }

@@ -11,6 +11,7 @@
  *   goods receipt → batch → QC record → packing run → dispatch → order
  *                    ↘ melange run ↗                ↘ stock issue
  *   packing material receipt → packing run
+ *   lab report → batch
  */
 
 import { batchKind, runBulkItem } from './batches'
@@ -28,6 +29,7 @@ export type DocKind =
   | 'order'
   | 'issue'
   | 'stock'
+  | 'report'
 
 export interface DocRef {
   id: string
@@ -45,6 +47,7 @@ export const KIND_LABEL: Record<DocKind, string> = {
   order: 'Order',
   issue: 'Stock issue',
   stock: 'Stock item',
+  report: 'Lab report',
 }
 
 /** What a record number names. A receipt's lot resolves to the receipt itself. */
@@ -56,6 +59,7 @@ export function docRef(state: AppState, raw: string | undefined): DocRef | undef
   const b = state.batches.find((x) => x.id === id)
   if (b) return { id, kind: batchKind(b) === 'Melange' ? 'melange' : 'batch' }
   if (state.qcs.some((q) => q.id === id)) return { id, kind: 'qc' }
+  if (state.labReports.some((r) => r.id === id)) return { id, kind: 'report' }
   if (state.packingRuns.some((r) => r.id === id)) return { id, kind: 'packing' }
   if (state.ledger.some((l) => l.type === 'PM Receipt' && l.doc === id)) return { id, kind: 'material' }
   if (state.dispatches.some((d) => d.id === id)) return { id, kind: 'dispatch' }
@@ -89,6 +93,8 @@ export function docHref(ref: DocRef): string {
       return `/stock-issues?view=${v}`
     case 'stock':
       return `/traceability?q=${v}`
+    case 'report':
+      return `/reports/${v}`
   }
 }
 
@@ -131,6 +137,9 @@ export function linkedRecords(state: AppState, raw: string): LinkedRecords {
       state.qcs.forEach((q) => {
         if (q.batchId === b.id) add(wentInto, q.id)
       })
+      state.labReports.forEach((r) => {
+        if (r.batchId === b.id) add(wentInto, r.id)
+      })
       state.batches.forEach((m) => {
         if ((m.blendLines || []).some((l) => l.lot === b.id)) add(wentInto, m.id)
       })
@@ -172,6 +181,11 @@ export function linkedRecords(state: AppState, raw: string): LinkedRecords {
           add(wentInto, i.id)
         }
       })
+      break
+    }
+    case 'report': {
+      const r = state.labReports.find((x) => x.id === ref.id)!
+      add(cameFrom, r.batchId)
       break
     }
     case 'packing': {

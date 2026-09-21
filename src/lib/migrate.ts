@@ -112,6 +112,14 @@ export function migrateState(raw: unknown, opts: MigrateOptions = {}): AppState 
     audits: (incoming.audits as AppState['audits']) || base.audits,
   }
 
+  // Lab reports used to name their batch only in free text. The exact match is now the
+  // link the reports list, the batch's detail view and the trace chain all read.
+  for (const r of next.labReports) {
+    if (r.batchId) continue
+    const key = (r.batchLotDetails || '').trim()
+    if (key && next.batches.some((b) => b.id === key)) r.batchId = key
+  }
+
   if (!next.vendors.length) {
     const legacyFarmers = (incoming.farmers as Array<Record<string, string>>) || []
     next.vendors = legacyFarmers.map((f) => ({
@@ -666,6 +674,17 @@ export function migrateState(raw: unknown, opts: MigrateOptions = {}): AppState 
   // an older state simply never issued any, and the counter starts where the list does.
   if (!Array.isArray(next.stockIssues)) next.stockIssues = []
   next.counters.issue = Math.max(Number(next.counters.issue) || 0, next.stockIssues.length)
+
+  // The roster arrived the same way: an older state had no staff, no shifts and no
+  // attendance, and its staff counter starts where the (empty) list does.
+  if (!Array.isArray(next.staff)) next.staff = []
+  if (!Array.isArray(next.shifts)) next.shifts = []
+  if (!Array.isArray(next.attendance)) next.attendance = []
+  next.counters.staff = Math.max(Number(next.counters.staff) || 0, next.staff.length)
+
+  // Production plans arrived with the Planning screens; an older state made none.
+  if (!Array.isArray(next.productionPlans)) next.productionPlans = []
+  next.counters.plan = Math.max(Number(next.counters.plan) || 0, next.productionPlans.length)
 
   /**
    * A QC record used to cover a whole batch, which was wrong the moment a pressing

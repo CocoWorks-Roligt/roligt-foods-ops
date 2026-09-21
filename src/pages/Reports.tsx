@@ -1,9 +1,17 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { BatchLotField } from '../components/BatchLotField'
+import { DocLink } from '../components/DocLink'
 import { Modal } from '../components/Modal'
 import { Select } from '../components/Select'
 import { SensoryForm, type SensoryDraft } from '../components/SensoryForm'
+import {
+  SortHeader,
+  SortSelect,
+  sortRows,
+  useTableSort,
+  type SortAccessors,
+} from '../components/tableSort'
 import { StatusBadge } from '../components/StatusBadge'
 import { useApp, type LabReportInput } from '../context/AppContext'
 import { categoryParameters, isActiveCategory, testCategories } from '../lib/qcCategories'
@@ -56,6 +64,20 @@ export function Reports() {
   const def = testCategories(state).find((c) => c.key === category)
   const scored = def?.format === 'scored'
   const editing = editId ? state.labReports.find((r) => r.id === editId) : undefined
+
+  // One sort for every category's table — the columns mean the same thing in each,
+  // and a key one table lacks (Score, in a certificate) is simply ignored there.
+  const { sort, toggle, setSort } = useTableSort()
+  const sortBy: SortAccessors<LabReport> = {
+    id: (r) => r.id,
+    date: (r) => (r.scores ? r.sampleDate : r.issueDate),
+    product: (r) => r.sampleName,
+    batch: (r) => r.batchId || r.batchLotDetails,
+    evaluator: (r) => r.labTechnician,
+    customer: (r) => r.customerName,
+    score: (r) => (r.scores ? scoreSensory(r.scores, r).score : null),
+    decision: (r) => (r.scores ? scoreSensory(r.scores, r).decision : null),
+  }
 
   const openEdit = (report: LabReport, cat: TestCategoryDef) => {
     setEditId(report.id)
@@ -189,22 +211,35 @@ export function Reports() {
                 {!reports.length ? (
                   <div className="empty">No reports yet for {cat.title}.</div>
                 ) : cat.format === 'scored' ? (
-                  <div className="table-wrap">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Report No</th>
-                          <th>Date</th>
-                          <th>Product</th>
-                          <th>Batch / Trial</th>
-                          <th>Evaluator</th>
-                          <th>Score</th>
-                          <th>Decision</th>
-                          <th>Action</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {reports.map((r) => {
+                  <>
+                    <SortSelect
+                      sort={sort}
+                      onPick={setSort}
+                      columns={[
+                        { k: 'id', label: 'Report no', kind: 'text' },
+                        { k: 'date', label: 'Date', kind: 'date' },
+                        { k: 'product', label: 'Product' },
+                        { k: 'batch', label: 'Batch / trial' },
+                        { k: 'score', label: 'Score', kind: 'num' },
+                        { k: 'decision', label: 'Decision' },
+                      ]}
+                    />
+                    <div className="table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <SortHeader label="Report No" k="id" first="desc" sort={sort} onToggle={toggle} />
+                            <SortHeader label="Date" k="date" first="desc" sort={sort} onToggle={toggle} />
+                            <SortHeader label="Product" k="product" sort={sort} onToggle={toggle} />
+                            <SortHeader label="Batch / Trial" k="batch" sort={sort} onToggle={toggle} />
+                            <SortHeader label="Evaluator" k="evaluator" sort={sort} onToggle={toggle} />
+                            <SortHeader label="Score" k="score" first="desc" sort={sort} onToggle={toggle} />
+                            <SortHeader label="Decision" k="decision" sort={sort} onToggle={toggle} />
+                            <th>Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sortRows(reports, sort, sortBy).map((r) => {
                           const summary = scoreSensory(r.scores || [], r)
                           return (
                             <tr key={r.id}>
@@ -213,7 +248,7 @@ export function Reports() {
                               </td>
                               <td data-label="Date">{fmtDate(r.sampleDate)}</td>
                               <td data-label="Product">{r.sampleName}</td>
-                              <td data-label="Batch / Trial">{r.batchLotDetails || '—'}</td>
+                              <td data-label="Batch / Trial">{r.batchId ? <DocLink doc={r.batchId} /> : r.batchLotDetails || '—'}</td>
                               <td data-label="Evaluator">{r.labTechnician || '—'}</td>
                               <td data-label="Score">
                                 {summary.score == null ? '—' : `${fmtQty(summary.score)} / 100`}
@@ -230,21 +265,34 @@ export function Reports() {
                       </tbody>
                     </table>
                   </div>
+                  </>
                 ) : (
-                  <div className="table-wrap">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Report No</th>
-                          <th>Report issued to</th>
-                          <th>Issue Date</th>
-                          <th>Sample Name</th>
-                          <th>Batch / Lot</th>
-                          <th>Action</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {reports.map((r) => (
+                  <>
+                    <SortSelect
+                      sort={sort}
+                      onPick={setSort}
+                      columns={[
+                        { k: 'id', label: 'Report no', kind: 'text' },
+                        { k: 'customer', label: 'Issued to' },
+                        { k: 'date', label: 'Issue date', kind: 'date' },
+                        { k: 'product', label: 'Sample' },
+                        { k: 'batch', label: 'Batch / lot' },
+                      ]}
+                    />
+                    <div className="table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <SortHeader label="Report No" k="id" first="desc" sort={sort} onToggle={toggle} />
+                            <SortHeader label="Report issued to" k="customer" sort={sort} onToggle={toggle} />
+                            <SortHeader label="Issue Date" k="date" first="desc" sort={sort} onToggle={toggle} />
+                            <SortHeader label="Sample Name" k="product" sort={sort} onToggle={toggle} />
+                            <SortHeader label="Batch / Lot" k="batch" sort={sort} onToggle={toggle} />
+                            <th>Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sortRows(reports, sort, sortBy).map((r) => (
                           <tr key={r.id}>
                             <td data-label="Report No">
                               <b>{r.id}</b>
@@ -252,7 +300,7 @@ export function Reports() {
                             <td data-label="Report issued to">{r.customerName}</td>
                             <td data-label="Issue Date">{fmtDate(r.issueDate)}</td>
                             <td data-label="Sample Name">{r.sampleName}</td>
-                            <td data-label="Batch / Lot">{r.batchLotDetails || '—'}</td>
+                              <td data-label="Batch / Lot">{r.batchId ? <DocLink doc={r.batchId} /> : r.batchLotDetails || '—'}</td>
                             <td className="cell-actions">
                               <ReportActions report={r} onEdit={() => openEdit(r, cat)} onDelete={deleteReport} />
                             </td>
@@ -261,6 +309,7 @@ export function Reports() {
                       </tbody>
                     </table>
                   </div>
+                  </>
                 )}
               </>
             ) : null}

@@ -26,6 +26,10 @@ interface NavItem {
 const OPS: NavItem[] = [
   { id: 'dashboard', path: '/', label: 'Dashboard' },
   { id: 'procurement', path: '/procurement', label: 'Procurement' },
+  // Planning sits between what arrived and what gets made: the roster says who is
+  // here, the plan says what the week will produce.
+  { id: 'roster', path: '/roster', label: 'Staff Roster', group: 'Planning' },
+  { id: 'production-planning', path: '/production-planning', label: 'Production Planning' },
   // The order is the order the work happens in. Quality Control gates everything a
   // batch produces, so it belongs beside the two stages that produce it — reaching it
   // used to mean jumping back up the list mid-run.

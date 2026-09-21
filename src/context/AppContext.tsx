@@ -21,6 +21,8 @@ import { useProcurement } from './domains/procurement'
 import { useProduction } from './domains/production'
 import { useQuality, type LabReportInput, type TestCategoryInput, type TestParameterPatch } from './domains/quality'
 import { useSales } from './domains/sales'
+import { usePlanning, type PlanInput } from './domains/planning'
+import { useStaffRoster, type ShiftInput, type StaffInput } from './domains/roster'
 import { useStorageLocations } from './domains/storage'
 import { seed } from '../data/seed'
 import { fetchDb, fetchRevision, saveDb } from '../lib/dbApi'
@@ -146,6 +148,20 @@ interface AppContextValue {
   setStorageLocationStatus: (id: string, status: string) => void
   deleteStorageLocation: (id: string) => void
   setDefaultArea: (purpose: AreaPurpose, id: string) => string | null
+  addStaff: (input: StaffInput) => string | null
+  updateStaff: (id: string, patch: StaffInput) => string | null
+  setStaffStatus: (id: string, status: 'Active' | 'Inactive') => void
+  setShift: (staffId: string, date: string, input: ShiftInput) => void
+  clearShift: (staffId: string, date: string) => void
+  setAttendance: (
+    staffId: string,
+    date: string,
+    status: 'Present' | 'Absent' | 'Leave' | 'Half day',
+  ) => void
+  addPlan: (input: PlanInput) => string | null
+  updatePlan: (id: string, input: PlanInput) => string | null
+  setPlanStatus: (id: string, status: 'Planned' | 'In progress' | 'Done' | 'Cancelled') => void
+  deletePlan: (id: string) => void
   saveTestCategory: (input: TestCategoryInput, key?: string) => string | null
   setTestCategoryStatus: (key: string, status: string) => void
   deleteTestCategory: (key: string) => void
@@ -507,6 +523,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const catalog = useCatalog(deps)
   const bulk = useBulkProducts(deps)
   const storage = useStorageLocations(deps)
+  const roster = useStaffRoster(deps)
+  const planning = usePlanning(deps)
   const admin = useAdmin(deps)
 
   /**
@@ -534,6 +552,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ...catalog,
       ...bulk,
       ...storage,
+      ...roster,
+      ...planning,
       ...admin,
     }),
     [
@@ -547,6 +567,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       procurement,
       production,
       quality,
+      planning,
+      roster,
       rows,
       sales,
       showToast,

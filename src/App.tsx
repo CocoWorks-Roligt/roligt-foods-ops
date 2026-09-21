@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { DocViewerProvider } from './components/DocViewer'
 import { Layout } from './components/Layout'
 import { UpdatePrompt } from './components/PwaPrompts'
 import { AppProvider } from './context/AppContext'
@@ -16,6 +17,8 @@ import { Orders } from './pages/Orders'
 import { Packing } from './pages/Packing'
 import { PackingMaterials } from './pages/PackingMaterials'
 import { Procurement } from './pages/Procurement'
+import { ProductionPlanning } from './pages/ProductionPlanning'
+import { Roster } from './pages/Roster'
 import { Production } from './pages/Production'
 import { PurchaseProducts } from './pages/PurchaseProducts'
 import { Quality } from './pages/Quality'
@@ -57,10 +60,13 @@ function AuthGate() {
   return (
     <AppProvider>
       <BrowserRouter>
-        <Routes>
+        <DocViewerProvider>
+          <Routes>
           <Route element={<Layout />}>
             <Route index element={<Dashboard />} />
             <Route path="procurement" element={<Procurement />} />
+            <Route path="roster" element={<Roster />} />
+            <Route path="production-planning" element={<ProductionPlanning />} />
             <Route path="production" element={<Production />} />
             <Route path="packing" element={<Packing />} />
             <Route path="quality" element={<Quality />} />
@@ -86,6 +92,7 @@ function AuthGate() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
+        </DocViewerProvider>
       </BrowserRouter>
     </AppProvider>
   )

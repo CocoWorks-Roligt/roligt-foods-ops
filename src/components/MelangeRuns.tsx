@@ -11,10 +11,13 @@
 import { Fragment, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { DetailView, type DetailSection } from './DetailView'
+import { detailRowProps } from './detailRow'
+import { labReportSection } from './labReportSection'
 import { DocLink } from './DocLink'
 import { EmptyState } from './EmptyState'
 import { Modal } from './Modal'
 import { Select } from './Select'
+import { SortHeader, SortSelect, sortRows, useTableSort, type SortAccessors } from './tableSort'
 import { StatusBadge } from './StatusBadge'
 import { useApp } from '../context/AppContext'
 import { batchInputQty, batchLabel, batchOutputs, bulkItems, fmtBulk, mainOutput } from '../lib/batches'
@@ -113,6 +116,19 @@ export function MelangeRuns() {
     // A run is named by the recipe it followed, so the search reads the whole state.
   }, [search, state])
 
+  const { sort, toggle, setSort } = useTableSort()
+  const sortBy: SortAccessors<Batch> = {
+    id: (b) => b.id,
+    date: (b) => b.date,
+    melange: (b) => batchLabel(state, b),
+    components: (b) => b.blendLines?.length || 0,
+    out: (b) => mainOutput(b)?.qty ?? null,
+    loss: (b) => batchInputQty(b) - (mainOutput(b)?.qty ?? 0),
+    cost: (b) => b.costPerL,
+    status: (b) => b.status,
+  }
+  const sorted = sortRows(runs, sort, sortBy)
+
   const openRunNew = () => {
     if (!activeRecipes.length) return
     setRunEditId('')
@@ -182,6 +198,7 @@ export function MelangeRuns() {
       </>
     )
   }
+  const labReports = viewing ? labReportSection(state, viewing.id) : null
   const viewSections: DetailSection[] = viewing
     ? [
         {
@@ -247,6 +264,7 @@ export function MelangeRuns() {
             },
           ],
         },
+        ...(labReports ? [labReports] : []),
       ]
     : []
 
@@ -308,18 +326,31 @@ export function MelangeRuns() {
           />
         </div>
 
+        <SortSelect
+          sort={sort}
+          onPick={setSort}
+          columns={[
+            { k: 'id', label: 'Run', kind: 'text' },
+            { k: 'date', label: 'Date', kind: 'date' },
+            { k: 'melange', label: 'Melange' },
+            { k: 'out', label: 'Blend out', kind: 'num' },
+            { k: 'loss', label: 'Loss', kind: 'num' },
+            { k: 'cost', label: 'Cost / unit', kind: 'num' },
+            { k: 'status', label: 'Status' },
+          ]}
+        />
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Run</th>
-                <th>Date</th>
-                <th>Melange</th>
-                <th>Components</th>
-                <th>Blend Out</th>
-                <th>Loss</th>
-                <th>Cost / Unit</th>
-                <th>Status</th>
+                <SortHeader label="Run" k="id" first="desc" sort={sort} onToggle={toggle} />
+                <SortHeader label="Date" k="date" first="desc" sort={sort} onToggle={toggle} />
+                <SortHeader label="Melange" k="melange" sort={sort} onToggle={toggle} />
+                <SortHeader label="Components" k="components" first="desc" sort={sort} onToggle={toggle} />
+                <SortHeader label="Blend Out" k="out" first="desc" sort={sort} onToggle={toggle} />
+                <SortHeader label="Loss" k="loss" first="desc" sort={sort} onToggle={toggle} />
+                <SortHeader label="Cost / Unit" k="cost" first="desc" sort={sort} onToggle={toggle} />
+                <SortHeader label="Status" k="status" sort={sort} onToggle={toggle} />
                 <th>Action</th>
               </tr>
             </thead>
@@ -335,11 +366,11 @@ export function MelangeRuns() {
                   </td>
                 </tr>
               ) : (
-                runs.map((b) => {
+                sorted.map((b) => {
                   const main = mainOutput(b)
                   const uom = b.inputUom || 'Litre'
                   return (
-                    <tr key={b.id}>
+                    <tr key={b.id} {...detailRowProps(() => setViewId(b.id))}>
                       <td data-label="Run">
                         <b>{b.id}</b>
                       </td>
@@ -363,9 +394,6 @@ export function MelangeRuns() {
                       </td>
                       <td className="cell-actions">
                         <div className="row-actions">
-                          <button className="btn btn-light" onClick={() => setViewId(b.id)}>
-                            View
-                          </button>
                           <button className="btn btn-light" onClick={() => openRunEdit(b)}>
                             Edit
                           </button>

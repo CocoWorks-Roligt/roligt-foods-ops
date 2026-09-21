@@ -1,10 +1,10 @@
-import type { AppState } from '../types'
+import type { AppState, ProductionPlan, ShiftAssignment, ShiftName } from '../types'
 import {
   DEFAULT_STICKER_HEIGHT_MM,
   DEFAULT_STICKER_WIDTH_MM,
   defaultTemplates,
 } from '../lib/stickers'
-import { uid } from '../lib/utils'
+import { toDateKey, uid } from '../lib/utils'
 
 export const seed: AppState = {
   counters: {
@@ -30,6 +30,8 @@ export const seed: AppState = {
     sticker: 0,
     issue: 0,
     pmReceipt: 0,
+    staff: 5,
+    plan: 3,
   },
   counterPeriods: {},
   config: {
@@ -318,4 +320,95 @@ export const seed: AppState = {
   stickerTemplates: defaultTemplates(),
   stickerPrints: [],
   stockIssues: [],
+  staff: [
+    { id: 'STF-0001', name: 'Ramesh Kumar', role: 'Supervisor', phone: '98450 11001', status: 'Active', addedOn: '2026-01-05' },
+    { id: 'STF-0002', name: 'Suresh Naik', role: 'Extraction operator', phone: '98450 11002', status: 'Active', addedOn: '2026-01-05' },
+    { id: 'STF-0003', name: 'Priya Shetty', role: 'QC analyst', phone: '98450 11003', status: 'Active', addedOn: '2026-01-05' },
+    { id: 'STF-0004', name: 'Anita Fernandes', role: 'Packing line', phone: '98450 11004', status: 'Active', addedOn: '2026-01-05' },
+    { id: 'STF-0005', name: 'Mohan Das', role: 'Driver', phone: '98450 11005', status: 'Active', addedOn: '2026-01-05' },
+  ],
+  // A Monday–Saturday pattern for the week the seed is first run, so the roster
+  // opens with something on it. Sunday is left open — that is the plant's call.
+  shifts: seedShifts(),
+  attendance: [],
+  // The week ahead, so planning opens with something to work against.
+  productionPlans: seedPlans(),
+}
+
+/**
+ * The week's opening pattern: Monday to Saturday, each person on the line they
+ * own. Sunday is left open — whether the plant runs it is the plant's call.
+ */
+function seedShifts(): ShiftAssignment[] {
+  const now = new Date()
+  const monday = new Date(now)
+  monday.setDate(now.getDate() - ((now.getDay() + 6) % 7))
+  const day = (offset: number) => {
+    const d = new Date(monday)
+    d.setDate(monday.getDate() + offset)
+    return toDateKey(d)
+  }
+  const pattern: [string, ShiftName, string][] = [
+    ['STF-0001', 'General', 'General'],
+    ['STF-0002', 'Morning', 'Extraction'],
+    ['STF-0003', 'Morning', 'QC'],
+    ['STF-0004', 'Morning', 'Packing'],
+    ['STF-0005', 'General', 'Dispatch'],
+  ]
+  const out: ShiftAssignment[] = []
+  for (let i = 0; i < 6; i++) {
+    const date = day(i)
+    for (const [staffId, shift, line] of pattern) {
+      out.push({ id: `${staffId}|${date}`, staffId, date, shift, line })
+    }
+  }
+  return out
+}
+
+/**
+ * Three plans for the next few days — the shape of a normal week: press tomorrow,
+ * blend the day after, pack at the end of it. Dated off today, so a fresh install
+ * always has this week to look at.
+ */
+function seedPlans(): ProductionPlan[] {
+  const today = new Date()
+  const day = (n: number) => {
+    const d = new Date(today)
+    d.setDate(today.getDate() + n)
+    return toDateKey(d)
+  }
+  const pln = (n: number) => `PLN-${today.getFullYear()}-${String(n).padStart(4, '0')}`
+  return [
+    {
+      id: pln(1),
+      date: day(1),
+      stage: 'Extraction',
+      product: 'Coconut Water (bulk)',
+      qty: 200,
+      uom: 'Litre',
+      status: 'Planned',
+      createdOn: toDateKey(today),
+    },
+    {
+      id: pln(2),
+      date: day(2),
+      stage: 'Packing',
+      product: 'OG TCW 5 L',
+      qty: 40,
+      uom: 'Packs',
+      status: 'Planned',
+      createdOn: toDateKey(today),
+    },
+    {
+      id: pln(3),
+      date: day(3),
+      stage: 'Melange',
+      product: 'Malai (bulk)',
+      qty: 50,
+      uom: 'Kg',
+      note: 'For the malai cover run',
+      status: 'Planned',
+      createdOn: toDateKey(today),
+    },
+  ]
 }

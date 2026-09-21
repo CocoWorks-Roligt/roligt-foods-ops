@@ -9,10 +9,18 @@
 
 import { useMemo, useState } from 'react'
 import { DetailView, type DetailSection } from '../components/DetailView'
+import { detailRowProps } from '../components/detailRow'
 import { useLinkedView } from '../lib/linkedView'
 import { EmptyState } from '../components/EmptyState'
 import { Modal } from '../components/Modal'
 import { Select } from '../components/Select'
+import {
+  SortHeader,
+  SortSelect,
+  sortRows,
+  useTableSort,
+  type SortAccessors,
+} from '../components/tableSort'
 import { StatusBadge } from '../components/StatusBadge'
 import { useApp } from '../context/AppContext'
 import { formatSize } from '../lib/packs'
@@ -86,6 +94,16 @@ export function Orders() {
       [o.id, o.customerName, o.status, o.challan || ''].join(' ').toLowerCase().includes(q),
     )
   }, [search, state.orders])
+
+  const { sort, toggle, setSort } = useTableSort()
+  const sortBy: SortAccessors<Order> = {
+    id: (o) => o.id,
+    date: (o) => o.date,
+    customer: (o) => o.customerName,
+    items: (o) => o.lines.reduce((a, l) => a + l.qty, 0),
+    status: (o) => o.status,
+  }
+  const sorted = sortRows(orders, sort, sortBy)
 
   const sending = sendId ? state.orders.find((o) => o.id === sendId) : undefined
 
@@ -200,15 +218,26 @@ export function Orders() {
         />
       </div>
 
+      <SortSelect
+        sort={sort}
+        onPick={setSort}
+        columns={[
+          { k: 'id', label: 'Order', kind: 'text' },
+          { k: 'date', label: 'Raised', kind: 'date' },
+          { k: 'customer', label: 'Customer' },
+          { k: 'items', label: 'Items', kind: 'num' },
+          { k: 'status', label: 'Status' },
+        ]}
+      />
       <div className="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Order</th>
-              <th>Raised</th>
-              <th>Customer</th>
-              <th>Items</th>
-              <th>Status</th>
+              <SortHeader label="Order" k="id" first="desc" sort={sort} onToggle={toggle} />
+              <SortHeader label="Raised" k="date" first="desc" sort={sort} onToggle={toggle} />
+              <SortHeader label="Customer" k="customer" sort={sort} onToggle={toggle} />
+              <SortHeader label="Items" k="items" first="desc" sort={sort} onToggle={toggle} />
+              <SortHeader label="Status" k="status" sort={sort} onToggle={toggle} />
               <th className="cell-actions">Action</th>
             </tr>
           </thead>
@@ -224,8 +253,8 @@ export function Orders() {
                 </td>
               </tr>
             ) : (
-              orders.map((o) => (
-                <tr key={o.id}>
+              sorted.map((o) => (
+                <tr key={o.id} {...detailRowProps(() => setViewId(o.id))}>
                   <td data-label="Order">
                     <b>{o.id}</b>
                     {o.challan ? <div className="small">{o.challan}</div> : null}
@@ -243,9 +272,6 @@ export function Orders() {
                     <StatusBadge value={o.status} />
                   </td>
                   <td className="cell-actions">
-                    <button className="btn btn-light" type="button" onClick={() => setViewId(o.id)}>
-                      View
-                    </button>
                     {o.status === 'Open' ? (
                       <>
                         <button className="btn btn-primary" type="button" onClick={() => openSend(o)}>
