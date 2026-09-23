@@ -15,6 +15,10 @@
  * outlives the note text: the list reads it back, and flags a plan whose orders
  * have all left Open — moot work the planner can cancel, letting demand ask again.
  *
+ * The demand can be scoped to a week by the orders' ship-by days. What is late
+ * is the most urgent work on the page, so a window never hides an overdue order,
+ * nor one with no ship-by day at all.
+ *
  * A packing plan needs bulk behind it, so the form says how much: the packs it
  * will fill, against the bulk already released, and the shelf life the packs
  * will carry — which is why the plan dates soonest-first: fresh product is
@@ -68,6 +72,20 @@ const drinkName = (name: string) => name.replace(/ \(bulk\)$/i, '')
 /** The short unit a bulk is counted in on this page: kg when weighed, L when poured. */
 const shortUom = (uom: string) => (uom === 'Kg' ? 'kg' : 'L')
 
+/** The Monday of the week `d` falls in — a ship-by day's week runs Monday to
+ *  Sunday, the way the roster reads weeks. */
+const mondayOf = (d: Date) => {
+  const monday = new Date(d)
+  monday.setDate(d.getDate() - ((d.getDay() + 6) % 7))
+  return monday
+}
+
+const addDays = (key: string, n: number) => {
+  const d = new Date(`${key}T00:00:00`)
+  d.setDate(d.getDate() + n)
+  return toDateKey(d)
+}
+
 /** One pack format's slice of a drink's demand. */
 interface FormatRow {
   sku: string
@@ -81,6 +99,8 @@ interface FormatRow {
   toMake: number
   /** The open orders asking for this format — what a plan off this row serves. */
   orders: string[]
+  /** Of those, the ones already past their ship-by day. */
+  overdue: string[]
 }
 
 /** One drink: the formats the open orders ask for, and the bulk that implies. */
@@ -98,6 +118,8 @@ interface DrinkRow {
   uom: string
   /** Every open order behind any of the drink's formats. */
   orders: string[]
+  /** How many of those orders are past their ship-by day. */
+  overdue: number
   /** For a melange: what the blend draws, in the recipe's shares. */
   components: { name: string; qty: number; uom: string }[]
 }
@@ -109,23 +131,52 @@ export function ProductionPlanning() {
   const { state, addPlan, updatePlan, setPlanStatus, deletePlan } = useApp()
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<PlanStatus | ''>('')
+  const [horizon, setHorizon] = useState<'all' | 'week' | 'next'>('all')
   const [open, setOpen] = useState(false)
   const [editId, setEditId] = useState('')
   const [form, setForm] = useState(blankForm)
 
   const editing = editId ? state.productionPlans.find((p) => p.id === editId) : undefined
 
+  /** The window the horizon names — this week or next, Monday to Sunday. Null
+   *  means every open order, which is where the page starts: nothing owed is
+   *  hidden until someone asks for a week. */
+  const win = useMemo(() => {
+    if (horizon === 'all') return null
+    const monday = toDateKey(mondayOf(new Date()))
+    const from = horizon === 'next' ? addDays(monday, 7) : monday
+    return { from, to: addDays(from, 6) }
+  }, [horizon])
+
   // ── What must ship: open orders by drink, netted against released stock and
   //    the plans already on the board ────────────────────────────────────────────
-  const demand = useMemo<{ drinks: DrinkRow[]; covered: number }>(() => {
+  const demand = useMemo<{ drinks: DrinkRow[]; covered: number; beyond: number }>(() => {
+    const today = toDateKey()
     const due: Record<string, number> = {}
     const orderIds: Record<string, string[]> = {}
+    const overdueIds: Record<string, string[]> = {}
+    let beyond = 0
     for (const o of state.orders) {
       if (o.status !== 'Open') continue
+      // A week window narrows what is shown, never what is owed: an order past
+      // its ship-by day, or one with none, always stays on the page.
+      if (
+        win &&
+        o.dueDate &&
+        o.dueDate >= today &&
+        !(o.dueDate >= win.from && o.dueDate <= win.to)
+      ) {
+        beyond++
+        continue
+      }
       for (const l of o.lines) {
         due[l.sku] = (due[l.sku] || 0) + l.qty
         if (!orderIds[l.sku]) orderIds[l.sku] = []
         if (!orderIds[l.sku].includes(o.id)) orderIds[l.sku].push(o.id)
+        if (o.dueDate && o.dueDate < today) {
+          if (!overdueIds[l.sku]) overdueIds[l.sku] = []
+          if (!overdueIds[l.sku].includes(o.id)) overdueIds[l.sku].push(o.id)
+        }
       }
     }
     const rows = stockRows(state)
@@ -168,6 +219,7 @@ export function ProductionPlanning() {
         planned,
         toMake,
         orders: orderIds[sku] || [],
+        overdue: overdueIds[sku] || [],
       }
       if (d === 0 && rel === 0) continue
       if (!product) {
@@ -183,6 +235,7 @@ export function ProductionPlanning() {
           toMakeBulk: 0,
           uom: '',
           orders: fmt.orders,
+          overdue: fmt.overdue.length,
           components: [],
         })
         continue
@@ -202,6 +255,7 @@ export function ProductionPlanning() {
           toMakeBulk: 0,
           uom: item?.uom || bulkUomForUnit(product.unit),
           orders: [],
+          overdue: 0,
           components: [],
         }
         groups.set(bulkId, g)
@@ -215,6 +269,7 @@ export function ProductionPlanning() {
     let covered = 0
     for (const g of groups.values()) {
       g.orders = [...new Set(g.formats.flatMap((f) => f.orders))]
+      g.overdue = new Set(g.formats.flatMap((f) => f.overdue)).size
       g.onHand = g.bulkId ? releasedBulk[g.bulkId] || 0 : 0
       g.toMakeBulk = Math.max(0, g.needed - g.onHand)
       // A drink with bulk to make or packs to fill stays on the page; one the
@@ -236,8 +291,8 @@ export function ProductionPlanning() {
     withWork.sort((a, b) => b.toMakeBulk - a.toMakeBulk || packsToMake(b) - packsToMake(a))
 
     const orphanWork = orphans.filter((o) => packsToMake(o) > 0)
-    return { drinks: [...withWork, ...orphanWork], covered }
-  }, [state])
+    return { drinks: [...withWork, ...orphanWork], covered, beyond }
+  }, [state, win])
 
   // ── The plan list ────────────────────────────────────────────────────────────
   /** Today and onwards soonest-first, then the past newest-first. */
@@ -462,8 +517,20 @@ export function ProductionPlanning() {
           <h4>What must ship</h4>
           <span className="small">
             Open orders by drink, less released stock and the plans already on the board — the bulk
-            to extract or blend above, the pack formats beneath
+            to extract or blend above, the pack formats beneath. Overdue and undated orders are
+            never hidden by a week.
           </span>
+        </div>
+        <div className="section-head-actions">
+          <Select
+            value={horizon}
+            aria-label="Order horizon"
+            onChange={(e) => setHorizon(e.target.value as 'all' | 'week' | 'next')}
+          >
+            <option value="all">All open orders</option>
+            <option value="week">Due this week</option>
+            <option value="next">Due next week</option>
+          </Select>
         </div>
       </div>
       {demand.drinks.length ? (
@@ -491,6 +558,12 @@ export function ProductionPlanning() {
                           <div className="cell-sub">
                             {d.isMelange ? 'Blend, then pack' : 'Extract, then pack'}
                           </div>
+                          {d.overdue > 0 ? (
+                            <div className="cell-sub" style={{ color: 'var(--warning)' }}>
+                              {d.overdue} open {d.overdue === 1 ? 'order' : 'orders'} past{' '}
+                              {d.overdue === 1 ? 'its' : 'their'} ship-by date
+                            </div>
+                          ) : null}
                           {d.components.length ? (
                             <div className="cell-sub">
                               Needs{' '}
@@ -583,6 +656,12 @@ export function ProductionPlanning() {
             <div className="small" style={{ padding: '8px 2px 0' }}>
               {demand.covered} drink{demand.covered === 1 ? '' : 's'} fully covered by released stock
               or plans already on the board — hidden.
+            </div>
+          ) : null}
+          {win && demand.beyond > 0 ? (
+            <div className="small" style={{ padding: '8px 2px 0' }}>
+              {demand.beyond} open {demand.beyond === 1 ? 'order is' : 'orders are'} due beyond this
+              window — All open orders shows {demand.beyond === 1 ? 'it' : 'them'}.
             </div>
           ) : null}
         </>

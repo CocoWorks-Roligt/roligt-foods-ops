@@ -720,6 +720,10 @@ export interface Order {
   customerId: string
   customerName: string
   date: string
+  /** Ship-by day, as a date key — when the customer expects it out. Optional:
+   *  planning scopes open orders into weeks by it, and never hides an order
+   *  that is undated or past it. */
+  dueDate?: string
   lines: OrderLine[]
   /** Open · Dispatched · Cancelled. */
   status: string

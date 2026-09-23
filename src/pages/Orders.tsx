@@ -25,7 +25,7 @@ import { StatusBadge } from '../components/StatusBadge'
 import { useApp } from '../context/AppContext'
 import { formatSize } from '../lib/packs'
 import { displayExpiry, locationLabel, parseRowKey, rowKey, inHoldArea } from '../lib/stock'
-import { fmtDate, fmtQty, QTY_EPSILON, toLocalInputValue } from '../lib/utils'
+import { fmtDate, fmtQty, QTY_EPSILON, toDateKey, toLocalInputValue } from '../lib/utils'
 import type { Order, OrderLine } from '../types'
 import { bareAll, keyed, keyedAll, type Keyed } from '../lib/rows'
 
@@ -40,6 +40,7 @@ export function Orders() {
   const [form, setForm] = useState({
     customerId: '',
     date: toLocalInputValue(),
+    dueDate: '',
     notes: '',
     lines: [keyed(blankLine)] as Keyed<OrderLine>[],
   })
@@ -99,6 +100,7 @@ export function Orders() {
   const sortBy: SortAccessors<Order> = {
     id: (o) => o.id,
     date: (o) => o.date,
+    due: (o) => o.dueDate || '',
     customer: (o) => o.customerName,
     items: (o) => o.lines.reduce((a, l) => a + l.qty, 0),
     status: (o) => o.status,
@@ -106,6 +108,7 @@ export function Orders() {
   const sorted = sortRows(orders, sort, sortBy)
 
   const sending = sendId ? state.orders.find((o) => o.id === sendId) : undefined
+  const today = toDateKey()
 
   const packLabel = (sku: string) => {
     const p = state.products.find((x) => x.id === sku)
@@ -114,7 +117,13 @@ export function Orders() {
 
   const openNew = () => {
     setEditId('')
-    setForm({ customerId: '', date: toLocalInputValue(), notes: '', lines: [keyed(blankLine)] })
+    setForm({
+      customerId: '',
+      date: toLocalInputValue(),
+      dueDate: '',
+      notes: '',
+      lines: [keyed(blankLine)],
+    })
     setOpen(true)
   }
 
@@ -123,6 +132,7 @@ export function Orders() {
     setForm({
       customerId: o.customerId,
       date: toLocalInputValue(new Date(o.date)),
+      dueDate: o.dueDate || '',
       notes: o.notes || '',
       lines: o.lines.length ? keyedAll(o.lines) : [keyed(blankLine)],
     })
@@ -171,6 +181,7 @@ export function Orders() {
           fields: [
             { label: 'Order', value: viewingOrder.id },
             { label: 'Raised on', value: fmtDate(viewingOrder.date) },
+            { label: 'Ship by', value: viewingOrder.dueDate ? fmtDate(viewingOrder.dueDate) : '' },
             { label: 'Customer', value: viewingOrder.customerName },
             { label: 'Status', value: viewingOrder.status },
             { label: 'Challan', value: viewingOrder.challan },
@@ -224,6 +235,7 @@ export function Orders() {
         columns={[
           { k: 'id', label: 'Order', kind: 'text' },
           { k: 'date', label: 'Raised', kind: 'date' },
+          { k: 'due', label: 'Ship by', kind: 'date' },
           { k: 'customer', label: 'Customer' },
           { k: 'items', label: 'Items', kind: 'num' },
           { k: 'status', label: 'Status' },
@@ -235,6 +247,7 @@ export function Orders() {
             <tr>
               <SortHeader label="Order" k="id" first="desc" sort={sort} onToggle={toggle} />
               <SortHeader label="Raised" k="date" first="desc" sort={sort} onToggle={toggle} />
+              <SortHeader label="Ship by" k="due" sort={sort} onToggle={toggle} />
               <SortHeader label="Customer" k="customer" sort={sort} onToggle={toggle} />
               <SortHeader label="Items" k="items" first="desc" sort={sort} onToggle={toggle} />
               <SortHeader label="Status" k="status" sort={sort} onToggle={toggle} />
@@ -244,7 +257,7 @@ export function Orders() {
           <tbody>
             {!orders.length ? (
               <tr>
-                <td colSpan={6} className="empty">
+                <td colSpan={7} className="empty">
                   <EmptyState
                     filtered={!!search}
                     empty="No orders yet. Raise one once a customer's goods are packed and cleared."
@@ -260,6 +273,22 @@ export function Orders() {
                     {o.challan ? <div className="small">{o.challan}</div> : null}
                   </td>
                   <td data-label="Raised">{fmtDate(o.date)}</td>
+                  <td data-label="Ship by" className="cell-tight">
+                    {o.dueDate ? (
+                      <>
+                        {fmtDate(o.dueDate)}
+                        {/* An open order past its ship-by day is the plant's most
+                            urgent demand — say so where the order is listed. */}
+                        {o.status === 'Open' && o.dueDate < today ? (
+                          <div className="cell-sub" style={{ color: 'var(--warning)' }}>
+                            overdue
+                          </div>
+                        ) : null}
+                      </>
+                    ) : (
+                      <span className="small">—</span>
+                    )}
+                  </td>
                   <td data-label="Customer">{o.customerName}</td>
                   <td data-label="Items">
                     {o.lines.map((l) => (
@@ -335,6 +364,7 @@ export function Orders() {
             {
               customerId: form.customerId,
               date: form.date,
+              dueDate: form.dueDate,
               notes: form.notes,
               lines: bareAll(form.lines.filter((l) => l.sku && l.qty > 0)),
             },
@@ -366,6 +396,14 @@ export function Orders() {
               type="datetime-local"
               value={form.date}
               onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
+            />
+          </div>
+          <div className="field">
+            <label>Ship by (optional)</label>
+            <input
+              type="date"
+              value={form.dueDate}
+              onChange={(e) => setForm((f) => ({ ...f, dueDate: e.target.value }))}
             />
           </div>
         </div>

@@ -181,7 +181,7 @@ interface AppContextValue {
   deleteStockIssue: (id: string) => void
   exportData: () => void
   saveOrder: (
-    input: { customerId: string; date: string; lines: OrderLine[]; notes?: string },
+    input: { customerId: string; date: string; dueDate?: string; lines: OrderLine[]; notes?: string },
     id?: string,
   ) => string | null
   cancelOrder: (id: string) => void

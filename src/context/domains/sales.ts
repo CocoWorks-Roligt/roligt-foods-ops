@@ -17,7 +17,10 @@ import type { CoreDeps, DeliveryInput } from './deps'
 
 export function useSales({ state, setState, nextId, log, showToast, announcement }: CoreDeps) {
   const saveOrder = useCallback(
-    (input: { customerId: string; date: string; lines: OrderLine[]; notes?: string }, id?: string) => {
+    (
+      input: { customerId: string; date: string; dueDate?: string; lines: OrderLine[]; notes?: string },
+      id?: string,
+    ) => {
       const customer = state.customers.find((c) => c.id === input.customerId)
       if (!customer) {
         showToast('Select a customer.')
@@ -43,6 +46,7 @@ export function useSales({ state, setState, nextId, log, showToast, announcement
             customerId: customer.id,
             customerName: customer.name,
             date: new Date(input.date).toISOString(),
+            dueDate: input.dueDate || undefined,
             lines,
             notes: input.notes,
           })
@@ -54,6 +58,7 @@ export function useSales({ state, setState, nextId, log, showToast, announcement
             customerId: customer.id,
             customerName: customer.name,
             date: new Date(input.date).toISOString(),
+            dueDate: input.dueDate || undefined,
             lines,
             status: 'Open',
             notes: input.notes,
