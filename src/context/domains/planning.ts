@@ -20,6 +20,9 @@ export interface PlanInput {
   qty: number
   uom: ProductionPlan['uom']
   note?: string
+  /** Which open orders the plan serves. Absent on a hand-made plan; on edit,
+   *  undefined keeps what the plan already serves. */
+  serves?: string[]
 }
 
 const STATUSES: PlanStatus[] = ['Planned', 'In progress', 'Done', 'Cancelled']
@@ -54,6 +57,7 @@ export function usePlanning({ state, setState, nextId, log, showToast }: CoreDep
           qty: input.qty,
           uom: input.uom,
           note: input.note?.trim() || undefined,
+          serves: input.serves?.length ? [...input.serves] : undefined,
           status: 'Planned',
           createdOn: new Date().toISOString().slice(0, 10),
         }
@@ -91,6 +95,9 @@ export function usePlanning({ state, setState, nextId, log, showToast }: CoreDep
         plan.qty = input.qty
         plan.uom = input.uom
         plan.note = input.note?.trim() || undefined
+        if (input.serves !== undefined) {
+          plan.serves = input.serves.length ? [...input.serves] : undefined
+        }
         log(draft, 'Updated plan', plan.id, describe(plan))
         return draft
       })

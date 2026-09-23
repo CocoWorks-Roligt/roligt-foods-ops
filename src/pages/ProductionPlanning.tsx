@@ -1,11 +1,19 @@
 /**
- * Production planning — the way it actually happens on the floor.
+ * Production planning — the pathway from open orders to the runs that make them.
  *
  * A plan is not written from thin air. It starts from what must ship: the open
- * customer orders. From those, subtract the finished goods already released and
- * sitting in store, and what is left is what the plant has to make. The demand
- * table at the top does that arithmetic per pack product; its Plan button hands
- * the answer straight to a plan.
+ * customer orders. The demand table reads them the way the floor does — by
+ * drink, not by pack SKU. Each drink row works out the bulk its unmade packs
+ * still need (packs × pack volume), nets that against the bulk released in the
+ * cold room and the packing plans already on the board, and says whether the
+ * bulk is extracted or blended — a melange's components spelled out in their
+ * shares. The pack formats sit beneath their drink, each with its own Plan
+ * button, so the page reads as the week's pathway: extract or blend so much,
+ * then pack it into these formats.
+ *
+ * A plan raised from that table carries the order ids it serves, so the link
+ * outlives the note text: the list reads it back, and flags a plan whose orders
+ * have all left Open — moot work the planner can cancel, letting demand ask again.
  *
  * A packing plan needs bulk behind it, so the form says how much: the packs it
  * will fill, against the bulk already released, and the shelf life the packs
@@ -16,7 +24,8 @@
  * Production or Packing; the plan only ever said what was coming.
  */
 
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
+import { DocLink } from '../components/DocLink'
 import { EmptyState } from '../components/EmptyState'
 import { detailRowProps } from '../components/detailRow'
 import { Modal } from '../components/Modal'
@@ -31,11 +40,14 @@ import {
 import { StatusBadge } from '../components/StatusBadge'
 import { useApp } from '../context/AppContext'
 import { fmtDate, fmtQty, statusLabel, toDateKey } from '../lib/utils'
+import { bulkItemOf, bulkUomForUnit } from '../lib/packs'
 import { stockRows } from '../lib/stock'
-import type { PlanStage, PlanStatus, ProductionPlan } from '../types'
+import type { PlanStage, PlanStatus, Product, ProductionPlan } from '../types'
 
 const STAGES: PlanStage[] = ['Extraction', 'Melange', 'Packing']
-const UOMS: ProductionPlan['uom'][] = ['Litre', 'Kg', 'Packs']
+/** Each stage measures its plans in its own units: packs when filling, bulk when making. */
+const PACKING_UOMS: ProductionPlan['uom'][] = ['Packs']
+const BULK_UOMS: ProductionPlan['uom'][] = ['Litre', 'Kg']
 const STATUS_FILTERS: (PlanStatus | '')[] = ['', 'Planned', 'In progress', 'Done', 'Cancelled']
 
 const blankForm = () => ({
@@ -45,21 +57,53 @@ const blankForm = () => ({
   qty: '' as number | '',
   uom: 'Packs' as ProductionPlan['uom'],
   note: '',
+  serves: [] as string[],
 })
 
 const num = (v: number | '') => (v === '' ? 0 : Number(v))
 
-/**
- * One pack product's week: what the open orders ask for, what is released and
- * waiting in store, and the difference the plant has to make.
- */
-interface DemandRow {
+/** The drink behind a bulk item's name — "Coconut Water (bulk)" reads as Coconut Water. */
+const drinkName = (name: string) => name.replace(/ \(bulk\)$/i, '')
+
+/** The short unit a bulk is counted in on this page: kg when weighed, L when poured. */
+const shortUom = (uom: string) => (uom === 'Kg' ? 'kg' : 'L')
+
+/** One pack format's slice of a drink's demand. */
+interface FormatRow {
   sku: string
   name: string
+  /** Undefined when the order names a sku that is no longer in the product master. */
+  product?: Product
   due: number
   released: number
+  /** Packs already sitting on Planned/In-progress packing plans for this product. */
+  planned: number
   toMake: number
+  /** The open orders asking for this format — what a plan off this row serves. */
+  orders: string[]
 }
+
+/** One drink: the formats the open orders ask for, and the bulk that implies. */
+interface DrinkRow {
+  key: string
+  bulkId: string | null
+  name: string
+  isMelange: boolean
+  formats: FormatRow[]
+  /** Base units the still-unmade packs will draw from the bulk. */
+  needed: number
+  /** Released bulk waiting in the cold room. */
+  onHand: number
+  toMakeBulk: number
+  uom: string
+  /** Every open order behind any of the drink's formats. */
+  orders: string[]
+  /** For a melange: what the blend draws, in the recipe's shares. */
+  components: { name: string; qty: number; uom: string }[]
+}
+
+/** A heavier rule above each drink row, so the groups read as groups. */
+const drinkRowTop = { borderTop: '2px solid var(--line)' } as const
 
 export function ProductionPlanning() {
   const { state, addPlan, updatePlan, setPlanStatus, deletePlan } = useApp()
@@ -71,32 +115,128 @@ export function ProductionPlanning() {
 
   const editing = editId ? state.productionPlans.find((p) => p.id === editId) : undefined
 
-  // ── What must ship: open orders, netted against released finished goods ──────
-  const demand = useMemo<DemandRow[]>(() => {
+  // ── What must ship: open orders by drink, netted against released stock and
+  //    the plans already on the board ────────────────────────────────────────────
+  const demand = useMemo<{ drinks: DrinkRow[]; covered: number }>(() => {
     const due: Record<string, number> = {}
+    const orderIds: Record<string, string[]> = {}
     for (const o of state.orders) {
       if (o.status !== 'Open') continue
-      for (const l of o.lines) due[l.sku] = (due[l.sku] || 0) + l.qty
+      for (const l of o.lines) {
+        due[l.sku] = (due[l.sku] || 0) + l.qty
+        if (!orderIds[l.sku]) orderIds[l.sku] = []
+        if (!orderIds[l.sku].includes(o.id)) orderIds[l.sku].push(o.id)
+      }
     }
-    const released: Record<string, number> = {}
-    for (const r of stockRows(state)) {
+    const rows = stockRows(state)
+    const releasedPacks: Record<string, number> = {}
+    for (const r of rows) {
       if (r.itemType !== 'Finished Goods' || r.status !== 'Released') continue
-      released[r.item] = (released[r.item] || 0) + r.qty
+      releasedPacks[r.item] = (releasedPacks[r.item] || 0) + r.qty
     }
-    const skus = [...new Set([...Object.keys(due), ...Object.keys(released)])]
-    return skus
-      .map((sku) => {
-        const d = due[sku] || 0
-        const rel = released[sku] || 0
-        return {
-          sku,
-          name: state.products.find((p) => p.id === sku)?.name || sku,
-          due: d,
-          released: rel,
-          toMake: Math.max(0, d - rel),
+    const releasedBulk: Record<string, number> = {}
+    for (const r of rows) {
+      if (r.itemType !== 'Semi Finished' || r.status !== 'Released') continue
+      releasedBulk[r.item] = (releasedBulk[r.item] || 0) + r.qty
+    }
+    /** Packs already on Planned/In-progress packing plans, keyed by product name —
+     *  a plan on the board is work spoken for, so demand must not ask for it twice. */
+    const onBoard: Record<string, number> = {}
+    for (const p of state.productionPlans) {
+      if (p.stage !== 'Packing' || (p.status !== 'Planned' && p.status !== 'In progress')) continue
+      if (p.uom !== 'Packs') continue
+      onBoard[p.product] = (onBoard[p.product] || 0) + p.qty
+    }
+
+    const itemById = new Map(state.items.map((i) => [i.id, i]))
+    const melangeOutputs = new Set(state.melanges.map((m) => m.outputItem))
+    const groups = new Map<string, DrinkRow>()
+    const orphans: DrinkRow[] = []
+
+    for (const sku of new Set([...Object.keys(due), ...Object.keys(releasedPacks)])) {
+      const product = state.products.find((p) => p.id === sku)
+      const d = due[sku] || 0
+      const rel = releasedPacks[sku] || 0
+      const planned = product ? onBoard[product.name] || 0 : 0
+      const toMake = Math.max(0, d - rel - planned)
+      const fmt: FormatRow = {
+        sku,
+        name: product?.name || sku,
+        product,
+        due: d,
+        released: rel,
+        planned,
+        toMake,
+        orders: orderIds[sku] || [],
+      }
+      if (d === 0 && rel === 0) continue
+      if (!product) {
+        // An order naming a sku that is gone from the master still has to be seen.
+        orphans.push({
+          key: `orphan:${sku}`,
+          bulkId: null,
+          name: fmt.name,
+          isMelange: false,
+          formats: [fmt],
+          needed: 0,
+          onHand: 0,
+          toMakeBulk: 0,
+          uom: '',
+          orders: fmt.orders,
+          components: [],
+        })
+        continue
+      }
+      const bulkId = bulkItemOf(product)
+      let g = groups.get(bulkId)
+      if (!g) {
+        const item = itemById.get(bulkId)
+        g = {
+          key: bulkId,
+          bulkId,
+          name: drinkName(item?.name || bulkId),
+          isMelange: melangeOutputs.has(bulkId),
+          formats: [],
+          needed: 0,
+          onHand: 0,
+          toMakeBulk: 0,
+          uom: item?.uom || bulkUomForUnit(product.unit),
+          orders: [],
+          components: [],
         }
-      })
-      .sort((a, b) => b.toMake - a.toMake || b.due - a.due)
+        groups.set(bulkId, g)
+      }
+      g.formats.push(fmt)
+      g.needed += toMake * (product.packVolume || 0)
+    }
+
+    const packsToMake = (g: DrinkRow) => g.formats.reduce((s, f) => s + f.toMake, 0)
+    const withWork: DrinkRow[] = []
+    let covered = 0
+    for (const g of groups.values()) {
+      g.orders = [...new Set(g.formats.flatMap((f) => f.orders))]
+      g.onHand = g.bulkId ? releasedBulk[g.bulkId] || 0 : 0
+      g.toMakeBulk = Math.max(0, g.needed - g.onHand)
+      // A drink with bulk to make or packs to fill stays on the page; one the
+      // store and the board already cover between them steps out of the way.
+      if (g.toMakeBulk > 0 || packsToMake(g) > 0) withWork.push(g)
+      else covered++
+      if (g.isMelange && g.toMakeBulk > 0) {
+        const recipe = state.melanges.find((m) => m.outputItem === g.bulkId)
+        g.components = (recipe?.components || []).map((c) => {
+          const item = itemById.get(c.item)
+          return {
+            name: drinkName(item?.name || c.item),
+            qty: (g.toMakeBulk * c.share) / 100,
+            uom: item?.uom || 'Litre',
+          }
+        })
+      }
+    }
+    withWork.sort((a, b) => b.toMakeBulk - a.toMakeBulk || packsToMake(b) - packsToMake(a))
+
+    const orphanWork = orphans.filter((o) => packsToMake(o) > 0)
+    return { drinks: [...withWork, ...orphanWork], covered }
   }, [state])
 
   // ── The plan list ────────────────────────────────────────────────────────────
@@ -131,28 +271,40 @@ export function ProductionPlanning() {
   const sorted = sortRows(shown, sort, sortBy)
 
   // ── The form, and what it can say about the product it names ────────────────
-  /** What the form's product field can offer, by stage: bulk items to make,
-   *  pack products to fill. */
+  /** What the form's product field offers, by stage: pack products to fill, and
+   *  of the bulk items, only the ones that stage can actually make — a melange's
+   *  output is blended, every other bulk is extracted. */
   const productPicks = useMemo(() => {
     if (form.stage === 'Packing') return state.products.map((p) => p.name)
-    const bulk = state.items.filter((i) => i.type === 'Semi Finished').map((i) => i.name)
-    return [...new Set(bulk)]
-  }, [form.stage, state.items, state.products])
+    const melangeOutputs = new Set(state.melanges.map((m) => m.outputItem))
+    return state.items
+      .filter(
+        (i) => i.type === 'Semi Finished' && (form.stage === 'Melange') === melangeOutputs.has(i.id),
+      )
+      .map((i) => i.name)
+  }, [form.stage, state.items, state.melanges, state.products])
 
-  /** The pack product whose name the form holds, if it names one. */
   const namedProduct = state.products.find((p) => p.name === form.product.trim())
   const namedBulk = state.items.find((i) => i.type === 'Semi Finished' && i.name === form.product.trim())
 
-  /** Released bulk on hand for whichever item the form is really about: the pack
-   *  product's bulk behind a packing plan, or the named bulk itself. */
+  /** The bulk item the form is really about: the pack product's bulk behind a
+   *  packing plan (legacy fallback included), or the named bulk itself. */
+  const formBulkId =
+    form.stage === 'Packing'
+      ? namedProduct
+        ? bulkItemOf(namedProduct)
+        : undefined
+      : namedBulk?.id
+  const formBulk = state.items.find((i) => i.id === formBulkId)
+  const formBulkUom = formBulk?.uom || (namedProduct ? bulkUomForUnit(namedProduct.unit) : 'Litre')
+  const formBulkUnit = shortUom(formBulkUom)
+
   const bulkOnHand = useMemo(() => {
-    const itemId =
-      form.stage === 'Packing' ? namedProduct?.bulkItem : namedBulk?.id
-    if (!itemId) return null
+    if (!formBulkId) return null
     return stockRows(state)
-      .filter((r) => r.item === itemId && r.status === 'Released')
+      .filter((r) => r.item === formBulkId && r.status === 'Released')
       .reduce((a, r) => a + r.qty, 0)
-  }, [form.stage, namedBulk, namedProduct, state])
+  }, [formBulkId, state])
 
   const openNew = () => {
     setEditId('')
@@ -160,8 +312,19 @@ export function ProductionPlanning() {
     setOpen(true)
   }
 
-  /** Start a plan off a demand row: the packing the week is short of. */
-  const planFromDemand = (row: DemandRow) => {
+  /** Picking a product follows it with the unit it is counted in. A different
+   *  product breaks the order link the plan was raised with, so the link goes. */
+  const pickProduct = (name: string) => {
+    setForm((f) => {
+      const serves = f.product === name ? f.serves : []
+      if (f.stage === 'Packing') return { ...f, product: name, uom: 'Packs', serves }
+      const item = state.items.find((i) => i.name === name)
+      return { ...f, product: name, uom: item?.uom === 'Kg' ? 'Kg' : item ? 'Litre' : f.uom, serves }
+    })
+  }
+
+  /** Start a packing plan off a format the drink is short of. */
+  const planPacking = (row: FormatRow) => {
     setEditId('')
     const tomorrow = new Date()
     tomorrow.setDate(tomorrow.getDate() + 1)
@@ -171,7 +334,35 @@ export function ProductionPlanning() {
       product: row.name,
       qty: row.toMake || '',
       uom: 'Packs',
-      note: row.due > 0 ? `Open orders: ${row.due} packs` : '',
+      note:
+        row.due > 0
+          ? `Open orders: ${row.due} packs${row.planned ? ` · ${row.planned} already planned` : ''}`
+          : '',
+      serves: row.orders,
+    })
+    setOpen(true)
+  }
+
+  /** Start the upstream plan a drink row asks for: extraction or the blend. */
+  const planBulkRun = (d: DrinkRow) => {
+    if (!d.bulkId || !d.toMakeBulk) return
+    const item = state.items.find((i) => i.id === d.bulkId)
+    if (!item) return
+    setEditId('')
+    const tomorrow = new Date()
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    const openFormats = d.formats
+      .filter((f) => f.toMake > 0)
+      .map((f) => `${f.name}: ${fmtQty(f.toMake)}`)
+      .join(', ')
+    setForm({
+      date: toDateKey(tomorrow),
+      stage: d.isMelange ? 'Melange' : 'Extraction',
+      product: item.name,
+      qty: d.toMakeBulk,
+      uom: d.uom === 'Kg' ? 'Kg' : 'Litre',
+      note: openFormats ? `For open orders — ${openFormats}` : '',
+      serves: d.orders,
     })
     setOpen(true)
   }
@@ -185,6 +376,7 @@ export function ProductionPlanning() {
       qty: p.qty,
       uom: p.uom,
       note: p.note || '',
+      serves: p.serves || [],
     })
     setOpen(true)
   }
@@ -197,6 +389,7 @@ export function ProductionPlanning() {
       qty: num(form.qty),
       uom: form.uom,
       note: form.note,
+      serves: form.serves,
     }
     const ok = editing ? updatePlan(editing.id, input) : addPlan(input)
     if (ok) {
@@ -207,12 +400,54 @@ export function ProductionPlanning() {
 
   const openCount = shown.filter((p) => p.status === 'Planned' || p.status === 'In progress').length
 
+  /** A plan raised for orders that have all since left Open is moot work. It
+   *  still counts on the board (the packs would exist), so the flag is a nudge:
+   *  cancel it here and demand asks for the work again. */
+  const servesClosed = (p: ProductionPlan) =>
+    !!p.serves?.length &&
+    (p.status === 'Planned' || p.status === 'In progress') &&
+    p.serves.every((id) => state.orders.find((o) => o.id === id)?.status !== 'Open')
+
+  /** The order link a plan carries, said under its number in the list. */
+  const servesNote = (p: ProductionPlan) =>
+    p.serves?.length ? (
+      <div className="cell-sub">
+        serves{' '}
+        {p.serves.slice(0, 3).map((id, i) => (
+          <Fragment key={id}>
+            {i > 0 ? ', ' : ''}
+            <DocLink doc={id} />
+          </Fragment>
+        ))}
+        {p.serves.length > 3 ? ` +${p.serves.length - 3} more` : ''}
+      </div>
+    ) : null
+
+  /** What a packing plan draws, said under its quantity in the list. */
+  const fillsNote = (p: ProductionPlan) => {
+    if (p.stage !== 'Packing' || p.uom !== 'Packs') return null
+    const prod = state.products.find((x) => x.name === p.product)
+    if (!prod?.packVolume) return null
+    const item = state.items.find((i) => i.id === bulkItemOf(prod))
+    return (
+      <div className="cell-sub">
+        fills {fmtQty(p.qty * prod.packVolume)} {shortUom(item?.uom || 'Litre')} of{' '}
+        {drinkName(item?.name || bulkItemOf(prod))}
+      </div>
+    )
+  }
+
+  const uomBase = form.stage === 'Packing' ? PACKING_UOMS : BULK_UOMS
+  /** A plan saved before units followed the stage keeps its old unit visible. */
+  const uomOptions: ProductionPlan['uom'][] =
+    form.uom && !uomBase.includes(form.uom) ? [form.uom, ...uomBase] : uomBase
+
   return (
     <div className="card">
       <div className="section-head">
         <div>
           <h3>Production Planning</h3>
-          <span>What must ship, what that leaves to make, and the week that makes it</span>
+          <span>What must ship, what that leaves to make, and the plans that make it</span>
         </div>
         <div className="section-head-actions">
           <button className="btn btn-primary" type="button" onClick={openNew}>
@@ -221,59 +456,136 @@ export function ProductionPlanning() {
         </div>
       </div>
 
-      {/* ── What must ship ── */}
+      {/* ── What must ship, by drink ── */}
       <div className="section-head" style={{ marginTop: 4 }}>
         <div>
           <h4>What must ship</h4>
           <span className="small">
-            Open orders, less the released stock already in store — the rest has to be made
+            Open orders by drink, less released stock and the plans already on the board — the bulk
+            to extract or blend above, the pack formats beneath
           </span>
         </div>
       </div>
-      {demand.length ? (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Product</th>
-                <th className="cell-num cell-tight">Due (open orders)</th>
-                <th className="cell-num cell-tight">Released in store</th>
-                <th className="cell-num cell-tight">To make</th>
-                <th className="cell-actions">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {demand.map((row) => (
-                <tr key={row.sku}>
-                  <td data-label="Product">
-                    <b>{row.name}</b>
-                    <div className="cell-sub cell-id">{row.sku}</div>
-                  </td>
-                  <td data-label="Due (open orders)" className="cell-num cell-tight">
-                    {row.due || '—'}
-                  </td>
-                  <td data-label="Released in store" className="cell-num cell-tight">
-                    {row.released || '—'}
-                  </td>
-                  <td data-label="To make" className="cell-num cell-tight">
-                    {row.toMake ? (
-                      <b>{fmtQty(row.toMake)} packs</b>
-                    ) : (
-                      <span className="small">Covered</span>
-                    )}
-                  </td>
-                  <td className="cell-actions">
-                    {row.toMake ? (
-                      <button className="btn btn-light" type="button" onClick={() => planFromDemand(row)}>
-                        Plan
-                      </button>
-                    ) : null}
-                  </td>
+      {demand.drinks.length ? (
+        <>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Drink / pack format</th>
+                  <th className="cell-num cell-tight">Due (open orders)</th>
+                  <th className="cell-num cell-tight">In store</th>
+                  <th className="cell-num cell-tight">On the board</th>
+                  <th className="cell-num cell-tight">To make</th>
+                  <th className="cell-actions">Action</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {demand.drinks.map((d) => {
+                  const u = shortUom(d.uom)
+                  return (
+                    <Fragment key={d.key}>
+                      <tr>
+                        <td style={drinkRowTop}>
+                          <b>{d.name}</b>
+                          <div className="cell-sub">
+                            {d.isMelange ? 'Blend, then pack' : 'Extract, then pack'}
+                          </div>
+                          {d.components.length ? (
+                            <div className="cell-sub">
+                              Needs{' '}
+                              {d.components
+                                .map((c) => `${fmtQty(c.qty)} ${shortUom(c.uom)} ${c.name}`)
+                                .join(' · ')}
+                            </div>
+                          ) : null}
+                        </td>
+                        {d.bulkId ? (
+                          <>
+                            <td colSpan={3} className="cell-sub" style={drinkRowTop}>
+                              {d.toMakeBulk > 0
+                                ? `${fmtQty(d.needed)} ${u} of bulk to fill these packs · ${fmtQty(d.onHand)} ${u} released in cold room`
+                                : `Bulk covered — ${fmtQty(d.onHand)} ${u} released in cold room`}
+                            </td>
+                            <td
+                              data-label="To make"
+                              className="cell-num cell-tight"
+                              style={drinkRowTop}
+                            >
+                              <b>
+                                {fmtQty(d.toMakeBulk)} {u}
+                              </b>
+                            </td>
+                            <td className="cell-actions" style={drinkRowTop}>
+                              {d.toMakeBulk > 0 ? (
+                                <button
+                                  className="btn btn-light"
+                                  type="button"
+                                  onClick={() => planBulkRun(d)}
+                                >
+                                  Plan {d.isMelange ? 'blend' : 'extraction'}
+                                </button>
+                              ) : null}
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td colSpan={3} className="cell-sub" style={drinkRowTop}>
+                              Ordered, but no longer in the product master — it cannot be planned
+                              until it is back.
+                            </td>
+                            <td className="cell-num cell-tight" style={drinkRowTop}>
+                              —
+                            </td>
+                            <td className="cell-actions" style={drinkRowTop} />
+                          </>
+                        )}
+                      </tr>
+                      {d.formats.map((f) => (
+                        <tr key={f.sku}>
+                          <td data-label="Pack format">↳ {f.name}</td>
+                          <td data-label="Due (open orders)" className="cell-num cell-tight">
+                            {f.due || '—'}
+                          </td>
+                          <td data-label="In store" className="cell-num cell-tight">
+                            {f.released || '—'}
+                          </td>
+                          <td data-label="On the board" className="cell-num cell-tight">
+                            {f.planned || '—'}
+                          </td>
+                          <td data-label="To make" className="cell-num cell-tight">
+                            {f.toMake ? (
+                              <b>{fmtQty(f.toMake)} packs</b>
+                            ) : (
+                              <span className="small">Covered</span>
+                            )}
+                          </td>
+                          <td className="cell-actions">
+                            {f.toMake && f.product ? (
+                              <button
+                                className="btn btn-light"
+                                type="button"
+                                onClick={() => planPacking(f)}
+                              >
+                                Plan packing
+                              </button>
+                            ) : null}
+                          </td>
+                        </tr>
+                      ))}
+                    </Fragment>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          {demand.covered > 0 ? (
+            <div className="small" style={{ padding: '8px 2px 0' }}>
+              {demand.covered} drink{demand.covered === 1 ? '' : 's'} fully covered by released stock
+              or plans already on the board — hidden.
+            </div>
+          ) : null}
+        </>
       ) : (
         <div className="empty">
           <EmptyState
@@ -352,6 +664,12 @@ export function ProductionPlanning() {
                 <tr key={p.id} {...detailRowProps(() => openEdit(p))}>
                   <td data-label="Plan" className="cell-id">
                     <b>{p.id}</b>
+                    {servesNote(p)}
+                    {servesClosed(p) ? (
+                      <div className="cell-sub" style={{ color: 'var(--warning)' }}>
+                        its orders are no longer open
+                      </div>
+                    ) : null}
                   </td>
                   <td data-label="Date" className="cell-tight">
                     {fmtDate(p.date)}
@@ -363,6 +681,7 @@ export function ProductionPlanning() {
                   <td data-label="Product">{p.product}</td>
                   <td data-label="Qty" className="cell-num cell-tight">
                     {fmtQty(p.qty)} {p.uom === 'Packs' ? 'packs' : p.uom.toLowerCase()}
+                    {fillsNote(p)}
                   </td>
                   <td data-label="Status" className="cell-tight">
                     <StatusBadge value={statusLabel(p.status)} />
@@ -454,8 +773,9 @@ export function ProductionPlanning() {
                 setForm((f) => ({
                   ...f,
                   stage: e.target.value as PlanStage,
-                  // The two stages of making bulk and the one that fills it measure
-                  // their plans differently, so the unit follows the stage.
+                  // The stages name different products, so the pick cannot follow
+                  // the stage across; and the unit follows the stage.
+                  product: '',
                   uom: e.target.value === 'Packing' ? 'Packs' : f.uom === 'Packs' ? 'Litre' : f.uom,
                 }))
               }
@@ -469,30 +789,20 @@ export function ProductionPlanning() {
           </div>
           <div className="field span-2">
             <label>Product</label>
-            <input
-              value={form.product}
-              placeholder={form.stage === 'Packing' ? 'e.g. OG TCW 5 L' : 'e.g. Coconut Water (bulk)'}
-              onChange={(e) => setForm((f) => ({ ...f, product: e.target.value }))}
-            />
-            {productPicks.length ? (
-              <div className="quick-picks">
-                {productPicks.slice(0, 6).map((name) => (
-                  <button
-                    key={name}
-                    type="button"
-                    className={`quick-pick${form.product === name ? ' picked' : ''}`}
-                    onClick={() =>
-                      setForm((f) => ({
-                        ...f,
-                        product: name,
-                      }))
-                    }
-                  >
-                    {name}
-                  </button>
-                ))}
-              </div>
-            ) : null}
+            <Select value={form.product} onChange={(e) => pickProduct(e.target.value)}>
+              <option value="">
+                {form.stage === 'Packing' ? 'Pick the pack product' : 'Pick the bulk'}
+              </option>
+              {productPicks.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+              {/* A plan saved against a since-renamed product keeps its value pickable. */}
+              {form.product && !productPicks.includes(form.product) ? (
+                <option value={form.product}>{form.product}</option>
+              ) : null}
+            </Select>
           </div>
           <div className="field">
             <label>Quantity</label>
@@ -512,7 +822,7 @@ export function ProductionPlanning() {
               value={form.uom}
               onChange={(e) => setForm((f) => ({ ...f, uom: e.target.value as ProductionPlan['uom'] }))}
             >
-              {UOMS.map((u) => (
+              {uomOptions.map((u) => (
                 <option key={u} value={u}>
                   {u}
                 </option>
@@ -522,30 +832,36 @@ export function ProductionPlanning() {
           {/* The arithmetic a planner does in their head, said out loud: what a
               packing plan draws, what is already released, and how long the
               packs keep. */}
-          {form.stage === 'Packing' && namedProduct && namedProduct.packVolume ? (
+          {form.stage === 'Packing' && namedProduct ? (
             <div className="field span-2">
               {(() => {
-                const needed = num(form.qty) * (namedProduct.packVolume || 0)
-                const bulkName =
-                  state.items.find((i) => i.id === namedProduct.bulkItem)?.name ||
-                  namedProduct.bulkItem
+                const needed =
+                  form.uom === 'Packs'
+                    ? num(form.qty) * (namedProduct.packVolume || 0)
+                    : num(form.qty)
+                const bulkName = formBulk?.name || formBulkId || 'its bulk'
                 const onHand = bulkOnHand ?? 0
                 const short = needed > 0 && onHand < needed
                 return (
                   <div className={`note${short ? ' warning-note' : ''}`} style={{ margin: 0 }}>
                     {needed > 0 ? (
                       <>
-                        Fills <b>{fmtQty(needed)} L</b> of {bulkName} · {fmtQty(onHand)} L released in
-                        store
+                        Fills <b>
+                          {fmtQty(needed)} {formBulkUnit}
+                        </b>{' '}
+                        of {drinkName(bulkName)} · {fmtQty(onHand)} {formBulkUnit} released in store
                         {short ? (
                           <>
                             {' '}
-                            — short by <b>{fmtQty(needed - onHand)} L</b>; plan an extraction or melange first
+                            — short by <b>
+                              {fmtQty(needed - onHand)} {formBulkUnit}
+                            </b>
+                            ; plan an extraction or melange first
                           </>
                         ) : null}
                       </>
                     ) : (
-                      <>Pick a quantity to see how much {bulkName} this run draws.</>
+                      <>Pick a quantity to see how much {drinkName(bulkName)} this run draws.</>
                     )}
                     {namedProduct.shelfLifeDays ? (
                       <>
@@ -561,7 +877,24 @@ export function ProductionPlanning() {
           {form.stage !== 'Packing' && namedBulk && bulkOnHand != null ? (
             <div className="field span-2">
               <div className="note" style={{ margin: 0 }}>
-                {fmtQty(bulkOnHand)} {namedBulk.name.toLowerCase()} released in store now.
+                {fmtQty(bulkOnHand)} {formBulkUnit} of {drinkName(namedBulk.name)} released in store
+                now.
+                {(() => {
+                  const recipe = state.melanges.find((m) => m.outputItem === namedBulk.id)
+                  if (!recipe) return null
+                  return (
+                    <>
+                      <br />
+                      Blend:{' '}
+                      {recipe.components
+                        .map((c) => {
+                          const ci = state.items.find((i) => i.id === c.item)
+                          return `${c.share}% ${drinkName(ci?.name || c.item)}`
+                        })
+                        .join(' · ')}
+                    </>
+                  )
+                })()}
               </div>
             </div>
           ) : null}
@@ -573,6 +906,14 @@ export function ProductionPlanning() {
               onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
             />
           </div>
+          {form.serves.length ? (
+            <div className="field span-2">
+              <div className="note" style={{ margin: 0 }}>
+                Raised for {form.serves.join(', ')} — the link stays with the plan even if the note
+                is edited away.
+              </div>
+            </div>
+          ) : null}
         </div>
       </Modal>
     </div>

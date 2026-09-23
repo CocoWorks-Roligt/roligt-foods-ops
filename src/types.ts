@@ -171,6 +171,9 @@ export interface ProductionPlan {
   qty: number
   uom: 'Litre' | 'Kg' | 'Packs'
   note?: string
+  /** Order ids this plan was raised to serve — set when it is planned from open
+   *  orders, so the link is data the page can read back, not note text. */
+  serves?: string[]
   status: PlanStatus
   createdOn: string
 }
