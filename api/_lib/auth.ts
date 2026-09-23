@@ -43,7 +43,9 @@ function jwksFor(issuer: string) {
   const key = url.origin
   let set = jwkSets.get(key)
   if (!set) {
-    set = createRemoteJWKSet(new URL(`${url.origin}/openid/jwks`))
+    // The path Kinde's discovery document declares (/.well-known/openid-configuration
+    // → jwks_uri); /openid/jwks 404s on Kinde tenants.
+    set = createRemoteJWKSet(new URL(`${url.origin}/.well-known/jwks`))
     jwkSets.set(key, set)
   }
   return set
