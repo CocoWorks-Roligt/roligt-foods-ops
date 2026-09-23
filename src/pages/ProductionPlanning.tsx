@@ -44,7 +44,7 @@ import {
 import { StatusBadge } from '../components/StatusBadge'
 import { useApp } from '../context/AppContext'
 import { fmtDate, fmtQty, statusLabel, toDateKey } from '../lib/utils'
-import { bulkItemOf, bulkUomForUnit } from '../lib/packs'
+import { bulkItemOf, bulkUomForUnit, drinkName } from '../lib/packs'
 import { stockRows } from '../lib/stock'
 import type { PlanStage, PlanStatus, Product, ProductionPlan } from '../types'
 
@@ -65,9 +65,6 @@ const blankForm = () => ({
 })
 
 const num = (v: number | '') => (v === '' ? 0 : Number(v))
-
-/** The drink behind a bulk item's name — "Coconut Water (bulk)" reads as Coconut Water. */
-const drinkName = (name: string) => name.replace(/ \(bulk\)$/i, '')
 
 /** The short unit a bulk is counted in on this page: kg when weighed, L when poured. */
 const shortUom = (uom: string) => (uom === 'Kg' ? 'kg' : 'L')

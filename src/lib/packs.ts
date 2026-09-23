@@ -45,3 +45,10 @@ export const mediumOf = (p: Product): PackMedium => p.medium || mediumForUnit(p.
  */
 export const bulkItemOf = (p: Product) =>
   p.bulkItem || (mediumOf(p) === 'Malai' ? 'SF-TCW-MALAI' : 'SF-TCW-WATER')
+
+/**
+ * The drink behind a bulk item's name — "Coconut Water (bulk)" reads as Coconut
+ * Water. The one definition of the drink label, so every page that groups pack
+ * formats under their drink (orders, planning) names them the same way.
+ */
+export const drinkName = (name: string) => name.replace(/ \(bulk\)$/i, '')

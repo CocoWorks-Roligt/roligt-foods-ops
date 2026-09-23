@@ -5,6 +5,10 @@
  * reserved: the stock is checked at the moment it goes out. And an order ships
  * complete, so dispatching is all-or-nothing — every line is measured against live
  * stock before a single ledger row is written.
+ *
+ * The form takes the order the way the customer gives it — by drink — with a
+ * quantity per pack format beneath each; it flattens to plain order lines on
+ * save, so nothing downstream ever sees the difference.
  */
 
 import { useMemo, useState } from 'react'
@@ -23,13 +27,60 @@ import {
 } from '../components/tableSort'
 import { StatusBadge } from '../components/StatusBadge'
 import { useApp } from '../context/AppContext'
-import { formatSize } from '../lib/packs'
+import { bulkItemOf, drinkName, formatSize } from '../lib/packs'
 import { displayExpiry, locationLabel, parseRowKey, rowKey, inHoldArea } from '../lib/stock'
 import { fmtDate, fmtQty, QTY_EPSILON, toDateKey, toLocalInputValue } from '../lib/utils'
-import type { Order, OrderLine } from '../types'
-import { bareAll, keyed, keyedAll, type Keyed } from '../lib/rows'
+import type { Order, OrderLine, Product } from '../types'
 
-const blankLine: OrderLine = { sku: '', qty: 0 }
+/**
+ * A customer orders by drink, not by pack SKU — "TCW" comes as 5 L BiBs, 2.5 L
+ * BiBs, 250 ml bottles. The form holds that shape: the drinks picked, and a
+ * quantity per pack format beneath each. It flattens to plain order lines on
+ * save, so nothing downstream ever sees the difference.
+ */
+interface OrderDraft {
+  customerId: string
+  date: string
+  dueDate: string
+  notes: string
+  /** Bulk-item ids in the order they were picked; `orphan:${sku}` for a line whose
+   *  product has left the master. */
+  picked: string[]
+  /** Quantity per pack sku — '' means the format was left unquantified, and only
+   *  quantified formats become lines. */
+  qtys: Record<string, number | ''>
+}
+
+const blankDraft = (): OrderDraft => ({
+  customerId: '',
+  date: toLocalInputValue(),
+  dueDate: '',
+  notes: '',
+  picked: [],
+  qtys: {},
+})
+
+/** One drink's slice of the product master: every pack format filled from its bulk. */
+interface DrinkGroup {
+  bulkId: string
+  name: string
+  isMelange: boolean
+  formats: Product[]
+}
+
+/**
+ * One block of the form — a picked drink with its live formats, or a single sku
+ * the master no longer knows, which still has to be seen and editable because
+ * the order for it may be perfectly dispatchable.
+ */
+interface DraftBlock {
+  key: string
+  name: string
+  isMelange: boolean
+  formats: Product[]
+  /** Set only on an orphan block: the one sku it carries. */
+  sku?: string
+}
 
 export function Orders() {
   const { state, rows, getItemName, saveOrder, cancelOrder, deleteOrder, dispatchOrder } = useApp()
@@ -37,13 +88,7 @@ export function Orders() {
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState(false)
   const [editId, setEditId] = useState('')
-  const [form, setForm] = useState({
-    customerId: '',
-    date: toLocalInputValue(),
-    dueDate: '',
-    notes: '',
-    lines: [keyed(blankLine)] as Keyed<OrderLine>[],
-  })
+  const [form, setForm] = useState<OrderDraft>(blankDraft)
 
   const [sendId, setSendId] = useState('')
   // An order had no view of its own, so a dispatch could name it but not open it.
@@ -52,8 +97,40 @@ export function Orders() {
   const [picks, setPicks] = useState<Record<string, Record<string, number>>>({})
 
   const customers = state.customers.filter((c) => c.status === 'Active')
-  /** Every pack the plant sells — what an order line can name. */
-  const sellable = state.products
+
+  // ── The drinks the plant sells, each with its pack formats ──────────────────
+  const itemById = useMemo(() => new Map(state.items.map((i) => [i.id, i])), [state.items])
+  const melangeOutputs = useMemo(
+    () => new Set(state.melanges.map((m) => m.outputItem)),
+    [state.melanges],
+  )
+  const productById = useMemo(() => new Map(state.products.map((p) => [p.id, p])), [state.products])
+
+  /** Pack formats grouped under the drink they are filled from — the picker's
+   *  offer, largest format first so a drink reads 5 L, 2.5 L, 250 ml. */
+  const drinks = useMemo(() => {
+    const byBulk = new Map<string, DrinkGroup>()
+    for (const p of state.products) {
+      const bulkId = bulkItemOf(p)
+      let g = byBulk.get(bulkId)
+      if (!g) {
+        g = {
+          bulkId,
+          name: drinkName(itemById.get(bulkId)?.name || bulkId),
+          isMelange: melangeOutputs.has(bulkId),
+          formats: [],
+        }
+        byBulk.set(bulkId, g)
+      }
+      g.formats.push(p)
+    }
+    const list = [...byBulk.values()]
+    for (const d of list)
+      d.formats.sort((a, b) => b.packVolume - a.packVolume || a.name.localeCompare(b.name))
+    return list.sort((a, b) => a.name.localeCompare(b.name))
+  }, [itemById, melangeOutputs, state.products])
+
+  const drinkById = useMemo(() => new Map(drinks.map((d) => [d.bulkId, d])), [drinks])
 
   /** Released packs on hand, by SKU, so a line can be filled from real lots. */
   const availableFor = useMemo(() => {
@@ -117,26 +194,124 @@ export function Orders() {
 
   const openNew = () => {
     setEditId('')
-    setForm({
-      customerId: '',
-      date: toLocalInputValue(),
-      dueDate: '',
-      notes: '',
-      lines: [keyed(blankLine)],
-    })
+    setForm(blankDraft())
     setOpen(true)
   }
 
   const openEdit = (o: Order) => {
     setEditId(o.id)
+    // The flat lines rebuild into drinks in the order the customer named them; a
+    // sku the master no longer knows keeps its own block so it stays on the order.
+    const picked: string[] = []
+    const qtys: Record<string, number | ''> = {}
+    for (const l of o.lines) {
+      qtys[l.sku] = l.qty
+      const p = productById.get(l.sku)
+      const key = p ? bulkItemOf(p) : `orphan:${l.sku}`
+      if (!picked.includes(key)) picked.push(key)
+    }
     setForm({
       customerId: o.customerId,
       date: toLocalInputValue(new Date(o.date)),
       dueDate: o.dueDate || '',
       notes: o.notes || '',
-      lines: o.lines.length ? keyedAll(o.lines) : [keyed(blankLine)],
+      picked,
+      qtys,
     })
     setOpen(true)
+  }
+
+  /**
+   * What the form is holding, as the blocks the operator sees — and the only
+   * thing the save flattens, so what is on screen is exactly what is written.
+   *
+   * A drink whose products have all left the master still renders (empty, with a
+   * note) rather than silently unpicking itself; and a sku deleted while the form
+   * was open is promoted to an orphan block, because a quantity already entered
+   * for it is real intent. A product moved to a different drink mid-edit is the
+   * one case that quietly drops — master surgery during an open form, which the
+   * audit trail shows as the order's line count changing.
+   */
+  const resolveBlocks = (draft: OrderDraft): DraftBlock[] => {
+    const blocks: DraftBlock[] = []
+    for (const key of draft.picked) {
+      if (key.startsWith('orphan:')) {
+        const sku = key.slice('orphan:'.length)
+        // Back in the master: its drink's block owns it again, so this key goes quiet.
+        if (productById.has(sku)) continue
+        blocks.push({ key, name: getItemName(sku), isMelange: false, formats: [], sku })
+        continue
+      }
+      const d = drinkById.get(key)
+      blocks.push({
+        key,
+        name: d?.name || drinkName(itemById.get(key)?.name || key),
+        isMelange: d?.isMelange || melangeOutputs.has(key),
+        formats: d?.formats || [],
+      })
+    }
+    for (const [sku, q] of Object.entries(draft.qtys)) {
+      if (!(Number(q) > 0) || productById.has(sku)) continue
+      const key = `orphan:${sku}`
+      if (blocks.some((b) => b.key === key)) continue
+      blocks.push({ key, name: getItemName(sku), isMelange: false, formats: [], sku })
+    }
+    return blocks
+  }
+
+  const addDrink = (bulkId: string) => {
+    if (!bulkId) return
+    setForm((f) => ({ ...f, picked: [...f.picked, bulkId] }))
+  }
+
+  /** Removing a drink clears its quantities too — re-adding starts blank, so a
+   *  removed block can never come back carrying an order nobody can see. */
+  const removeBlock = (key: string) => {
+    setForm((f) => {
+      const qtys = { ...f.qtys }
+      if (key.startsWith('orphan:')) {
+        delete qtys[key.slice('orphan:'.length)]
+      } else {
+        for (const p of drinkById.get(key)?.formats || []) delete qtys[p.id]
+      }
+      return { ...f, picked: f.picked.filter((k) => k !== key), qtys }
+    })
+  }
+
+  const setQty = (sku: string, value: string) =>
+    setForm((f) => ({ ...f, qtys: { ...f.qtys, [sku]: value === '' ? '' : Number(value) } }))
+
+  /** An order's lines as the plant reads them — by drink, with anything the master
+   *  no longer knows under its own heading. Used by the list and the detail view. */
+  const linesByDrink = (lines: OrderLine[]) => {
+    const order: string[] = []
+    const byDrink = new Map<string, OrderLine[]>()
+    const off: OrderLine[] = []
+    for (const l of lines) {
+      const p = productById.get(l.sku)
+      if (!p) {
+        off.push(l)
+        continue
+      }
+      const key = bulkItemOf(p)
+      if (!byDrink.has(key)) {
+        byDrink.set(key, [])
+        order.push(key)
+      }
+      byDrink.get(key)!.push(l)
+    }
+    return {
+      drinks: order.map((key) => {
+        const item = itemById.get(key)
+        return {
+          key,
+          name: drinkName(item?.name || key),
+          isMelange: melangeOutputs.has(key),
+          lines: byDrink.get(key)!,
+        }
+      }),
+      off,
+    }
   }
 
   const openSend = (o: Order) => {
@@ -191,10 +366,21 @@ export function Orders() {
             },
           ],
         },
-        {
-          title: 'Items',
-          fields: viewingOrder.lines.map((l) => ({ label: packLabel(l.sku), value: String(l.qty) })),
-        },
+        // The items read the way the order was raised: one section per drink, its
+        // pack formats beneath; anything off the master under its own heading.
+        ...(() => {
+          const grouped = linesByDrink(viewingOrder.lines)
+          const sections: DetailSection[] = grouped.drinks.map((d) => ({
+            title: `${d.name}${d.isMelange ? ' · blend' : ''}`,
+            fields: d.lines.map((l) => ({ label: packLabel(l.sku), value: String(l.qty) })),
+          }))
+          if (grouped.off.length)
+            sections.push({
+              title: 'No longer in the product master',
+              fields: grouped.off.map((l) => ({ label: packLabel(l.sku), value: String(l.qty) })),
+            })
+          return sections
+        })(),
         ...(viewingOrder.notes
           ? [{ title: 'Notes', fields: [{ label: 'Notes', value: viewingOrder.notes, wide: true }] }]
           : []),
@@ -291,11 +477,33 @@ export function Orders() {
                   </td>
                   <td data-label="Customer">{o.customerName}</td>
                   <td data-label="Items">
-                    {o.lines.map((l) => (
-                      <div key={l.sku} className="small">
-                        {l.qty} × {packLabel(l.sku)}
-                      </div>
-                    ))}
+                    {(() => {
+                      const grouped = linesByDrink(o.lines)
+                      return (
+                        <>
+                          {grouped.drinks.map((d) => (
+                            <div key={d.key} className="small">
+                              <b>{d.name}</b>
+                              {d.lines.map((l) => (
+                                <div key={l.sku}>
+                                  ↳ {l.qty} × {packLabel(l.sku)}
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+                          {grouped.off.length ? (
+                            <div key="off" className="small">
+                              <b>No longer in the product master</b>
+                              {grouped.off.map((l) => (
+                                <div key={l.sku}>
+                                  ↳ {l.qty} × {packLabel(l.sku)}
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                        </>
+                      )
+                    })()}
                   </td>
                   <td data-label="Status">
                     <StatusBadge value={o.status} />
@@ -360,13 +568,23 @@ export function Orders() {
         saveLabel={editId ? 'Save Changes' : 'Raise Order'}
         onClose={() => setOpen(false)}
         onSave={() => {
+          // Only what the visible blocks hold is written — drinks in the order they
+          // were picked, formats largest-first; an unquantified format never a line.
+          const lines: OrderLine[] = []
+          for (const b of resolveBlocks(form)) {
+            const skus = b.sku ? [b.sku] : b.formats.map((p) => p.id)
+            for (const sku of skus) {
+              const qty = form.qtys[sku]
+              if (Number(qty) > 0) lines.push({ sku, qty: Number(qty) })
+            }
+          }
           const ok = saveOrder(
             {
               customerId: form.customerId,
               date: form.date,
               dueDate: form.dueDate,
               notes: form.notes,
-              lines: bareAll(form.lines.filter((l) => l.sku && l.qty > 0)),
+              lines,
             },
             editId || undefined,
           )
@@ -411,70 +629,117 @@ export function Orders() {
         <div className="subform">
           <div className="subform-head">
             <span>What they want</span>
-            <button
-              className="btn btn-light"
-              type="button"
-              onClick={() => setForm((f) => ({ ...f, lines: [...f.lines, keyed(blankLine)] }))}
-            >
-              + Add item
-            </button>
+            <span className="small">Pick a drink, then say how many of each pack</span>
           </div>
           <div className="subform-body">
-            {form.lines.map((line, idx) => {
-              const have = line.sku ? onHand(line.sku) : 0
-              const short = line.sku && line.qty > have
+            {(() => {
+              const blocks = resolveBlocks(form)
+              const remaining = drinks.filter((d) => !form.picked.includes(d.bulkId))
               return (
-                <div className="subform-row" key={line.rowId}>
-                  <Select
-                    value={line.sku}
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        lines: f.lines.map((l, i) =>
-                          i === idx ? { ...l, sku: e.target.value } : l,
-                        ),
-                      }))
-                    }
-                  >
-                    <option value="">Select product</option>
-                    {sellable
-                      .filter((p) => p.id === line.sku || !form.lines.some((l) => l.sku === p.id))
-                      .map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} · {formatSize(p.size, p.unit)}
+                <>
+                  {/* The picker sits as the body's first row, not in the head: the
+                      head's bold small type would bleed into the trigger, and the
+                      select's width rule only reaches inside a subform-row. */}
+                  <div className="subform-row" style={{ gridTemplateColumns: 'minmax(0, 1fr)' }}>
+                    <Select
+                      value=""
+                      aria-label="Add drink"
+                      disabled={!drinks.length || !remaining.length}
+                      onChange={(e) => addDrink(e.target.value)}
+                    >
+                      <option value="">
+                        {!drinks.length
+                          ? 'No pack products — add one on the Products page'
+                          : !remaining.length
+                            ? 'All drinks added'
+                            : '+ Add drink'}
+                      </option>
+                      {remaining.map((d) => (
+                        <option key={d.bulkId} value={d.bulkId}>
+                          {d.name}
+                          {d.isMelange ? ' · blend' : ''}
                         </option>
                       ))}
-                  </Select>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    placeholder="Units"
-                    value={line.qty || ''}
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        lines: f.lines.map((l, i) =>
-                          i === idx ? { ...l, qty: Number(e.target.value) } : l,
-                        ),
-                      }))
-                    }
-                  />
-                  <span className={`subform-unit${short ? ' off-recipe' : ''}`}>
-                    {line.sku ? `${Number(have.toFixed(2))} on hand` : ''}
-                  </span>
-                  <button
-                    className="btn btn-danger"
-                    type="button"
-                    onClick={() =>
-                      setForm((f) => ({ ...f, lines: f.lines.filter((_, i) => i !== idx) }))
-                    }
-                  >
-                    ×
-                  </button>
-                </div>
+                    </Select>
+                  </div>
+                  {blocks.map((b) => {
+                    const orphanSku = b.sku
+                    return (
+                      <div className="subform" key={b.key} style={{ marginTop: 12 }}>
+                        <div className="subform-head">
+                          <span>
+                            {b.name}
+                            {b.isMelange ? <span className="small"> · blend</span> : null}
+                            {orphanSku ? (
+                              <span className="small"> — no longer in the product master</span>
+                            ) : null}
+                          </span>
+                          <button
+                            className="btn btn-danger"
+                            type="button"
+                            onClick={() => removeBlock(b.key)}
+                          >
+                            ×
+                          </button>
+                        </div>
+                        <div className="subform-body">
+                          {orphanSku ? (
+                            <div className="subform-row" style={{ alignItems: 'center' }}>
+                              <span className="subform-unit" style={{ display: 'block' }}>
+                                <b>{b.name}</b>
+                                <div className="small">
+                                  {Number(onHand(orphanSku).toFixed(2))} on hand
+                                </div>
+                              </span>
+                              <input
+                                type="number"
+                                min="0"
+                                step="1"
+                                placeholder="Units"
+                                value={form.qtys[orphanSku] ?? ''}
+                                onChange={(e) => setQty(orphanSku, e.target.value)}
+                              />
+                              <span className="subform-unit">units</span>
+                              <span />
+                            </div>
+                          ) : b.formats.length ? (
+                            b.formats.map((p) => {
+                              const qty = form.qtys[p.id] ?? ''
+                              const have = onHand(p.id)
+                              const short = Number(qty) > have
+                              return (
+                                <div className="subform-row" key={p.id} style={{ alignItems: 'center' }}>
+                                  <span>
+                                    {p.name} · {p.type}
+                                  </span>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="1"
+                                    placeholder="Units"
+                                    value={qty}
+                                    onChange={(e) => setQty(p.id, e.target.value)}
+                                  />
+                                  <span className={`subform-unit${short ? ' off-recipe' : ''}`}>
+                                    {`${Number(have.toFixed(2))} on hand`}
+                                  </span>
+                                  <span />
+                                </div>
+                              )
+                            })
+                          ) : (
+                            <div className="note warning-note">
+                              No pack formats for this drink any more — its products left the
+                              master.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </>
               )
-            })}
+            })()}
           </div>
         </div>
 
