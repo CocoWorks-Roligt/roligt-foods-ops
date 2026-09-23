@@ -62,7 +62,8 @@ interface ClientOpts {
 
 export class ZohoClient {
   private readonly f: FetchLike
-  private readonly baseId: string
+  /** Readable so the snapshot cache can tell one base's state from another's. */
+  readonly baseId: string
   private readonly env: Record<string, string | undefined>
   private readonly page: number
   private readonly reads = new Budget(26)

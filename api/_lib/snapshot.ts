@@ -113,6 +113,49 @@ export async function readSnapshot(zoho: ZohoClient): Promise<Assembled> {
   return assembleState(schema, rows)
 }
 
+/**
+ * The last snapshot assembled, keyed by the revision it was read at.
+ *
+ * A sweep is 26 read calls — one per table — against the client's budget of 26
+ * reads a minute, so a reload that re-swept spent a full minute waiting for the
+ * budget window to slide before it could even start. But nothing in the base
+ * changes except through a commit, and every commit bumps the revision row last,
+ * so a snapshot read at revision R is exactly what a fresh sweep at R would
+ * return. One revision read answers whether the cache still stands.
+ *
+ * The sweep reads 26 tables one after another, so a commit landing mid-sweep can
+ * be read torn and stamped with the new revision — the same exposure a single
+ * uncached read has always had, healed by the next commit. Per process: the dev
+ * harness is one process, a warm serverless instance is one, and each gates on
+ * its own revision read, so nothing needs coordinating between them.
+ */
+let cached: { baseId: string; revision: number; snap: Assembled } | null = null
+/** The sweep in flight, shared by every caller asking while it runs. */
+let sweeping: Promise<Assembled> | null = null
+
+/** The base changed by ways this process did not watch — drop what it cached. */
+export function invalidateSnapshotCache(): void {
+  cached = null
+}
+
+/** Reads the plant, sweeping Zoho only when the revision has moved since the last read. */
+export async function readSnapshotCached(zoho: ZohoClient): Promise<Assembled> {
+  if (cached && cached.baseId === zoho.baseId) {
+    if ((await readRevision(zoho)) === cached.revision) return cached.snap
+  }
+  if (!sweeping) {
+    sweeping = readSnapshot(zoho)
+      .then((snap) => {
+        cached = { baseId: zoho.baseId, revision: snap.revision, snap }
+        return snap
+      })
+      .finally(() => {
+        sweeping = null
+      })
+  }
+  return sweeping
+}
+
 /** Reads just the revision number (one row) — the client's 20-second poll. */
 export async function readRevision(zoho: ZohoClient): Promise<number> {
   const cfg = T['Config']

@@ -1,14 +1,14 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { ZohoLockedError } from './_lib/zoho.ts'
 import { authenticate, AuthError } from './_lib/auth.ts'
-import { readSnapshot } from './_lib/snapshot.ts'
+import { readSnapshotCached } from './_lib/snapshot.ts'
 import { zoho } from './_lib/shared.ts'
 import { toWebRequest } from './_lib/vercel.ts'
 
 export default async function (req: VercelRequest, res: VercelResponse) {
   try {
     await authenticate(toWebRequest(req))
-    const snap = await readSnapshot(zoho)
+    const snap = await readSnapshotCached(zoho)
     res.status(200).json({ state: snap.state, revision: snap.revision })
   } catch (e) {
     if (e instanceof AuthError) {

@@ -5,7 +5,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
  * Handler-level tests: the Retry-After plumbing, the status-code mapping and the
  * shared ZohoClient. The commit path runs for real end to end below (real ZohoClient
  * from the shared module, real commitChanges, only the network stubbed); the snapshot
- * and revision handlers fake the reader lib, because readSnapshot fans one fetch out
+ * and revision handlers fake the reader lib, because a real sweep fans one fetch out
  * per mapped table and the real client's read budget is 26/min — a cooperative base
  * would stall the suite for sixty seconds, which is the client doing its job.
  */
@@ -36,7 +36,9 @@ vi.mock('./_lib/snapshot.ts', async () => {
   }
   return {
     readSnapshot: vi.fn(async () => guard({ state: null, revision: 0, everWritten: false })),
+    readSnapshotCached: vi.fn(async () => guard({ state: null, revision: 0, everWritten: false })),
     readRevision: vi.fn(async () => guard(0)),
+    invalidateSnapshotCache: vi.fn(),
   }
 })
 

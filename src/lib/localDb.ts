@@ -21,6 +21,11 @@ export interface LocalCopy {
   state: AppState
   /** True while this copy holds changes the database has not accepted. */
   dirty: boolean
+  /** The database revision this copy was last known to match. Absent on copies
+   *  written before it was recorded. Startup trusts it only on a clean copy: a
+   *  dirty one is ahead of the server by definition, and its revision is the
+   *  floor the unsaved work sits on, not a statement of freshness. */
+  revision?: number
   savedAt: string
 }
 
@@ -37,6 +42,7 @@ export function readLocal(): LocalCopy | null {
     return {
       state: parsed.state as AppState,
       dirty: parsed.dirty !== false,
+      revision: typeof parsed.revision === 'number' ? parsed.revision : undefined,
       savedAt: parsed.savedAt || '',
     }
   } catch {

@@ -282,7 +282,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   /**
    * Startup: reconcile the copy on this device with the row on the server.
    *
-   * Three things can be true, and they need telling apart.
+   * Four things can be true, and they need telling apart.
+   *  - This device holds nothing unsaved and the server has not moved since it was
+   *    last written here. The mirror is the plant, one revision read confirms it,
+   *    and no snapshot is read at all.
+   *  - This device holds work that never reached the server, and the server has not
+   *    moved on since. That work is real; adopt it and let the save effect push it up.
    *  - This device holds work that never reached the server, and the server has not
    *    moved on since. That work is real; adopt it and let the save effect push it up.
    *  - This device holds work that never reached the server, and the server *has*
@@ -295,6 +300,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     ;(async () => {
       const local = readLocal()
       try {
+        // A clean mirror whose revision the database still stands at IS the plant.
+        // One revision read answers that. A full snapshot instead is 26 reads
+        // against an API budget of 26 a minute, which is why a reload used to sit
+        // a full minute on the loading screen. Anything not lining up — a stale or
+        // dirty mirror, no revision recorded, somebody else has posted since —
+        // falls through to the full read.
+        if (local && !local.dirty && local.revision !== undefined) {
+          const rev = await fetchRevision()
+          if (cancelled) return
+          if (rev === local.revision) {
+            const mirror = migrateState(local.state, fromDb)
+            synced.current = mirror
+            revision.current = rev
+            setState(mirror)
+            return
+          }
+        }
         const remote = await fetchDb()
         if (cancelled) return
         revision.current = remote.revision
@@ -387,10 +409,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // it as unsaved would have the next startup treat it as offline work and announce
     // that it was saving something that had never left.
     if (state === synced.current) {
-      writeLocal({ state, dirty: false })
+      writeLocal({ state, dirty: false, revision: revision.current })
       return
     }
-    writeLocal({ state, dirty: true })
+    writeLocal({ state, dirty: true, revision: revision.current })
 
     let live = true
     const t = setTimeout(() => {
@@ -403,7 +425,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             revision.current = result.revision
             setDirty(false)
             setOffline(false)
-            writeLocal({ state, dirty: false })
+            writeLocal({ state, dirty: false, revision: revision.current })
             saveErrorShown.current = false
             return
           }

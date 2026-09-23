@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest'
-import { assembleState } from './snapshot.ts'
-import type { ZohoRecord } from './zoho.ts'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { assembleState, invalidateSnapshotCache, readSnapshotCached } from './snapshot.ts'
+import { T as LIVE_T } from './baseSchema.ts'
+import type { ZohoClient, ZohoRecord } from './zoho.ts'
 
 const T = {
   GRNs: { name: 'GRNs', id: 't-grn', appId: 'f-app', dataJson: 'f-data', fields: {} },
@@ -125,5 +126,60 @@ describe('assembleState', () => {
     expect(state.state && 'ledger' in state.state).toBe(false)
     expect(state.state?.audits).toEqual([])
     expect(state.everWritten).toBe(true)
+  })
+})
+
+describe('readSnapshotCached', () => {
+  /** Answers the live schema's Config table with the given revision, [] for every
+   *  other table — a full sweep against this fake is a fetchAll per mapped table. */
+  const fakeZoho = (rev: () => number) => {
+    const config = LIVE_T['Config']
+    const fetchAll = vi.fn(async (tableId: string): Promise<ZohoRecord[]> =>
+      tableId === config.id
+        ? [
+            {
+              recordID: 'k1',
+              data: {
+                [config.fields['Setting']]: 'app_revision',
+                [config.fields['Value']]: String(rev()),
+              },
+            },
+          ]
+        : [],
+    )
+    return { zoho: { baseId: 'base-test', fetchAll } as unknown as ZohoClient, fetchAll }
+  }
+
+  beforeEach(() => invalidateSnapshotCache())
+
+  it('serves the cached snapshot while the revision stands — one read, not a 26-read sweep', async () => {
+    let rev = 7
+    const { zoho, fetchAll } = fakeZoho(() => rev)
+    const first = await readSnapshotCached(zoho)
+    expect(first.revision).toBe(7)
+    const afterSweep = fetchAll.mock.calls.length
+    const second = await readSnapshotCached(zoho)
+    expect(second).toBe(first)
+    expect(fetchAll.mock.calls.length).toBe(afterSweep + 1) // the revision read alone
+  })
+
+  it('sweeps again once the revision moves', async () => {
+    let rev = 7
+    const { zoho, fetchAll } = fakeZoho(() => rev)
+    const first = await readSnapshotCached(zoho)
+    rev = 8
+    const second = await readSnapshotCached(zoho)
+    expect(second.revision).toBe(8)
+    expect(second).not.toBe(first)
+    expect(fetchAll.mock.calls.length).toBeGreaterThan(2) // a real re-sweep happened
+  })
+
+  it('drops the cache when a commit invalidates it', async () => {
+    const { zoho } = fakeZoho(() => 7)
+    const first = await readSnapshotCached(zoho)
+    invalidateSnapshotCache()
+    const second = await readSnapshotCached(zoho)
+    expect(second).not.toBe(first)
+    expect(second.revision).toBe(7)
   })
 })

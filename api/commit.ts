@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { ZohoLockedError } from './_lib/zoho.ts'
 import { authenticate, AuthError } from './_lib/auth.ts'
 import { commitChanges, Forbidden } from './_lib/commit.ts'
+import { invalidateSnapshotCache } from './_lib/snapshot.ts'
 import { zoho } from './_lib/shared.ts'
 import { toWebRequest } from './_lib/vercel.ts'
 import type { StateChanges } from '../src/lib/sync.ts'
@@ -15,6 +16,9 @@ export default async function (req: VercelRequest, res: VercelResponse) {
       return
     }
     const revision = await commitChanges(zoho, caller, body.changes)
+    // This process has now changed the base with its own hands — anything it
+    // cached about the old plant is spent, even though the revision moved too.
+    invalidateSnapshotCache()
     res.status(200).json({ revision })
   } catch (e) {
     if (e instanceof AuthError) {
