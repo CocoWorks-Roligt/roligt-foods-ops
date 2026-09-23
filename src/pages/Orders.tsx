@@ -399,7 +399,7 @@ export function Orders() {
             />
           </div>
           <div className="field">
-            <label>Ship by (optional)</label>
+            <label>Ship by</label>
             <input
               type="date"
               value={form.dueDate}

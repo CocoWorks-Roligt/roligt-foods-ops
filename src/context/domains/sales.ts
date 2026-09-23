@@ -18,12 +18,19 @@ import type { CoreDeps, DeliveryInput } from './deps'
 export function useSales({ state, setState, nextId, log, showToast, announcement }: CoreDeps) {
   const saveOrder = useCallback(
     (
-      input: { customerId: string; date: string; dueDate?: string; lines: OrderLine[]; notes?: string },
+      input: { customerId: string; date: string; dueDate: string; lines: OrderLine[]; notes?: string },
       id?: string,
     ) => {
       const customer = state.customers.find((c) => c.id === input.customerId)
       if (!customer) {
         showToast('Select a customer.')
+        return null
+      }
+      // The ship-by day is what planning scopes a week by, so an order cannot be
+      // raised without one. Orders from before the field existed stay undated
+      // until they are edited, and this same rule asks for their day then.
+      if (!input.dueDate) {
+        showToast("Pick the ship-by day — planning scopes the week's work by it.")
         return null
       }
       const lines = input.lines.filter((l) => l.sku && l.qty > 0)
