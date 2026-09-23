@@ -32,3 +32,8 @@ dev-dist
 
 # vercel env pull scratch
 prod.env
+tmp-commit-body.json
+
+# local agent scratch
+.superpowers/
+gui-test-screenshots/

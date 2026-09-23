@@ -1,4 +1,3 @@
-import type { Session } from '@supabase/supabase-js'
 import {
   createContext,
   useCallback,
@@ -7,24 +6,24 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { supabase } from '../lib/supabaseClient'
 import type { Role } from '../types'
+import { setAuthToken } from '../lib/authToken'
+import { KINDE_CONFIGURED, getDevRole } from '../lib/authMode'
+
+/** A structural subset of the Kinde session — everything the app reads from it. */
+export interface SessionLike {
+  user: { email: string }
+}
 
 interface AuthContextValue {
-  session: Session | null
+  session: SessionLike | null
   ready: boolean
-  /**
-   * What this user is allowed to do. Read from `app_user`, which is also what the
-   * database's own policies read — the UI and the RLS agree because they are looking
-   * at the same row, rather than the UI being the only thing that ever checked.
-   *
-   * Unknown until the row comes back; treated as Operator until then, so a slow
-   * network cannot briefly hand somebody the admin screens.
-   */
+  /** Unknown until the provider resolved it; treated as Operator until then. */
   role: Role
   isAdmin: boolean
+  /** Starts the Kinde hosted login (arguments kept for interface stability). */
   signIn: (email: string, password: string) => Promise<string | null>
-  /** Sends the reset link. Resolves to an error message, or null when it went out. */
+  /** Kinde owns password resets; this tells the user where to go. */
   sendPasswordReset: (email: string) => Promise<string | null>
   signOut: () => Promise<void>
 }
@@ -32,65 +31,70 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null)
-  const [ready, setReady] = useState(false)
+  const [session, setSession] = useState<SessionLike | null>(null)
   const [role, setRole] = useState<Role>('Operator')
+  const [ready, setReady] = useState(false)
 
   useEffect(() => {
-    supabase.auth
-      .getSession()
-      .then(({ data }) => setSession(data.session))
-      // Offline, a token refresh can reject. Fall through to the login screen rather
-      // than leaving the app stuck on "Loading…" forever.
-      .catch(() => setSession(null))
-      .finally(() => setReady(true))
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
-      setSession(next)
-    })
-    return () => sub.subscription.unsubscribe()
-  }, [])
-
-  // The role travels with the user, not the session, so it is re-read whenever the
-  // signed-in user changes. Anything that cannot be read is Operator: a failure to
-  // establish that somebody is an admin must never be read as proof that they are.
-  const userId = session?.user?.id
-  useEffect(() => {
-    let cancelled = false
-    if (!userId) {
-      setRole('Operator')
+    if (!KINDE_CONFIGURED) {
+      // Dev fallback: no Kinde account yet. Role is switchable from the login screen.
+      setSession({ user: { email: 'dev@roligt.local' } })
+      setRole(getDevRole())
+      setAuthToken(null) // BFF runs with ALLOW_DEV_SESSION=1
+      setReady(true)
       return
     }
-    supabase
-      .from('app_user')
-      .select('role')
-      .eq('id', userId)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (!cancelled) setRole(data?.role === 'Admin' ? 'Admin' : 'Operator')
-      })
+    let cancelled = false
+    void (async () => {
+      try {
+        // The SDK is loaded dynamically so the fallback path has no Kinde code at all.
+        const { getKindeSession } = await import('../lib/kindeSession')
+        const s = await getKindeSession()
+        if (cancelled) return
+        setSession(s.session)
+        setRole(s.role)
+        setAuthToken(s.token)
+      } catch {
+        if (!cancelled) setSession(null)
+      } finally {
+        if (!cancelled) setReady(true)
+      }
+    })()
     return () => {
       cancelled = true
     }
-  }, [userId])
-
-  const signIn = useCallback(async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    return error?.message || null
   }, [])
 
-  /**
-   * Locked out is a dead end otherwise: the app has no other way back in, and an
-   * operator on a plant floor cannot be expected to find the Supabase console.
-   */
-  const sendPasswordReset = useCallback(async (email: string) => {
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: window.location.origin,
-    })
-    return error?.message || null
+  const signIn = useCallback(async () => {
+    if (KINDE_CONFIGURED) {
+      const { login } = await import('../lib/kindeSession')
+      await login()
+      return null // the browser leaves for the hosted page
+    }
+    // Dev fallback: enter (or re-enter) the dev session with the role picked on
+    // the login screen. The mount effect has [] deps and never re-fires, so this
+    // is the only way back in after a fallback signOut.
+    setSession({ user: { email: 'dev@roligt.local' } })
+    setRole(getDevRole())
+    setAuthToken(null) // BFF dev session covers it
+    return null
+  }, [])
+
+  const sendPasswordReset = useCallback(async () => {
+    return 'Passwords are managed in Kinde — ask an administrator to reset it.'
   }, [])
 
   const signOut = useCallback(async () => {
-    await supabase.auth.signOut()
+    if (KINDE_CONFIGURED) {
+      const { logout } = await import('../lib/kindeSession')
+      await logout()
+      return
+    }
+    // Dev fallback: land on the login screen (no reload) so the role picker is
+    // reachable and the picked role survives as the next default.
+    setAuthToken(null)
+    setSession(null)
+    setRole('Operator')
   }, [])
 
   return (
@@ -104,6 +108,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 export function useAuth() {
   const ctx = useContext(AuthContext)
-  if (!ctx) throw new Error('useAuth must be used within AuthProvider')
+  if (!ctx) throw new Error('useAuth must be used inside AuthProvider')
   return ctx
 }

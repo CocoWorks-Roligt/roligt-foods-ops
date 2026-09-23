@@ -1,42 +1,18 @@
 import { useState } from 'react'
 import { OfflineBar } from '../components/PwaPrompts'
 import { useAuth } from '../context/AuthContext'
+import { KINDE_CONFIGURED, getDevRole, setDevRole } from '../lib/authMode'
+import type { Role } from '../types'
 
 export function Login() {
-  const { signIn, sendPasswordReset } = useAuth()
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
+  const { signIn, session } = useAuth()
   const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [resetting, setResetting] = useState(false)
+  const [devRole, setPickedRole] = useState<Role>(getDevRole)
 
   const submit = async () => {
-    if (!email || !password) {
-      setError('Enter your email and password.')
-      return
-    }
-    setLoading(true)
     setError('')
-    setNotice('')
-    const message = await signIn(email, password)
-    setLoading(false)
+    const message = await signIn('', '')
     if (message) setError(message)
-  }
-
-  const resetPassword = async () => {
-    if (!email) {
-      setNotice('')
-      setError('Type your email address first, then choose Forgot password.')
-      return
-    }
-    setResetting(true)
-    setError('')
-    setNotice('')
-    const message = await sendPasswordReset(email)
-    setResetting(false)
-    if (message) setError(message)
-    else setNotice(`Reset link sent to ${email}. Open it on this device to set a new password.`)
   }
 
   return (
@@ -57,48 +33,40 @@ export function Login() {
             void submit()
           }}
         >
-          <div className="field" style={{ marginBottom: 14 }}>
-            <label>Email</label>
-            <input
-              type="email"
-              autoComplete="username"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </div>
-          <div className="field" style={{ marginBottom: 14 }}>
-            <label>Password</label>
-            <input
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
+          {KINDE_CONFIGURED ? (
+            <button className="btn primary" type="submit">
+              Sign in with Kinde
+            </button>
+          ) : (
+            <>
+              <div className="field" style={{ marginBottom: 14 }}>
+                <label>Dev session — role</label>
+                <select
+                  value={devRole}
+                  onChange={(e) => {
+                    const next = e.target.value as Role
+                    setDevRole(next) // persisted; applied by the context at sign-in
+                    setPickedRole(next)
+                  }}
+                >
+                  <option value="Admin">Admin</option>
+                  <option value="Operator">Operator</option>
+                </select>
+                <span style={{ display: 'block', marginTop: 8, fontSize: 13 }}>
+                  Dev fallback active (no Kinde env). You will sign in as{' '}
+                  {session?.user.email ?? 'dev@roligt.local'}.
+                </span>
+              </div>
+              <button className="btn primary" type="submit">
+                Sign in
+              </button>
+            </>
+          )}
           {error ? (
-            <div className="note warning-note" style={{ marginBottom: 14 }}>
+            <p className="form-error" role="alert">
               {error}
-            </div>
+            </p>
           ) : null}
-          {notice ? (
-            <div className="note" style={{ marginBottom: 14 }}>
-              {notice}
-            </div>
-          ) : null}
-          <button className="btn btn-primary" type="submit" disabled={loading} style={{ width: '100%' }}>
-            {loading ? 'Signing in…' : 'Sign in'}
-          </button>
-          {/* Without this, a forgotten password is the end of the road — there is no
-              other way into the app and no one on the floor is opening Supabase. */}
-          <button
-            type="button"
-            className="link-btn"
-            disabled={resetting}
-            style={{ display: 'block', margin: '14px auto 0' }}
-            onClick={() => void resetPassword()}
-          >
-            {resetting ? 'Sending…' : 'Forgot password?'}
-          </button>
         </form>
       </div>
     </div>

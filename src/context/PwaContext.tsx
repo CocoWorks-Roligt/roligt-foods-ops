@@ -7,7 +7,7 @@ interface PwaContextValue {
   updateReady: boolean
   applyUpdate: () => void
   dismissUpdate: () => void
-  /** The browser lost connectivity — Supabase reads and writes will fail. */
+  /** The browser lost connectivity — reads and writes against the BFF will fail. */
   offline: boolean
   /** An install prompt is available (Chromium) or install instructions apply (iOS). */
   canInstall: boolean

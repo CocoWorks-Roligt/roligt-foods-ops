@@ -2,8 +2,11 @@
 /// <reference types="vite-plugin-pwa/react" />
 
 interface ImportMetaEnv {
-  readonly VITE_SUPABASE_URL: string
-  readonly VITE_SUPABASE_ANON_KEY: string
+  /** Kinde SPA credentials. All optional: absent means the dev fallback session. */
+  readonly VITE_KINDE_DOMAIN?: string
+  readonly VITE_KINDE_CLIENT_ID?: string
+  readonly VITE_KINDE_REDIRECT_URI?: string
+  readonly VITE_KINDE_LOGOUT_URI?: string
 }
 
 interface ImportMeta {

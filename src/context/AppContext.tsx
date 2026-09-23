@@ -266,9 +266,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
    * Note what this is and is not. It stops an operator changing a tolerance or rewriting
    * a numbering series — real accidents, on screens they have no
    * reason to be on. It is not a security boundary: the whole plant is one JSON blob
-   * and an operator must be able to write it to do their job, so the database cannot
-   * tell one kind of edit from another. That only becomes enforceable when the state
-   * is split into real tables. See the note in supabase/schema.sql.
+   * and an operator must be able to write it to do their job, so the client cannot
+   * tell one kind of edit from another. The split becomes enforceable when the state
+   * is in real tables — see the adminOnly flags on each collection in lib/tables.
    */
   const forbidden = useCallback(
     (what: string) => {

@@ -1,0 +1,4052 @@
+/*
+ * Roligt Plant Ops — complete application definition (.ds)
+ * Generated from docs/zoho-build-pack.md §1–3; syntax verified against a live
+ * Creator export (Field Probe, 21-Sep-2026). Import at creator.zoho.in/importds.
+ * Keep this file in version control — it is the app's backup.
+ */
+ application "Roligt Plant Ops v2"
+ {
+ 	date format = "dd-MMM-yyyy"
+ 	time zone = "Asia/Kolkata"
+ 	time format = "24-hr"
+
+ 	forms
+	{
+		form Vendor_Types
+		{
+			displayname = "Vendor Types"
+			success message = "Vendor Types Added Successfully"
+			Section
+			(
+				type = section
+	 			row = 1
+	 			column = 0
+				width = medium
+			)
+			must have Name
+			(
+    			type = text
+	 			row = 1
+	 			column = 1
+				width = medium
+			)
+			must have Source_Kind
+			(
+    			type = picklist
+    			maxchar = 100
+    			displayname = "Source Kind"
+    			values = {"Farmer","Vendor","Other"}
+	 			row = 2
+	 			column = 1
+				width = medium
+			)
+			Description
+			(
+    			type = textarea
+    			displayname = "Description"
+    			height = 100px
+	 			row = 3
+	 			column = 1
+				width = medium
+			)
+			must have Status
+			(
+    			type = picklist
+    			maxchar = 100
+    			values = {"Active","Inactive"}
+	 			row = 4
+	 			column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+   						type = submit
+   						displayname = "Submit"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "Update"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "Cancel"
+					)
+				}
+			}
+		}
+		form Vendors
+		{
+			displayname = "Vendors"
+			success message = "Vendors Added Successfully"
+			Section
+			(
+				type = section
+	 			row = 1
+	 			column = 0
+				width = medium
+			)
+			must have Name
+			(
+    			type = text
+	 			row = 1
+	 			column = 1
+				width = medium
+			)
+			Vendor_Type
+			(
+    			type = picklist
+    			displayname = "Vendor Type"
+    			values  = Vendor_Types.ID
+    			displayformat = [Name]
+    			sortorder = ascending
+	 			row = 2
+	 			column = 1
+				width = medium
+			)
+			Phone
+			(
+    			type = text
+	 			row = 3
+	 			column = 1
+				width = medium
+			)
+			Area
+			(
+    			type = text
+	 			row = 4
+	 			column = 1
+				width = medium
+			)
+			Payment_Terms
+			(
+    			type = text
+    			displayname = "Payment Terms"
+	 			row = 5
+	 			column = 1
+				width = medium
+			)
+			must have Status
+			(
+    			type = picklist
+    			maxchar = 100
+    			values = {"Active","Inactive"}
+	 			row = 6
+	 			column = 1
+				width = medium
+			)
+			Email
+			(
+    			type = email
+    			maxchar = 80
+	 			row = 7
+	 			column = 1
+				width = medium
+			)
+			Notes
+			(
+    			type = textarea
+    			height = 100px
+	 			row = 8
+	 			column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+   						type = submit
+   						displayname = "Submit"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "Update"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "Cancel"
+					)
+				}
+			}
+		}
+		form Customers
+		{
+			displayname = "Customers"
+			success message = "Customers Added Successfully"
+			Section
+			(
+				type = section
+	 			row = 1
+	 			column = 0
+				width = medium
+			)
+			must have Name
+			(
+    			type = text
+	 			row = 1
+	 			column = 1
+				width = medium
+			)
+			must have Ship_To
+			(
+    			type = text
+    			displayname = "Ship To"
+	 			row = 2
+	 			column = 1
+				width = medium
+			)
+			GSTIN
+			(
+    			type = text
+	 			row = 3
+	 			column = 1
+				width = medium
+			)
+			must have Status
+			(
+    			type = picklist
+    			maxchar = 100
+    			values = {"Active","Inactive"}
+	 			row = 4
+	 			column = 1
+				width = medium
+			)
+			Phone
+			(
+    			type = phonenumber
+	 			row = 5
+	 			column = 1
+				width = medium
+			)
+			Email
+			(
+    			type = email
+    			maxchar = 80
+	 			row = 6
+	 			column = 1
+				width = medium
+			)
+			Contact_Person
+			(
+    			type = text
+    			displayname = "Contact Person"
+	 			row = 7
+	 			column = 1
+				width = medium
+			)
+			Notes
+			(
+    			type = textarea
+    			height = 100px
+	 			row = 8
+	 			column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+   						type = submit
+   						displayname = "Submit"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "Update"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "Cancel"
+					)
+				}
+			}
+		}
+		form Items
+		{
+			displayname = "Items"
+			success message = "Items Added Successfully"
+			Section
+			(
+				type = section
+	 			row = 1
+	 			column = 0
+				width = medium
+			)
+			must have Name
+			(
+    			type = text
+	 			row = 1
+	 			column = 1
+				width = medium
+			)
+			must have Type_field
+			(
+    			type = picklist
+    			maxchar = 100
+    			displayname = "Type"
+    			values = {"Raw Material","Semi Finished","Packing Material","Finished Goods"}
+	 			row = 2
+	 			column = 1
+				width = medium
+			)
+			must have UOM
+			(
+    			type = picklist
+    			maxchar = 100
+    			values = {"Piece","Kg","Litre","Pack","Bottle"}
+	 			row = 3
+	 			column = 1
+				width = medium
+			)
+			must have Lot_Controlled
+			(
+    			type = checkbox
+    			displayname = "Lot Controlled"
+    			initial value = true
+	 			row = 4
+	 			column = 1
+				width = medium
+			)
+			Reorder_Level
+			(
+    			type = number
+    			displayname = "Reorder Level"
+	 			row = 5
+	 			column = 1
+				width = medium
+			)
+			must have Cost_Method
+			(
+    			type = picklist
+    			maxchar = 100
+    			displayname = "Cost Method"
+    			values = {"Lot Actual","Batch Actual","By-product","Weighted Avg"}
+	 			row = 6
+	 			column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+   						type = submit
+   						displayname = "Submit"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "Update"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "Cancel"
+					)
+				}
+			}
+		}
+		form Purchase_Products
+		{
+			displayname = "Purchase Products"
+			success message = "Purchase Products Added Successfully"
+			Section
+			(
+				type = section
+	 			row = 1
+	 			column = 0
+				width = medium
+			)
+			must have Name
+			(
+    			type = text
+	 			row = 1
+	 			column = 1
+				width = medium
+			)
+			must have Item
+			(
+    			type = picklist
+    			displayname = "Item"
+    			values  = Items.ID
+    			displayformat = [Name]
+    			sortorder = ascending
+	 			row = 2
+	 			column = 1
+				width = medium
+			)
+			Default_UOM
+			(
+    			type = text
+    			displayname = "Default UOM"
+	 			row = 3
+	 			column = 1
+				width = medium
+			)
+			Linked_Vendors
+			(
+    			type = picklist
+    			displayname = "Linked Vendors"
+    			values  = Vendors.ID
+    			displayformat = [Name]
+    			sortorder = ascending
+	 			row = 4
+	 			column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+   						type = submit
+   						displayname = "Submit"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "Update"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "Cancel"
+					)
+				}
+			}
+		}
+		form Storage_Locations
+		{
+			displayname = "Storage Locations"
+			success message = "Storage Locations Added Successfully"
+			Section
+			(
+				type = section
+	 			row = 1
+	 			column = 0
+				width = medium
+			)
+			must have Name
+			(
+    			type = text
+	 			row = 1
+	 			column = 1
+				width = medium
+			)
+			must have Label
+			(
+    			type = text
+	 			row = 2
+	 			column = 1
+				width = medium
+			)
+			Holds
+			(
+    			type = textarea
+    			height = 100px
+	 			row = 3
+	 			column = 1
+				width = medium
+			)
+			must have Type_field
+			(
+    			type = picklist
+    			maxchar = 100
+    			displayname = "Type"
+    			values = {"Cold Room","Dry Store","Hold Area"}
+	 			row = 4
+	 			column = 1
+				width = medium
+			)
+			must have Status
+			(
+    			type = picklist
+    			maxchar = 100
+    			values = {"Active","Inactive"}
+	 			row = 5
+	 			column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+   						type = submit
+   						displayname = "Submit"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "Update"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "Cancel"
+					)
+				}
+			}
+		}
+		form Test_Categories
+		{
+			displayname = "Test Categories"
+			success message = "Test Categories Added Successfully"
+			Section
+			(
+				type = section
+	 			row = 1
+	 			column = 0
+				width = medium
+			)
+			must have Title
+			(
+    			type = text
+	 			row = 1
+	 			column = 1
+				width = medium
+			)
+			must have Format
+			(
+    			type = picklist
+    			maxchar = 100
+    			values = {"Results","Scored"}
+	 			row = 2
+	 			column = 1
+				width = medium
+			)
+			must have Required_for_Release
+			(
+    			type = checkbox
+    			displayname = "Required for Release"
+    			initial value = true
+	 			row = 3
+	 			column = 1
+				width = medium
+			)
+			Pass_Score
+			(
+    			type = number
+    			displayname = "Pass Score"
+	 			row = 4
+	 			column = 1
+				width = medium
+			)
+			Minor_Score
+			(
+    			type = number
+    			displayname = "Minor Score"
+	 			row = 5
+	 			column = 1
+				width = medium
+			)
+			Signatory
+			(
+    			type = text
+	 			row = 6
+	 			column = 1
+				width = medium
+			)
+			must have Status
+			(
+    			type = picklist
+    			maxchar = 100
+    			values = {"Active","Inactive"}
+	 			row = 7
+	 			column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+   						type = submit
+   						displayname = "Submit"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "Update"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "Cancel"
+					)
+				}
+			}
+		}
+		form Test_Parameters
+		{
+			displayname = "Test Parameters"
+			success message = "Test Parameters Added Successfully"
+			Section
+			(
+				type = section
+	 			row = 1
+	 			column = 0
+				width = medium
+			)
+			must have Name
+			(
+    			type = text
+	 			row = 1
+	 			column = 1
+				width = medium
+			)
+			must have Category
+			(
+    			type = picklist
+    			displayname = "Category"
+    			values  = Test_Categories.ID
+    			displayformat = [Title]
+    			sortorder = ascending
+	 			row = 2
+	 			column = 1
+				width = medium
+			)
+			Method
+			(
+    			type = text
+	 			row = 3
+	 			column = 1
+				width = medium
+			)
+			Unit
+			(
+    			type = text
+	 			row = 4
+	 			column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+   						type = submit
+   						displayname = "Submit"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "Update"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "Cancel"
+					)
+				}
+			}
+		}
+		form Products
+		{
+			displayname = "Products"
+			success message = "Products Added Successfully"
+			Section
+			(
+				type = section
+	 			row = 1
+	 			column = 0
+				width = medium
+			)
+			must have Name
+			(
+    			type = text
+	 			row = 1
+	 			column = 1
+				width = medium
+			)
+			must have Format
+			(
+    			type = text
+	 			row = 2
+	 			column = 1
+				width = medium
+			)
+			Size
+			(
+    			type = decimal
+	 			row = 3
+	 			column = 1
+				width = medium
+			)
+			Unit
+			(
+    			type = text
+	 			row = 4
+	 			column = 1
+				width = medium
+			)
+			Pack_Volume
+			(
+    			type = decimal
+    			displayname = "Pack Volume"
+	 			row = 5
+	 			column = 1
+				width = medium
+			)
+			Shelf_Life_Days
+			(
+    			type = number
+    			displayname = "Shelf Life Days"
+	 			row = 6
+	 			column = 1
+				width = medium
+			)
+			Chilled_Shelf_Life_Days
+			(
+    			type = number
+    			displayname = "Chilled Shelf Life Days"
+	 			row = 7
+	 			column = 1
+				width = medium
+			)
+			MRP
+			(
+    			type = INR
+    			format = commadotindian
+	 			row = 8
+	 			column = 1
+				width = medium
+			)
+			must have Bulk_Item
+			(
+    			type = picklist
+    			displayname = "Bulk Item"
+    			values  = Items.ID
+    			displayformat = [Name]
+    			sortorder = ascending
+	 			row = 9
+	 			column = 1
+				width = medium
+			)
+			must have Medium_field
+			(
+    			type = picklist
+    			maxchar = 100
+    			displayname = "Medium"
+    			values = {"Water","Malai"}
+	 			row = 10
+	 			column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+   						type = submit
+   						displayname = "Submit"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+   						displayname = "Update"
+					)
+					cancel
+					(
+						type = cancel
+   						displayname = "Cancel"
+					)
+				}
+			}
+		}
+		form BOM_Lines
+		{
+			displayname = "BOM Lines"
+			success message = "BOM Lines Added Successfully"
+			Section
+			(
+				type = section
+	 			row = 1
+	 			column = 0
+				width = medium
+			)
+			must have Product
+			(
+    			type = picklist
+    			displayname = "Product"
+    			values  = Products.ID
+    			displayformat = [Name]
+    			sortorder = ascending
+	 			row = 1
+	 			column = 1
+				width = medium
+			)
+			must have Item
+			(
+    			type = picklist
+    			displayname = "Item"
+    			values  = Items.ID
+    			displayformat = [Name]
+    			sortorder = ascending
+	 			row = 2
+	 			column = 1
+				width = medium
+			)
+			must have Qty_per_Pack
+			(
+    			type = number
+    			displayname = "Qty per Pack"
+	 			row = 3
+	 			column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+   						type = submit
+   						displayname = "Submit"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+   						displayname = "Update"
+					)
+					cancel
+					(
+						type = cancel
+   						displayname = "Cancel"
+					)
+				}
+			}
+		}
+		form Melanges
+		{
+			displayname = "Melanges"
+			success message = "Melanges Added Successfully"
+			Section
+			(
+				type = section
+	 			row = 1
+	 			column = 0
+				width = medium
+			)
+			must have Name
+			(
+    			type = text
+	 			row = 1
+	 			column = 1
+				width = medium
+			)
+			must have Status
+			(
+    			type = picklist
+    			maxchar = 100
+    			values = {"Active","Inactive"}
+	 			row = 2
+	 			column = 1
+				width = medium
+			)
+			must have Output_Item
+			(
+    			type = picklist
+    			displayname = "Output Item"
+    			values  = Items.ID
+    			displayformat = [Name]
+    			sortorder = ascending
+	 			row = 3
+	 			column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+   						type = submit
+   						displayname = "Submit"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+   						displayname = "Update"
+					)
+					cancel
+					(
+						type = cancel
+   						displayname = "Cancel"
+					)
+				}
+			}
+		}
+		form Melange_Components
+		{
+			displayname = "Melange Components"
+			success message = "Melange Components Added Successfully"
+			Section
+			(
+				type = section
+	 			row = 1
+	 			column = 0
+				width = medium
+			)
+			must have Melange
+			(
+    			type = picklist
+    			displayname = "Melange"
+    			values  = Melanges.ID
+    			displayformat = [Name]
+    			sortorder = ascending
+	 			row = 1
+	 			column = 1
+				width = medium
+			)
+			must have Item
+			(
+    			type = picklist
+    			displayname = "Item"
+    			values  = Items.ID
+    			displayformat = [Name]
+    			sortorder = ascending
+	 			row = 2
+	 			column = 1
+				width = medium
+			)
+			must have Share
+			(
+    			type = decimal
+	 			row = 3
+	 			column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+   						type = submit
+   						displayname = "Submit"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+   						displayname = "Update"
+					)
+					cancel
+					(
+						type = cancel
+   						displayname = "Cancel"
+					)
+				}
+			}
+		}
+		form Counters
+		{
+			displayname = "Counters"
+			success message = "Counters Added Successfully"
+			Section
+			(
+				type = section
+	 			row = 1
+	 			column = 0
+				width = medium
+			)
+			must have Series
+			(
+    			type = text
+	 			row = 1
+	 			column = 1
+				width = medium
+			)
+			Prefix
+			(
+    			type = text
+	 			row = 2
+	 			column = 1
+				width = medium
+			)
+			Pattern
+			(
+    			type = text
+	 			row = 3
+	 			column = 1
+				width = medium
+			)
+			Pad
+			(
+    			type = number
+	 			row = 4
+	 			column = 1
+				width = medium
+			)
+			Next
+			(
+    			type = number
+	 			row = 5
+	 			column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+   						type = submit
+   						displayname = "Submit"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+   						displayname = "Update"
+					)
+					cancel
+					(
+						type = cancel
+   						displayname = "Cancel"
+					)
+				}
+			}
+		}
+		form Config
+		{
+			displayname = "Config"
+			success message = "Config Added Successfully"
+			Section
+			(
+				type = section
+	 			row = 1
+	 			column = 0
+				width = medium
+			)
+			must have Setting
+			(
+    			type = text
+	 			row = 1
+	 			column = 1
+				width = medium
+			)
+			Value
+			(
+    			type = text
+	 			row = 2
+	 			column = 1
+				width = medium
+			)
+			Notes
+			(
+    			type = text
+	 			row = 3
+	 			column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+   						type = submit
+   						displayname = "Submit"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+   						displayname = "Update"
+					)
+					cancel
+					(
+						type = cancel
+   						displayname = "Cancel"
+					)
+				}
+			}
+		}
+		form Staff
+		{
+			displayname = "Staff"
+			success message = "Staff Added Successfully"
+			Section
+			(
+				type = section
+	 			row = 1
+	 			column = 0
+				width = medium
+			)
+			must have Staff_No
+			(
+    			type = text
+    			displayname = "Staff No"
+	 			row = 1
+	 			column = 1
+				width = medium
+			)
+			must have Name
+			(
+    			type = text
+	 			row = 2
+	 			column = 1
+				width = medium
+			)
+			Role
+			(
+    			type = text
+	 			row = 3
+	 			column = 1
+				width = medium
+			)
+			Phone
+			(
+    			type = phonenumber
+	 			row = 4
+	 			column = 1
+				width = medium
+			)
+			must have Status
+			(
+    			type = picklist
+    			maxchar = 100
+    			values = {"Active","Inactive"}
+	 			row = 5
+	 			column = 1
+				width = medium
+			)
+			Added_On
+			(
+    			type = date
+    			displayname = "Added On"
+    			alloweddays = 0,1,2,3,4,5,6
+	 			row = 6
+	 			column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+   						type = submit
+   						displayname = "Submit"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+   						displayname = "Update"
+					)
+					cancel
+					(
+						type = cancel
+   						displayname = "Cancel"
+					)
+				}
+			}
+		}
+		form GRNs
+		{
+			displayname = "GRNs"
+			success message = "GRNs Added Successfully"
+			Section
+			(
+				type = section
+	 			row = 1
+	 			column = 0
+				width = medium
+			)
+			must have Doc_No
+			(
+    			type = text
+    			displayname = "Doc No"
+	 			row = 1
+	 			column = 1
+				width = medium
+			)
+			Date_field
+			(
+    			type = date
+    			displayname = "Date"
+    			alloweddays = 0,1,2,3,4,5,6
+	 			row = 2
+	 			column = 1
+				width = medium
+			)
+			Product
+			(
+    			type = picklist
+    			displayname = "Product"
+    			values  = Purchase_Products.ID
+    			displayformat = [Name]
+    			sortorder = ascending
+	 			row = 3
+	 			column = 1
+				width = medium
+			)
+			UOM
+			(
+    			type = text
+	 			row = 4
+	 			column = 1
+				width = medium
+			)
+			Location
+			(
+    			type = picklist
+    			displayname = "Location"
+    			values  = Storage_Locations.ID
+    			displayformat = [Name]
+    			sortorder = ascending
+	 			row = 5
+	 			column = 1
+				width = medium
+			)
+			Vendor
+			(
+    			type = picklist
+    			displayname = "Vendor"
+    			values  = Vendors.ID
+    			displayformat = [Name]
+    			sortorder = ascending
+	 			row = 6
+	 			column = 1
+				width = medium
+			)
+			Area
+			(
+    			type = text
+	 			row = 7
+	 			column = 1
+				width = medium
+			)
+			Harvested_On
+			(
+    			type = date
+    			displayname = "Harvested On"
+    			alloweddays = 0,1,2,3,4,5,6
+	 			row = 8
+	 			column = 1
+				width = medium
+			)
+			Total
+			(
+    			type = decimal
+	 			row = 9
+	 			column = 1
+				width = medium
+			)
+			Accepted
+			(
+    			type = decimal
+	 			row = 10
+	 			column = 1
+				width = medium
+			)
+			Free
+			(
+    			type = decimal
+	 			row = 11
+	 			column = 1
+				width = medium
+			)
+			Grade_A
+			(
+    			type = decimal
+    			displayname = "Grade A"
+	 			row = 12
+	 			column = 1
+				width = medium
+			)
+			Grade_B
+			(
+    			type = decimal
+    			displayname = "Grade B"
+	 			row = 13
+	 			column = 1
+				width = medium
+			)
+			Grade_C
+			(
+    			type = decimal
+    			displayname = "Grade C"
+	 			row = 14
+	 			column = 1
+				width = medium
+			)
+			Reject
+			(
+    			type = decimal
+	 			row = 15
+	 			column = 1
+				width = medium
+			)
+			Rate
+			(
+    			type = INR
+    			format = commadotindian
+	 			row = 16
+	 			column = 1
+				width = medium
+			)
+			Other_Charges
+			(
+    			type = INR
+    			format = commadotindian
+    			displayname = "Other Charges"
+	 			row = 17
+	 			column = 1
+				width = medium
+			)
+			must have Status
+			(
+    			type = picklist
+    			maxchar = 100
+    			values = {"Draft","Posted"}
+	 			row = 18
+	 			column = 1
+				width = medium
+			)
+			Notes
+			(
+    			type = textarea
+    			height = 100px
+	 			row = 19
+	 			column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+   						type = submit
+   						displayname = "Submit"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+   						displayname = "Update"
+					)
+					cancel
+					(
+						type = cancel
+   						displayname = "Cancel"
+					)
+				}
+			}
+		}
+		form Batches
+		{
+			displayname = "Batches"
+			success message = "Batches Added Successfully"
+			Section
+			(
+				type = section
+	 			row = 1
+	 			column = 0
+				width = medium
+			)
+			must have Batch_No
+			(
+    			type = text
+    			displayname = "Batch No"
+	 			row = 1
+	 			column = 1
+				width = medium
+			)
+			Date_field
+			(
+    			type = date
+    			displayname = "Date"
+    			alloweddays = 0,1,2,3,4,5,6
+	 			row = 2
+	 			column = 1
+				width = medium
+			)
+			must have Kind
+			(
+    			type = picklist
+    			maxchar = 100
+    			values = {"Extraction","Melange"}
+	 			row = 3
+	 			column = 1
+				width = medium
+			)
+			Location
+			(
+    			type = picklist
+    			displayname = "Location"
+    			values  = Storage_Locations.ID
+    			displayformat = [Name]
+    			sortorder = ascending
+	 			row = 4
+	 			column = 1
+				width = medium
+			)
+			Spoiled
+			(
+    			type = decimal
+	 			row = 5
+	 			column = 1
+				width = medium
+			)
+			Cost_per_Unit
+			(
+    			type = INR
+    			format = commadotindian
+    			displayname = "Cost per Unit"
+	 			row = 6
+	 			column = 1
+				width = medium
+			)
+			must have Status
+			(
+    			type = picklist
+    			maxchar = 100
+    			values = {"Awaiting QC","Released","On Hold","Rejected"}
+	 			row = 7
+	 			column = 1
+				width = medium
+			)
+			Data_JSON
+			(
+    			type = textarea
+    			displayname = "Data JSON"
+    			height = 100px
+	 			row = 8
+	 			column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+   						type = submit
+   						displayname = "Submit"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+   						displayname = "Update"
+					)
+					cancel
+					(
+						type = cancel
+   						displayname = "Cancel"
+					)
+				}
+			}
+		}
+		form Packing_Runs
+		{
+			displayname = "Packing Runs"
+			success message = "Packing Runs Added Successfully"
+			Section
+			(
+				type = section
+	 			row = 1
+	 			column = 0
+				width = medium
+			)
+			must have Run_No
+			(
+    			type = text
+    			displayname = "Run No"
+	 			row = 1
+	 			column = 1
+				width = medium
+			)
+			Date_field
+			(
+    			type = date
+    			displayname = "Date"
+    			alloweddays = 0,1,2,3,4,5,6
+	 			row = 2
+	 			column = 1
+				width = medium
+			)
+			Batch
+			(
+    			type = picklist
+    			displayname = "Batch"
+    			values  = Batches.ID
+    			displayformat = [Batch_No]
+    			sortorder = ascending
+	 			row = 3
+	 			column = 1
+				width = medium
+			)
+			Bulk_Item
+			(
+    			type = picklist
+    			displayname = "Bulk Item"
+    			values  = Items.ID
+    			displayformat = [Name]
+    			sortorder = ascending
+	 			row = 4
+	 			column = 1
+				width = medium
+			)
+			Drawn
+			(
+    			type = decimal
+	 			row = 5
+	 			column = 1
+				width = medium
+			)
+			Location
+			(
+    			type = picklist
+    			displayname = "Location"
+    			values  = Storage_Locations.ID
+    			displayformat = [Name]
+    			sortorder = ascending
+	 			row = 6
+	 			column = 1
+				width = medium
+			)
+			must have Status
+			(
+    			type = picklist
+    			maxchar = 100
+    			values = {"Draft","Posted"}
+	 			row = 7
+	 			column = 1
+				width = medium
+			)
+			Data_JSON
+			(
+    			type = textarea
+    			displayname = "Data JSON"
+    			height = 100px
+	 			row = 8
+	 			column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+   						type = submit
+   						displayname = "Submit"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+   						displayname = "Update"
+					)
+					cancel
+					(
+						type = cancel
+   						displayname = "Cancel"
+					)
+				}
+			}
+		}
+		form QC_Records
+		{
+			displayname = "QC Records"
+			success message = "QC Records Added Successfully"
+			Section
+			(
+				type = section
+	 			row = 1
+	 			column = 0
+				width = medium
+			)
+			must have Doc_No
+			(
+    			type = text
+    			displayname = "Doc No"
+	 			row = 1
+	 			column = 1
+				width = medium
+			)
+			Batch
+			(
+    			type = picklist
+    			displayname = "Batch"
+    			values  = Batches.ID
+    			displayformat = [Batch_No]
+    			sortorder = ascending
+	 			row = 2
+	 			column = 1
+				width = medium
+			)
+			Item
+			(
+    			type = picklist
+    			displayname = "Item"
+    			values  = Items.ID
+    			displayformat = [Name]
+    			sortorder = ascending
+	 			row = 3
+	 			column = 1
+				width = medium
+			)
+			must have Disposition
+			(
+    			type = picklist
+    			maxchar = 100
+    			values = {"Awaiting","Released","On Hold","Rejected"}
+	 			row = 4
+	 			column = 1
+				width = medium
+			)
+			Tests_JSON
+			(
+    			type = textarea
+    			displayname = "Tests JSON"
+    			height = 100px
+	 			row = 5
+	 			column = 1
+				width = medium
+			)
+			Attachments
+			(
+    			type = upload file
+    			browse = local_drive
+	 			row = 6
+	 			column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+   						type = submit
+   						displayname = "Submit"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+   						displayname = "Update"
+					)
+					cancel
+					(
+						type = cancel
+   						displayname = "Cancel"
+					)
+				}
+			}
+		}
+		form Lab_Reports
+		{
+			displayname = "Lab Reports"
+			success message = "Lab Reports Added Successfully"
+			Section
+			(
+				type = section
+	 			row = 1
+	 			column = 0
+				width = medium
+			)
+			must have Report_No
+			(
+    			type = text
+    			displayname = "Report No"
+	 			row = 1
+	 			column = 1
+				width = medium
+			)
+			Category
+			(
+    			type = picklist
+    			displayname = "Category"
+    			values  = Test_Categories.ID
+    			displayformat = [Title]
+    			sortorder = ascending
+	 			row = 2
+	 			column = 1
+				width = medium
+			)
+			Batch
+			(
+    			type = picklist
+    			displayname = "Batch"
+    			values  = Batches.ID
+    			displayformat = [Batch_No]
+    			sortorder = ascending
+	 			row = 3
+	 			column = 1
+				width = medium
+			)
+			Sample_Date
+			(
+    			type = date
+    			displayname = "Sample Date"
+    			alloweddays = 0,1,2,3,4,5,6
+	 			row = 4
+	 			column = 1
+				width = medium
+			)
+			Customer
+			(
+    			type = picklist
+    			displayname = "Customer"
+    			values  = Customers.ID
+    			displayformat = [Name]
+    			sortorder = ascending
+	 			row = 5
+	 			column = 1
+				width = medium
+			)
+			Issue_Date
+			(
+    			type = date
+    			displayname = "Issue Date"
+    			alloweddays = 0,1,2,3,4,5,6
+	 			row = 6
+	 			column = 1
+				width = medium
+			)
+			Scores_JSON
+			(
+    			type = textarea
+    			displayname = "Scores JSON"
+    			height = 100px
+	 			row = 7
+	 			column = 1
+				width = medium
+			)
+			Decision
+			(
+    			type = text
+	 			row = 8
+	 			column = 1
+				width = medium
+			)
+			Attachment
+			(
+    			type = upload file
+    			browse = local_drive
+	 			row = 9
+	 			column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+   						type = submit
+   						displayname = "Submit"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+   						displayname = "Update"
+					)
+					cancel
+					(
+						type = cancel
+   						displayname = "Cancel"
+					)
+				}
+			}
+		}
+		form Orders
+		{
+			displayname = "Orders"
+			success message = "Orders Added Successfully"
+			Section
+			(
+				type = section
+	 			row = 1
+	 			column = 0
+				width = medium
+			)
+			must have Order_No
+			(
+    			type = text
+    			displayname = "Order No"
+	 			row = 1
+	 			column = 1
+				width = medium
+			)
+			Customer
+			(
+    			type = picklist
+    			displayname = "Customer"
+    			values  = Customers.ID
+    			displayformat = [Name]
+    			sortorder = ascending
+	 			row = 2
+	 			column = 1
+				width = medium
+			)
+			Date_field
+			(
+    			type = date
+    			displayname = "Date"
+    			alloweddays = 0,1,2,3,4,5,6
+	 			row = 3
+	 			column = 1
+				width = medium
+			)
+			must have Status
+			(
+    			type = picklist
+    			maxchar = 100
+    			values = {"Open","Dispatched","Cancelled"}
+	 			row = 4
+	 			column = 1
+				width = medium
+			)
+			Notes
+			(
+    			type = textarea
+    			height = 100px
+	 			row = 5
+	 			column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+   						type = submit
+   						displayname = "Submit"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+   						displayname = "Update"
+					)
+					cancel
+					(
+						type = cancel
+   						displayname = "Cancel"
+					)
+				}
+			}
+		}
+		form Order_Lines
+		{
+			displayname = "Order Lines"
+			success message = "Order Lines Added Successfully"
+			Section
+			(
+				type = section
+	 			row = 1
+	 			column = 0
+				width = medium
+			)
+			must have Order
+			(
+    			type = picklist
+    			displayname = "Order"
+    			values  = Orders.ID
+    			displayformat = [Order_No]
+    			sortorder = ascending
+	 			row = 1
+	 			column = 1
+				width = medium
+			)
+			SKU
+			(
+    			type = picklist
+    			displayname = "SKU"
+    			values  = Products.ID
+    			displayformat = [Name]
+    			sortorder = ascending
+	 			row = 2
+	 			column = 1
+				width = medium
+			)
+			must have Qty
+			(
+    			type = number
+	 			row = 3
+	 			column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+   						type = submit
+   						displayname = "Submit"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+   						displayname = "Update"
+					)
+					cancel
+					(
+						type = cancel
+   						displayname = "Cancel"
+					)
+				}
+			}
+		}
+		form Dispatches
+		{
+			displayname = "Dispatches"
+			success message = "Dispatches Added Successfully"
+			Section
+			(
+				type = section
+	 			row = 1
+	 			column = 0
+				width = medium
+			)
+			must have Challan_No
+			(
+    			type = text
+    			displayname = "Challan No"
+	 			row = 1
+	 			column = 1
+				width = medium
+			)
+			Date_field
+			(
+    			type = date
+    			displayname = "Date"
+    			alloweddays = 0,1,2,3,4,5,6
+	 			row = 2
+	 			column = 1
+				width = medium
+			)
+			Customer
+			(
+    			type = picklist
+    			displayname = "Customer"
+    			values  = Customers.ID
+    			displayformat = [Name]
+    			sortorder = ascending
+	 			row = 3
+	 			column = 1
+				width = medium
+			)
+			SKU
+			(
+    			type = picklist
+    			displayname = "SKU"
+    			values  = Products.ID
+    			displayformat = [Name]
+    			sortorder = ascending
+	 			row = 4
+	 			column = 1
+				width = medium
+			)
+			Batch
+			(
+    			type = picklist
+    			displayname = "Batch"
+    			values  = Batches.ID
+    			displayformat = [Batch_No]
+    			sortorder = ascending
+	 			row = 5
+	 			column = 1
+				width = medium
+			)
+			Location
+			(
+    			type = picklist
+    			displayname = "Location"
+    			values  = Storage_Locations.ID
+    			displayformat = [Name]
+    			sortorder = ascending
+	 			row = 6
+	 			column = 1
+				width = medium
+			)
+			Expiry
+			(
+    			type = date
+    			alloweddays = 0,1,2,3,4,5,6
+	 			row = 7
+	 			column = 1
+				width = medium
+			)
+			Qty
+			(
+    			type = number
+	 			row = 8
+	 			column = 1
+				width = medium
+			)
+			Vehicle
+			(
+    			type = text
+	 			row = 9
+	 			column = 1
+				width = medium
+			)
+			must have Status
+			(
+    			type = picklist
+    			maxchar = 100
+    			values = {"Dispatched","In Transit","Delivered"}
+	 			row = 10
+	 			column = 1
+				width = medium
+			)
+			POD
+			(
+    			type = upload file
+    			browse = local_drive
+	 			row = 11
+	 			column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+   						type = submit
+   						displayname = "Submit"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+   						displayname = "Update"
+					)
+					cancel
+					(
+						type = cancel
+   						displayname = "Cancel"
+					)
+				}
+			}
+		}
+		form Stock_Issues
+		{
+			displayname = "Stock Issues"
+			success message = "Stock Issues Added Successfully"
+			Section
+			(
+				type = section
+	 			row = 1
+	 			column = 0
+				width = medium
+			)
+			must have Doc_No
+			(
+    			type = text
+    			displayname = "Doc No"
+	 			row = 1
+	 			column = 1
+				width = medium
+			)
+			Date_field
+			(
+    			type = date
+    			displayname = "Date"
+    			alloweddays = 0,1,2,3,4,5,6
+	 			row = 2
+	 			column = 1
+				width = medium
+			)
+			must have Reason
+			(
+    			type = picklist
+    			maxchar = 100
+    			values = {"Spoilage","Sample","Internal Use","Return to Vendor","Other"}
+	 			row = 3
+	 			column = 1
+				width = medium
+			)
+			Issued_To
+			(
+    			type = text
+    			displayname = "Issued To"
+	 			row = 4
+	 			column = 1
+				width = medium
+			)
+			Lines_JSON
+			(
+    			type = textarea
+    			displayname = "Lines JSON"
+    			height = 100px
+	 			row = 5
+	 			column = 1
+				width = medium
+			)
+			Value
+			(
+    			type = INR
+    			format = commadotindian
+	 			row = 6
+	 			column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+   						type = submit
+   						displayname = "Submit"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+   						displayname = "Update"
+					)
+					cancel
+					(
+						type = cancel
+   						displayname = "Cancel"
+					)
+				}
+			}
+		}
+		form Production_Plans
+		{
+			displayname = "Production Plans"
+			success message = "Production Plans Added Successfully"
+			Section
+			(
+				type = section
+	 			row = 1
+	 			column = 0
+				width = medium
+			)
+			must have Plan_No
+			(
+    			type = text
+    			displayname = "Plan No"
+	 			row = 1
+	 			column = 1
+				width = medium
+			)
+			Day
+			(
+    			type = date
+    			alloweddays = 0,1,2,3,4,5,6
+	 			row = 2
+	 			column = 1
+				width = medium
+			)
+			must have Stage
+			(
+    			type = picklist
+    			maxchar = 100
+    			values = {"Extraction","Melange","Packing"}
+	 			row = 3
+	 			column = 1
+				width = medium
+			)
+			Product
+			(
+    			type = text
+	 			row = 4
+	 			column = 1
+				width = medium
+			)
+			Qty
+			(
+    			type = decimal
+	 			row = 5
+	 			column = 1
+				width = medium
+			)
+			must have UOM
+			(
+    			type = picklist
+    			maxchar = 100
+    			values = {"Litre","Kg","Packs"}
+	 			row = 6
+	 			column = 1
+				width = medium
+			)
+			Note
+			(
+    			type = textarea
+    			height = 100px
+	 			row = 7
+	 			column = 1
+				width = medium
+			)
+			must have Status
+			(
+    			type = picklist
+    			maxchar = 100
+    			values = {"Planned","In progress","Done","Cancelled"}
+	 			row = 8
+	 			column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+   						type = submit
+   						displayname = "Submit"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+   						displayname = "Update"
+					)
+					cancel
+					(
+						type = cancel
+   						displayname = "Cancel"
+					)
+				}
+			}
+		}
+		form Shifts
+		{
+			displayname = "Shifts"
+			success message = "Shifts Added Successfully"
+			Section
+			(
+				type = section
+	 			row = 1
+	 			column = 0
+				width = medium
+			)
+			Key
+			(
+    			type = text
+	 			row = 1
+	 			column = 1
+				width = medium
+			)
+			Staff
+			(
+    			type = picklist
+    			displayname = "Staff"
+    			values  = Staff.ID
+    			displayformat = [Name]
+    			sortorder = ascending
+	 			row = 2
+	 			column = 1
+				width = medium
+			)
+			Date_field
+			(
+    			type = date
+    			displayname = "Date"
+    			alloweddays = 0,1,2,3,4,5,6
+	 			row = 3
+	 			column = 1
+				width = medium
+			)
+			must have Shift
+			(
+    			type = picklist
+    			maxchar = 100
+    			values = {"Morning","Evening","General"}
+	 			row = 4
+	 			column = 1
+				width = medium
+			)
+			Line
+			(
+    			type = text
+	 			row = 5
+	 			column = 1
+				width = medium
+			)
+			Note
+			(
+    			type = textarea
+    			height = 100px
+	 			row = 6
+	 			column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+   						type = submit
+   						displayname = "Submit"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+   						displayname = "Update"
+					)
+					cancel
+					(
+						type = cancel
+   						displayname = "Cancel"
+					)
+				}
+			}
+		}
+		form Attendance
+		{
+			displayname = "Attendance"
+			success message = "Attendance Added Successfully"
+			Section
+			(
+				type = section
+	 			row = 1
+	 			column = 0
+				width = medium
+			)
+			Key
+			(
+    			type = text
+	 			row = 1
+	 			column = 1
+				width = medium
+			)
+			Staff
+			(
+    			type = picklist
+    			displayname = "Staff"
+    			values  = Staff.ID
+    			displayformat = [Name]
+    			sortorder = ascending
+	 			row = 2
+	 			column = 1
+				width = medium
+			)
+			Date_field
+			(
+    			type = date
+    			displayname = "Date"
+    			alloweddays = 0,1,2,3,4,5,6
+	 			row = 3
+	 			column = 1
+				width = medium
+			)
+			must have Status
+			(
+    			type = picklist
+    			maxchar = 100
+    			values = {"Present","Absent","Leave","Half day"}
+	 			row = 4
+	 			column = 1
+				width = medium
+			)
+			Note
+			(
+    			type = textarea
+    			height = 100px
+	 			row = 5
+	 			column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+   						type = submit
+   						displayname = "Submit"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+   						displayname = "Update"
+					)
+					cancel
+					(
+						type = cancel
+   						displayname = "Cancel"
+					)
+				}
+			}
+		}
+		form Ledger
+		{
+			displayname = "Ledger"
+			success message = "Ledger Added Successfully"
+			Section
+			(
+				type = section
+	 			row = 1
+	 			column = 0
+				width = medium
+			)
+			Doc
+			(
+    			type = text
+	 			row = 1
+	 			column = 1
+				width = medium
+			)
+			Type_field
+			(
+    			type = text
+    			displayname = "Type"
+	 			row = 2
+	 			column = 1
+				width = medium
+			)
+			Item
+			(
+    			type = picklist
+    			displayname = "Item"
+    			values  = Items.ID
+    			displayformat = [Name]
+    			sortorder = ascending
+	 			row = 3
+	 			column = 1
+				width = medium
+			)
+			Lot
+			(
+    			type = text
+	 			row = 4
+	 			column = 1
+				width = medium
+			)
+			Location
+			(
+    			type = picklist
+    			displayname = "Location"
+    			values  = Storage_Locations.ID
+    			displayformat = [Name]
+    			sortorder = ascending
+	 			row = 5
+	 			column = 1
+				width = medium
+			)
+			Status
+			(
+    			type = text
+	 			row = 6
+	 			column = 1
+				width = medium
+			)
+			Qty_In
+			(
+    			type = decimal
+    			displayname = "Qty In"
+	 			row = 7
+	 			column = 1
+				width = medium
+			)
+			Qty_Out
+			(
+    			type = decimal
+    			displayname = "Qty Out"
+	 			row = 8
+	 			column = 1
+				width = medium
+			)
+			Unit_Cost
+			(
+    			type = INR
+    			format = commadotindian
+    			displayname = "Unit Cost"
+	 			row = 9
+	 			column = 1
+				width = medium
+			)
+			Expiry
+			(
+    			type = date
+    			alloweddays = 0,1,2,3,4,5,6
+	 			row = 10
+	 			column = 1
+				width = medium
+			)
+			Time
+			(
+    			type = datetime
+    			timedisplayoptions = "hh:mm:ss"
+    			alloweddays = 0,1,2,3,4,5,6
+	 			row = 11
+	 			column = 1
+				width = medium
+			)
+			Data_JSON
+			(
+    			type = textarea
+    			displayname = "Data JSON"
+    			height = 100px
+	 			row = 12
+	 			column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+   						type = submit
+   						displayname = "Submit"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+   						displayname = "Update"
+					)
+					cancel
+					(
+						type = cancel
+   						displayname = "Cancel"
+					)
+				}
+			}
+		}
+		form Audit_Log
+		{
+			displayname = "Audit Log"
+			success message = "Audit Log Added Successfully"
+			Section
+			(
+				type = section
+	 			row = 1
+	 			column = 0
+				width = medium
+			)
+			Doc
+			(
+    			type = text
+	 			row = 1
+	 			column = 1
+				width = medium
+			)
+			Action_field
+			(
+    			type = text
+    			displayname = "Action"
+	 			row = 2
+	 			column = 1
+				width = medium
+			)
+			Details
+			(
+    			type = textarea
+    			height = 100px
+	 			row = 3
+	 			column = 1
+				width = medium
+			)
+			Actor
+			(
+    			type = text
+	 			row = 4
+	 			column = 1
+				width = medium
+			)
+			Time
+			(
+    			type = datetime
+    			timedisplayoptions = "hh:mm:ss"
+    			alloweddays = 0,1,2,3,4,5,6
+	 			row = 5
+	 			column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+   						type = submit
+   						displayname = "Submit"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+   						displayname = "Update"
+					)
+					cancel
+					(
+						type = cancel
+   						displayname = "Cancel"
+					)
+				}
+			}
+		}
+		form Sticker_Templates
+		{
+			displayname = "Sticker Templates"
+			success message = "Sticker Templates Added Successfully"
+			Section
+			(
+				type = section
+	 			row = 1
+	 			column = 0
+				width = medium
+			)
+			must have Name
+			(
+    			type = text
+	 			row = 1
+	 			column = 1
+				width = medium
+			)
+			must have Stage
+			(
+    			type = picklist
+    			maxchar = 100
+    			values = {"Extraction","Melange","Packing","Dispatch"}
+	 			row = 2
+	 			column = 1
+				width = medium
+			)
+			Template_JSON
+			(
+    			type = textarea
+    			displayname = "Template JSON"
+    			height = 100px
+	 			row = 3
+	 			column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+   						type = submit
+   						displayname = "Submit"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+   						displayname = "Update"
+					)
+					cancel
+					(
+						type = cancel
+   						displayname = "Cancel"
+					)
+				}
+			}
+		}
+	}
+	reports
+	{
+		default list All_Vendor_Types
+		{
+			displayName = "All Vendor Types"
+			show all rows from Vendor_Types
+			(
+				Name
+				Source_Kind as "Source Kind"
+				Status
+			)
+		}
+		default list All_Vendors
+		{
+			displayName = "All Vendors"
+			show all rows from Vendors
+			(
+				Name
+				Vendor_Type as "Vendor Type"
+				Status
+			)
+		}
+		default list All_Customers
+		{
+			displayName = "All Customers"
+			show all rows from Customers
+			(
+				Name
+				Ship_To as "Ship To"
+				Status
+			)
+		}
+		default list All_Items
+		{
+			displayName = "All Items"
+			show all rows from Items
+			(
+				Name
+				Type_field as "Type"
+				UOM
+			)
+		}
+		default list All_Purchase_Products
+		{
+			displayName = "All Purchase Products"
+			show all rows from Purchase_Products
+			(
+				Name
+				Item
+			)
+		}
+		default list All_Storage_Locations
+		{
+			displayName = "All Storage Locations"
+			show all rows from Storage_Locations
+			(
+				Name
+				Label
+				Type_field as "Type"
+			)
+		}
+		default list All_Test_Categories
+		{
+			displayName = "All Test Categories"
+			show all rows from Test_Categories
+			(
+				Title
+				Format
+				Status
+			)
+		}
+		default list All_Test_Parameters
+		{
+			displayName = "All Test Parameters"
+			show all rows from Test_Parameters
+			(
+				Name
+				Category
+			)
+		}
+		default list All_Products
+		{
+			displayName = "All Products"
+			show all rows from Products
+			(
+				Name
+				Format
+				Medium_field as "Medium"
+			)
+		}
+		default list All_BOM_Lines
+		{
+			displayName = "All BOM Lines"
+			show all rows from BOM_Lines
+			(
+				Product
+				Item
+				Qty_per_Pack as "Qty per Pack"
+			)
+		}
+		default list All_Melanges
+		{
+			displayName = "All Melanges"
+			show all rows from Melanges
+			(
+				Name
+				Status
+			)
+		}
+		default list All_Melange_Components
+		{
+			displayName = "All Melange Components"
+			show all rows from Melange_Components
+			(
+				Melange
+				Item
+				Share
+			)
+		}
+		default list All_Counters
+		{
+			displayName = "All Counters"
+			show all rows from Counters
+			(
+				Series
+				Prefix
+				Pattern
+				Pad
+				Next
+			)
+		}
+		default list All_Config
+		{
+			displayName = "All Config"
+			show all rows from Config
+			(
+				Setting
+				Value
+			)
+		}
+		default list All_Staff
+		{
+			displayName = "All Staff"
+			show all rows from Staff
+			(
+				Staff_No as "Staff No"
+				Name
+				Status
+			)
+		}
+		default list All_GRNs
+		{
+			displayName = "All GRNs"
+			show all rows from GRNs
+			(
+				Doc_No as "Doc No"
+				Date_field as "Date"
+				Vendor
+				Status
+			)
+		}
+		default list All_Batches
+		{
+			displayName = "All Batches"
+			show all rows from Batches
+			(
+				Batch_No as "Batch No"
+				Date_field as "Date"
+				Kind
+				Status
+			)
+		}
+		default list All_Packing_Runs
+		{
+			displayName = "All Packing Runs"
+			show all rows from Packing_Runs
+			(
+				Run_No as "Run No"
+				Date_field as "Date"
+				Batch
+				Status
+			)
+		}
+		default list All_QC_Records
+		{
+			displayName = "All QC Records"
+			show all rows from QC_Records
+			(
+				Doc_No as "Doc No"
+				Batch
+				Disposition
+			)
+		}
+		default list All_Lab_Reports
+		{
+			displayName = "All Lab Reports"
+			show all rows from Lab_Reports
+			(
+				Report_No as "Report No"
+				Category
+				Decision
+			)
+		}
+		default list All_Orders
+		{
+			displayName = "All Orders"
+			show all rows from Orders
+			(
+				Order_No as "Order No"
+				Customer
+				Date_field as "Date"
+				Status
+			)
+		}
+		default list All_Order_Lines
+		{
+			displayName = "All Order Lines"
+			show all rows from Order_Lines
+			(
+				Order
+				SKU
+				Qty
+			)
+		}
+		default list All_Dispatches
+		{
+			displayName = "All Dispatches"
+			show all rows from Dispatches
+			(
+				Challan_No as "Challan No"
+				Customer
+				SKU
+				Status
+			)
+		}
+		default list All_Stock_Issues
+		{
+			displayName = "All Stock Issues"
+			show all rows from Stock_Issues
+			(
+				Doc_No as "Doc No"
+				Date_field as "Date"
+				Reason
+			)
+		}
+		default list All_Production_Plans
+		{
+			displayName = "All Production Plans"
+			show all rows from Production_Plans
+			(
+				Plan_No as "Plan No"
+				Day
+				Stage
+				Status
+			)
+		}
+		default list All_Shifts
+		{
+			displayName = "All Shifts"
+			show all rows from Shifts
+			(
+				Staff
+				Date_field as "Date"
+				Shift
+			)
+		}
+		default list All_Attendance
+		{
+			displayName = "All Attendance"
+			show all rows from Attendance
+			(
+				Staff
+				Date_field as "Date"
+				Status
+			)
+		}
+		default list All_Ledger
+		{
+			displayName = "All Ledger"
+			show all rows from Ledger
+			(
+				Doc
+				Item
+				Qty_In as "Qty In"
+				Qty_Out as "Qty Out"
+			)
+		}
+		default list All_Audit_Log
+		{
+			displayName = "All Audit Log"
+			show all rows from Audit_Log
+			(
+				Doc
+				Action_field as "Action"
+				Actor
+			)
+		}
+		default list All_Sticker_Templates
+		{
+			displayName = "All Sticker Templates"
+			show all rows from Sticker_Templates
+			(
+				Name
+				Stage
+			)
+		}
+	}
+
+	 functions
+	 {
+		 Deluge
+		 {
+// ============================================================================
+// Roligt Plant Ops -- Deluge posting engine, v4
+//
+// WRITTEN IN THE NEW-CREATOR FUNCTION DIALECT, every construct verified against
+// this org's own compiler (function editor, 21-Sep-2026):
+//   - fetch:    var = Form[criteria] sort by Field asc|desc range from x to y;
+//   - add:      resp = insert into Form [ Field = value  Field = value ];
+//   - update:   fetchedRecord.Field = value;   (assignment on the record var)
+//   - loops:    listVar = {"a","b"};  for each x in listVar { ... }
+//               (list literal must be assigned to a variable first; elements
+//               quoted; for each over a form collection also verified)
+//   - NO ternary "? :"  -> use if/else blocks (iff() exists but untested here)
+//   - NO map literals   -> m = Map(); m.put("k", v);
+//   - null tests via isNull(x)
+//   - sort() only sorts scalar lists; record ordering goes in the fetch clause
+//   - NO += / ++ / String.repeat()
+//
+// TWO-STAGE WIRING (emitted by scripts/zoho/embed-engine.mjs):
+//   on validate -> postGrnCheck / postBatchCheck   pure checks, cancel submit
+//   on success  -> postGrn / postBatch             posting; input.ID exists and
+//                  resolves the QC_Records.Batch lookup
+//
+// mintDocNo concurrency note (v4): the fetch->assign update model has no
+// compare-and-swap; two truly simultaneous mints could duplicate a number.
+// The 5-spikes (concurrent mintDocNo) measure this before real use.
+//
+// Field link names (imported app roligt-plant-ops):
+//   Counters: Series, Prefix, Pattern, Pad, Next
+//   Ledger:   Doc, Type_field(text), Item(lookup->Items), Lot,
+//             Location(lookup->Storage_Locations), Status(text), Qty_In, Qty_Out,
+//             Unit_Cost, Expiry(date), Time(datetime), Data_JSON
+//   Audit_Log: Doc, Action_field, Details, Actor(text), Time(datetime)
+//   GRNs: Doc_No, Date_field, Product(->Purchase_Products), UOM,
+//         Location(->Storage_Locations), Vendor(->Vendors), Area, Harvested_On,
+//         Total, Accepted, Free, Grade_A/B/C, Reject, Rate, Other_Charges,
+//         Status(Draft/Posted), Notes
+//   Batches: Batch_No, Date_field, Kind(Extraction/Melange),
+//            Location(->Storage_Locations), Spoiled, Cost_per_Unit,
+//            Status(Awaiting QC/Released/On Hold/Rejected), Data_JSON
+//   QC_Records: Doc_No, Batch(lookup->Batches), Item(lookup->Items),
+//            Disposition(Awaiting/Released/On Hold/Rejected), Tests_JSON
+//
+// Batches.Data_JSON contract (written into the Data JSON field, read here):
+//   {"sources":[{"item":"Tender Coconut","lot":"LOT-...","qty":500}],
+//    "blends" :[{"item":"Coconut Water (bulk)","lot":"BAT-...","qty":180}],
+//    "outputs":[{"item":"Coconut Water (bulk)","qty":180,"main":true},
+//               {"item":"Malai (bulk)","qty":12,"main":false}]}
+//   (item = Items.Name; lot = the producing document's number)
+// ============================================================================
+
+// -- mintDocNo ----------------------------------------------------------------
+string mintDocNo(string seriesKey)
+{
+    cRec = Counters[Series == seriesKey];
+    if(cRec.count() == 0)
+    {
+        return "-NO-SERIES-";
+    }
+    n = cRec.Next;
+    now = zoho.currentdate;
+    code = cRec.Pattern;
+    if(isNull(code))
+    {
+        code = "{P}-{YYYY}-{N}";
+    }
+    // This dialect's replaceAll(search, replace, isRegex) defaults to regex;
+    // the third argument false makes the search LITERAL. No replace() exists.
+    code = code.replaceAll("{P}", cRec.Prefix, false);
+    code = code.replaceAll("{YYYYMMDD}", now.toString("yyyyMMdd"), false);
+    code = code.replaceAll("{YYYY}", now.toString("yyyy"), false);
+    padded = n.toString();
+    padN = cRec.Pad;
+    if(isNull(padN))
+    {
+        padN = 0;
+    }
+    pads = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"};
+    for each z in pads
+    {
+        if(padded.length() < padN)
+        {
+            padded = "0" + padded;
+        }
+    }
+    code = code.replaceAll("{N}", padded, false);
+    // The update: assignment on the fetched record persists.
+    cRec.Next = n + 1;
+    return code;
+}
+
+// -- itemRef / locRef ---------------------------------------------------------
+// Ledger.Item and Ledger.Location are lookups: they need record IDs. The engine
+// speaks names everywhere (operators do); these resolve at the boundary.
+
+string itemRef(string nameOrId)
+{
+    r = Items[ID == nameOrId];
+    if(r.count() > 0)
+    {
+        return nameOrId;
+    }
+    r = Items[Name == nameOrId];
+    if(r.count() > 0)
+    {
+        return r.ID;
+    }
+    return "";
+}
+
+string locRef(string nameOrId)
+{
+    r = Storage_Locations[ID == nameOrId];
+    if(r.count() > 0)
+    {
+        return nameOrId;
+    }
+    r = Storage_Locations[Name == nameOrId];
+    if(r.count() > 0)
+    {
+        return r.ID;
+    }
+    return "";
+}
+
+// -- ledgerBalance ------------------------------------------------------------
+// What is on hand of one item's lot, optionally restricted to statuses -- the
+// counterpart of onHand() in lib/posting.ts. Balance = sum(in) - sum(out) over
+// the whole ledger; nothing is ever edited, so the sum is always the truth.
+
+decimal ledgerBalance(string item, string lot, list statuses)
+{
+    iid = itemRef(item);
+    rows = Ledger[Item == iid && Lot == lot];
+    bal = 0.0;
+    for each r in rows
+    {
+        if(statuses.size() > 0 && !statuses.contains(r.Status))
+        {
+            continue;
+        }
+        qin = 0.0;
+        if(!isNull(r.Qty_In))
+        {
+            qin = r.Qty_In.toDecimal();
+        }
+        qout = 0.0;
+        if(!isNull(r.Qty_Out))
+        {
+            qout = r.Qty_Out.toDecimal();
+        }
+        bal = bal + qin - qout;
+    }
+    return bal;
+}
+
+// -- drawStock ----------------------------------------------------------------
+// The one consume pattern, ported from lib/posting.ts. Takes `qty` of one
+// item's lot from wherever it sits (FIFO by ledger Time, via the fetch-time
+// sort clause) among `statuses`, writing one OUT line per stock bucket drawn
+// and returning {cost, unitCost}.
+
+map drawStock(string doc, string type, string item, string lot, decimal qty, list statuses)
+{
+    iid = itemRef(item);
+    rows = Ledger[Item == iid && Lot == lot] sort by Time asc;
+    remaining = qty;
+    cost = 0.0;
+    for each r in rows
+    {
+        if(remaining <= 0.0001)
+        {
+            break;
+        }
+        if(statuses.size() > 0 && !statuses.contains(r.Status))
+        {
+            continue;
+        }
+        qin = 0.0;
+        if(!isNull(r.Qty_In))
+        {
+            qin = r.Qty_In.toDecimal();
+        }
+        qout = 0.0;
+        if(!isNull(r.Qty_Out))
+        {
+            qout = r.Qty_Out.toDecimal();
+        }
+        bal = qin - qout;
+        if(bal <= 0.0001)
+        {
+            continue;
+        }
+        use = remaining;
+        if(bal < remaining)
+        {
+            use = bal;
+        }
+        uc = 0.0;
+        if(!isNull(r.Unit_Cost))
+        {
+            uc = r.Unit_Cost.toDecimal();
+        }
+        l = Map();
+        l.put("doc", doc);
+        l.put("type", type);
+        l.put("item", iid);
+        l.put("lot", lot);
+        l.put("location", r.Location);
+        l.put("status", r.Status);
+        l.put("qtyIn", 0);
+        l.put("qtyOut", use);
+        l.put("unitCost", uc);
+        l.put("expiry", r.Expiry);
+        l.put("time", zoho.currenttime);
+        appendLedger(l);
+        cost = cost + (use * uc);
+        remaining = remaining - use;
+    }
+    res = Map();
+    res.put("cost", cost);
+    ucost = 0.0;
+    if(qty > 0)
+    {
+        ucost = cost / qty;
+    }
+    res.put("unitCost", ucost);
+    return res;
+}
+
+// -- appendLedger -------------------------------------------------------------
+// The only way anything ever touches the Ledger. Append-only by convention: no
+// function anywhere updates or deletes a Ledger row; a reversal is a new row.
+
+map appendLedger(map line)
+{
+    lResp = insert into Ledger
+    [
+        Doc = line.get("doc")
+        Type_field = line.get("type")
+        Item = line.get("item")
+        Lot = line.get("lot")
+        Location = line.get("location")
+        Status = line.get("status")
+        Qty_In = line.get("qtyIn")
+        Qty_Out = line.get("qtyOut")
+        Unit_Cost = line.get("unitCost")
+        Expiry = line.get("expiry")
+        Time = line.get("time")
+        Data_JSON = line.get("data")
+    ];
+    return lResp;
+}
+
+// -- audit --------------------------------------------------------------------
+void audit(string doc, string action, string details)
+{
+    aResp = insert into Audit_Log
+    [
+        Doc = doc
+        Action_field = action
+        Details = details
+        Actor = zoho.loginuser
+        Time = zoho.currenttime
+    ];
+}
+
+// -- postGrnCheck -------------------------------------------------------------
+// Stage 1 for the GRNs on-add workflow: pure checks, no writes. Returns "" when
+// the submission may proceed.
+
+string postGrnCheck(map form)
+{
+    accepted = 0.0;
+    if(!isNull(form.get("Accepted")))
+    {
+        accepted = form.get("Accepted").toDecimal();
+    }
+    if(accepted < 1)
+    {
+        return "Accepted quantity has to be more than zero.";
+    }
+    vendor = Vendors[ID == form.get("Vendor")];
+    if(vendor.count() == 0)
+    {
+        return "Pick the farmer or vendor this load came from.";
+    }
+    loc = Storage_Locations[ID == form.get("Location")];
+    if(loc.count() == 0)
+    {
+        return "Pick where this load is put away.";
+    }
+    pp = Purchase_Products[ID == form.get("Product")];
+    if(pp.count() == 0)
+    {
+        return "Pick the product this load is.";
+    }
+    if(isNull(pp.Item) || pp.Item == "")
+    {
+        return "This purchase product has no item behind it.";
+    }
+    return "";
+}
+
+// -- postGrn ------------------------------------------------------------------
+// Stage 2: mint, ledger, audit. Assumes postGrnCheck passed. Costing identical
+// to the reference app:
+//   landed     = rate * accepted + otherCharges    (what the load cost)
+//   usableCost = landed / accepted                 (rejects and free stock cost
+//                                                 nothing per unit -- the whole
+//                                                 load rides on the accepted qty)
+
+map postGrn(map form)
+{
+    accepted = form.get("Accepted").toDecimal();
+    pp = Purchase_Products[ID == form.get("Product")];
+    loc = Storage_Locations[ID == form.get("Location")];
+    iid = pp.Item;
+    rate = 0.0;
+    if(!isNull(form.get("Rate")))
+    {
+        rate = form.get("Rate").toDecimal();
+    }
+    otherCharges = 0.0;
+    if(!isNull(form.get("Other_Charges")))
+    {
+        otherCharges = form.get("Other_Charges").toDecimal();
+    }
+    landed = (rate * accepted) + otherCharges;
+    usableCost = 0.0;
+    if(accepted > 0)
+    {
+        usableCost = landed / accepted;
+    }
+    grnNo = mintDocNo("grn");
+    if(grnNo.startsWith("-"))
+    {
+        err = Map();
+        err.put("error", "Could not mint a GRN number. Try again.");
+        return err;
+    }
+    lotNo = mintDocNo("lot");
+    // Raw produce is usable on arrival -- QC gates what production makes, not
+    // what the grove sends. Status Released, no expiry (produce is consumed,
+    // never shipped).
+    l = Map();
+    l.put("doc", grnNo);
+    l.put("type", "GRN");
+    l.put("item", iid);
+    l.put("lot", lotNo);
+    l.put("location", form.get("Location"));
+    l.put("status", "Released");
+    l.put("qtyIn", accepted);
+    l.put("qtyOut", 0);
+    l.put("unitCost", usableCost);
+    l.put("expiry", null);
+    l.put("time", zoho.currenttime);
+    appendLedger(l);
+    audit(grnNo, "Posted GRN", "Lot " + lotNo + " | " + accepted.toString() + " into " + loc.Label);
+    res = Map();
+    res.put("grn", grnNo);
+    res.put("lot", lotNo);
+    res.put("landed", landed);
+    res.put("usableCost", usableCost);
+    return res;
+}
+
+// -- postBatchCheck -----------------------------------------------------------
+// Stage 1 for the Batches on-add workflow: pure checks, no writes. Ported from
+// checkBatch (lib/posting.ts):
+//   - every line's item must resolve; outputs unique with qty > 0
+//   - exactly one output marked main (the one the whole input cost sits on)
+//   - stock sufficiency summed per item+lot across duplicate lines
+//   - raw produce issues from Available; bulk blends from anything drawable
+//     (Available/Quarantine/Released) -- QC-rejected bulk reaches no bottle
+
+string postBatchCheck(map form)
+{
+    kind = form.get("Kind");
+    blending = kind == "Melange";
+    if(isNull(form.get("Location")) || form.get("Location") == "")
+    {
+        return "Pick where the batch output is put away.";
+    }
+    if(isNull(form.get("Data_JSON")) || form.get("Data_JSON") == "")
+    {
+        return "Batch payload (Data JSON) is missing.";
+    }
+    payload = form.get("Data_JSON").toMap();
+    rawS = payload.get("sources");
+    sources = List();
+    if(!isNull(rawS))
+    {
+        sources = rawS.toList();
+    }
+    rawB = payload.get("blends");
+    blends = List();
+    if(!isNull(rawB))
+    {
+        blends = rawB.toList();
+    }
+    rawO = payload.get("outputs");
+    outputs = List();
+    if(!isNull(rawO))
+    {
+        outputs = rawO.toList();
+    }
+    if(blending && blends.size() == 0)
+    {
+        return "Add at least one bulk component to blend.";
+    }
+    if(!blending && sources.size() == 0)
+    {
+        return "Add at least one source lot.";
+    }
+    if(outputs.size() == 0)
+    {
+        return "Record what came out of the batch.";
+    }
+    // Outputs: unique items, exactly one main, items resolvable.
+    mains = 0;
+    outItems = List();
+    for each o in outputs
+    {
+        om = o.toMap();
+        oq = 0.0;
+        if(!isNull(om.get("qty")))
+        {
+            oq = om.get("qty").toDecimal();
+        }
+        if(oq <= 0)
+        {
+            continue;
+        }
+        if(outItems.contains(om.get("item")))
+        {
+            return "Each output can only be listed once.";
+        }
+        if(itemRef(om.get("item")) == "")
+        {
+            return "Unknown output item: " + om.get("item");
+        }
+        outItems.add(om.get("item"));
+        if(om.get("main") == true)
+        {
+            mains = mains + 1;
+        }
+    }
+    if(mains != 1)
+    {
+        return "Mark exactly one output as the one the batch cost sits on.";
+    }
+    srcStat = {"Available"};
+    drawStat = {"Available", "Quarantine", "Released"};
+    wanted = Map();
+    for each l in sources
+    {
+        lm = l.toMap();
+        k = lm.get("item") + "|" + lm.get("lot");
+        q = 0.0;
+        if(!isNull(lm.get("qty")))
+        {
+            q = lm.get("qty").toDecimal();
+        }
+        cur = 0.0;
+        if(!isNull(wanted.get(k)))
+        {
+            cur = wanted.get(k).toDecimal();
+        }
+        wanted.put(k, cur + q);
+    }
+    for each k in wanted.keys()
+    {
+        parts = k.split("|");
+        if(itemRef(parts.get(0)) == "")
+        {
+            return "Unknown source item: " + parts.get(0);
+        }
+        if(wanted.get(k).toDecimal() > ledgerBalance(parts.get(0), parts.get(1), srcStat) + 0.0001)
+        {
+            return parts.get(1) + " does not have that much " + parts.get(0) + " left.";
+        }
+    }
+    if(blending)
+    {
+        wantedB = Map();
+        for each l in blends
+        {
+            lm = l.toMap();
+            k = lm.get("item") + "|" + lm.get("lot");
+            q = 0.0;
+            if(!isNull(lm.get("qty")))
+            {
+                q = lm.get("qty").toDecimal();
+            }
+            cur = 0.0;
+            if(!isNull(wantedB.get(k)))
+            {
+                cur = wantedB.get(k).toDecimal();
+            }
+            wantedB.put(k, cur + q);
+        }
+        for each k in wantedB.keys()
+        {
+            parts = k.split("|");
+            if(itemRef(parts.get(0)) == "")
+            {
+                return "Unknown component item: " + parts.get(0);
+            }
+            if(wantedB.get(k).toDecimal() > ledgerBalance(parts.get(0), parts.get(1), drawStat) + 0.0001)
+            {
+                return parts.get(1) + " does not have that much " + parts.get(0) + " left.";
+            }
+        }
+        // A component cannot be its own blend.
+        for each l in blends
+        {
+            if(outItems.contains(l.toMap().get("item")))
+            {
+                return l.toMap().get("item") + " cannot be both a component and the blend it makes.";
+            }
+        }
+    }
+    issued = 0.0;
+    for each l in sources
+    {
+        lm = l.toMap();
+        q = 0.0;
+        if(!isNull(lm.get("qty")))
+        {
+            q = lm.get("qty").toDecimal();
+        }
+        issued = issued + q;
+    }
+    if(!blending && !isNull(form.get("Spoiled")) && form.get("Spoiled").toDecimal() >= issued && issued > 0)
+    {
+        return "Spoiled quantity must be less than the quantity issued.";
+    }
+    return "";
+}
+
+// -- postBatch ----------------------------------------------------------------
+// Stage 2: draw, outputs, QC records, audit. Assumes postBatchCheck passed.
+// batchRecId is input.ID from the on-success workflow -- the Batches record
+// exists by then, which is what lets the QC_Records.Batch lookup resolve.
+//   - every line drawn at the cost it carries (FIFO) -- never at a typed price
+//   - outputs enter stock as Quarantine ("Awaiting QC"), one QC record each
+//   - the WHOLE input cost lands on the one output marked main; a by-product
+//     carries zero
+
+map postBatch(map form, string batchRecId)
+{
+    kind = form.get("Kind");
+    blending = kind == "Melange";
+    payload = form.get("Data_JSON").toMap();
+    rawS = payload.get("sources");
+    sources = List();
+    if(!isNull(rawS))
+    {
+        sources = rawS.toList();
+    }
+    rawB = payload.get("blends");
+    blends = List();
+    if(!isNull(rawB))
+    {
+        blends = rawB.toList();
+    }
+    rawO = payload.get("outputs");
+    outputs = List();
+    if(!isNull(rawO))
+    {
+        outputs = rawO.toList();
+    }
+    srcStat = {"Available"};
+    drawStat = {"Available", "Quarantine", "Released"};
+    seriesKey = "batch";
+    if(blending)
+    {
+        seriesKey = "melangeBatch";
+    }
+    batchNo = mintDocNo(seriesKey);
+    if(batchNo.startsWith("-"))
+    {
+        err = Map();
+        err.put("error", "Could not mint a batch number. Try again.");
+        return err;
+    }
+    // Draw everything issued; cost accumulates from the rows actually taken.
+    inputCost = 0.0;
+    for each l in sources
+    {
+        lm = l.toMap();
+        q = 0.0;
+        if(!isNull(lm.get("qty")))
+        {
+            q = lm.get("qty").toDecimal();
+        }
+        d = drawStock(batchNo, "Production Consume", lm.get("item"), lm.get("lot"), q, srcStat);
+        inputCost = inputCost + d.get("cost").toDecimal();
+    }
+    for each l in blends
+    {
+        lm = l.toMap();
+        q = 0.0;
+        if(!isNull(lm.get("qty")))
+        {
+            q = lm.get("qty").toDecimal();
+        }
+        d = drawStock(batchNo, "Melange Consume", lm.get("item"), lm.get("lot"), q, drawStat);
+        inputCost = inputCost + d.get("cost").toDecimal();
+    }
+    // Outputs into the bulk cold room as Quarantine, cost on the main line only.
+    mainQty = 0.0;
+    for each o in outputs
+    {
+        om = o.toMap();
+        qty = 0.0;
+        if(!isNull(om.get("qty")))
+        {
+            qty = om.get("qty").toDecimal();
+        }
+        if(qty <= 0)
+        {
+            continue;
+        }
+        isMain = om.get("main") == true;
+        uc = 0.0;
+        if(isMain && qty > 0)
+        {
+            uc = inputCost / qty;
+        }
+        l = Map();
+        l.put("doc", batchNo);
+        typeWord = "Production Output";
+        if(blending)
+        {
+            typeWord = "Melange Output";
+        }
+        l.put("type", typeWord);
+        l.put("item", itemRef(om.get("item")));
+        l.put("lot", batchNo);
+        l.put("location", form.get("Location"));
+        l.put("status", "Quarantine");
+        l.put("qtyIn", qty);
+        l.put("qtyOut", 0);
+        l.put("unitCost", uc);
+        l.put("expiry", null);
+        l.put("time", zoho.currenttime);
+        appendLedger(l);
+        qcNo = mintDocNo("qc");
+        qResp = insert into QC_Records
+        [
+            Doc_No = qcNo
+            Batch = batchRecId
+            Item = itemRef(om.get("item"))
+            Disposition = "Awaiting"
+            Tests_JSON = "{}"
+        ];
+        audit(qcNo, "Raised QC record", om.get("item") + " from " + batchNo + ".");
+        if(isMain)
+        {
+            mainQty = qty;
+        }
+    }
+    action = "Posted production";
+    if(blending)
+    {
+        action = "Posted melange";
+    }
+    audit(batchNo, action, batchNo + " | cost " + inputCost.toString());
+    res = Map();
+    res.put("batch", batchNo);
+    res.put("inputCost", inputCost);
+    res.put("mainQty", mainQty);
+    costPerUnit = 0.0;
+    if(mainQty > 0)
+    {
+        costPerUnit = inputCost / mainQty;
+    }
+    res.put("costPerUnit", costPerUnit);
+    return res;
+}
+
+// ============================================================================
+// NEXT PORTS (same skeleton -- check/post split, draw via drawStock,
+// refuse loudly, audit): releaseQc (on-edit of QC_Records), postPacking,
+// postDispatch, postIssue. Sources: src/context/domains/quality.ts,
+// packing (lib/posting.ts checkPacking/postPackingLines), sales.ts, inventory.ts.
+// ============================================================================
+		 }
+	 }
+
+
+	workflow
+	{
+	form
+	{
+		grn_check as "GRN check"
+		{
+			type = form
+			form = GRNs
+
+			record event = on add
+
+			on validate
+			{
+				actions
+				{
+					custom deluge script
+					(
+						e = postGrnCheck(input.toMap());
+						if(e != "")
+						{
+						alert e;
+						cancel submit;
+						}
+					)
+				}
+			}
+		}
+		grn_post as "GRN post"
+		{
+			type = form
+			form = GRNs
+
+			record event = on add
+
+			on success
+			{
+				actions
+				{
+					custom deluge script
+					(
+						r = postGrn(input.toMap());
+						if(r.get("error") == null)
+						{
+						input.Doc_No = r.get("grn");
+						input.Status = "Posted";
+						notesPrefix = "";
+						if(!isNull(input.Notes))
+						{
+						notesPrefix = input.Notes;
+						}
+						input.Notes = notesPrefix + " | Lot " + r.get("lot");
+						}
+						else
+						{
+						alert "Posting failed - this record is saved WITHOUT stock lines. Fix and resubmit: " + r.get("error");
+						}
+					)
+				}
+			}
+		}
+		batch_check as "Batch check"
+		{
+			type = form
+			form = Batches
+
+			record event = on add
+
+			on validate
+			{
+				actions
+				{
+					custom deluge script
+					(
+						e = postBatchCheck(input.toMap());
+						if(e != "")
+						{
+						alert e;
+						cancel submit;
+						}
+					)
+				}
+			}
+		}
+		batch_post as "Batch post"
+		{
+			type = form
+			form = Batches
+
+			record event = on add
+
+			on success
+			{
+				actions
+				{
+					custom deluge script
+					(
+						r = postBatch(input.toMap(), input.ID);
+						if(r.get("error") == null)
+						{
+						input.Batch_No = r.get("batch");
+						input.Cost_per_Unit = r.get("costPerUnit");
+						input.Status = "Awaiting QC";
+						}
+						else
+						{
+						alert "Posting failed - this record is saved WITHOUT stock lines. Fix and resubmit: " + r.get("error");
+						}
+					)
+				}
+			}
+		}
+	}
+	}
+
+	share_settings
+	{
+			"Administrator"
+			{
+				name = "Administrator"
+				type = Users_Permissions
+				permissions = {Chat:true, Predefined:true, ApiAccess:true, PIIAccess:true, ePHIAccess:true}
+				description = "This profile will have all the permissions.\n"
+			}
+			roles
+			{
+				"CEO"
+				{
+					description = "User belonging to this role can access data of all other users."
+				}
+			}
+	}
+
+	web
+	{
+		menu
+		{
+			space Space
+			{
+				displayname = "Space"
+				icon = "objects-spaceship"
+
+				section Masters
+				{
+					displayname = "Masters"
+					icon = "design-app"
+					form  Vendor_Types { icon = "tech-2-keyboard-wireless" }
+					report All_Vendor_Types { icon = "tech-desktop" }
+					form  Vendors { icon = "business-badge-3" }
+					report All_Vendors { icon = "tech-desktop" }
+					form  Customers { icon = "users-multiple-11" }
+					report All_Customers { icon = "tech-desktop" }
+					form  Items { icon = "shopping-box" }
+					report All_Items { icon = "tech-desktop" }
+					form  Purchase_Products { icon = "shopping-cart-simple" }
+					report All_Purchase_Products { icon = "tech-desktop" }
+					form  Storage_Locations { icon = "location-pin" }
+					report All_Storage_Locations { icon = "tech-desktop" }
+				}
+				section Products_and_Recipes
+				{
+					displayname = "Products & Recipes"
+					icon = "beverage-2"
+					form  Products { icon = "shopping-shop-location" }
+					report All_Products { icon = "tech-desktop" }
+					form  BOM_Lines { icon = "ui-3-menu-left" }
+					report All_BOM_Lines { icon = "tech-desktop" }
+					form  Melanges { icon = "beverage-2" }
+					report All_Melanges { icon = "tech-desktop" }
+					form  Melange_Components { icon = "ui-3-menu-left" }
+					report All_Melange_Components { icon = "tech-desktop" }
+				}
+				section Quality_Setup
+				{
+					displayname = "Quality Setup"
+					icon = "health-heart"
+					form  Test_Categories { icon = "files-paper-text" }
+					report All_Test_Categories { icon = "tech-desktop" }
+					form  Test_Parameters { icon = "ui-2-bullet-list-67" }
+					report All_Test_Parameters { icon = "tech-desktop" }
+				}
+				section Operations
+				{
+					displayname = "Operations"
+					icon = "objects-planet"
+					form  GRNs { icon = "delivery-truck" }
+					report All_GRNs { icon = "tech-desktop" }
+					form  Batches { icon = "objects-album-2" }
+					report All_Batches { icon = "tech-desktop" }
+					form  Packing_Runs { icon = "box" }
+					report All_Packing_Runs { icon = "tech-desktop" }
+					form  QC_Records { icon = "health-heart" }
+					report All_QC_Records { icon = "tech-desktop" }
+					form  Lab_Reports { icon = "files-paper-text" }
+					report All_Lab_Reports { icon = "tech-desktop" }
+					form  Stock_Issues { icon = "ui-2-bullet-list-67" }
+					report All_Stock_Issues { icon = "tech-desktop" }
+				}
+				section Sales
+				{
+					displayname = "Sales"
+					icon = "business-bag-20"
+					form  Orders { icon = "files-paper-text" }
+					report All_Orders { icon = "tech-desktop" }
+					form  Order_Lines { icon = "ui-3-menu-left" }
+					report All_Order_Lines { icon = "tech-desktop" }
+					form  Dispatches { icon = "delivery-truck" }
+					report All_Dispatches { icon = "tech-desktop" }
+				}
+				section Planning_and_People
+				{
+					displayname = "Planning & People"
+					icon = "ui-2-calendar-60"
+					form  Production_Plans { icon = "ui-2-calendar-60" }
+					report All_Production_Plans { icon = "tech-desktop" }
+					form  Staff { icon = "users-multiple-11" }
+					report All_Staff { icon = "tech-desktop" }
+					form  Shifts { icon = "ui-1-time-clock" }
+					report All_Shifts { icon = "tech-desktop" }
+					form  Attendance { icon = "ui-1-check-circle" }
+					report All_Attendance { icon = "tech-desktop" }
+				}
+				section System
+				{
+					displayname = "System"
+					icon = "ui-2-settings-90"
+					form  Counters { icon = "ui-2-settings-90" }
+					report All_Counters { icon = "tech-desktop" }
+					form  Config { icon = "ui-2-settings-90" }
+					report All_Config { icon = "tech-desktop" }
+					form  Ledger { icon = "business-book-08" }
+					report All_Ledger { icon = "tech-desktop" }
+					form  Audit_Log { icon = "ui-2-time-alarm" }
+					report All_Audit_Log { icon = "tech-desktop" }
+					form  Sticker_Templates { icon = "tags" }
+					report All_Sticker_Templates { icon = "tech-desktop" }
+				}
+				section ZC_App_Preferences
+				{
+					displayname = "App Preferences"
+					icon = "design-app"
+					systemcomponent
+					{
+						type = localization
+						displayname = "Language Selection"
+						icon = "education-language"
+					}
+					systemcomponent
+					{
+						type = connection
+						displayname = "Integrations"
+						icon = "tech-2-connection"
+					}
+				}
+				section ZC_Approvals
+				{
+					displayname = "Approvals"
+					icon = "ui-2-hourglass"
+					systemcomponent
+					{
+						type = approval
+						approval status = pending
+						displayname = "Pending Tasks"
+						icon = "ui-2-hourglass"
+					}
+					systemcomponent
+					{
+						type = approval
+						approval status = completed
+						displayname = "Completed Tasks"
+						icon = "design-todo"
+					}
+				}
+				section SharedAnalytics_Section
+				{
+					type = shared_user_report_section
+					displayname = "Reports"
+					icon = "business-chart-bar-33"
+				}
+			}
+			preference
+			{
+				icon
+				{
+					style = outline
+				}
+			}
+		}
+		customize
+		{
+			font = "lato"
+			color options
+			{
+				color = "11"
+			}
+			logo
+			{
+				preference = "app_icon"
+				placement = "left"
+			}
+		}
+	}
+	translation
+{
+{"Language_Settings":{"LANGAGUE_WITH_LOGIN":"browser"}}
+}
+}

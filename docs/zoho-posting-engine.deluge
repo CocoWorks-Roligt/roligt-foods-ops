@@ -1,0 +1,710 @@
+// ============================================================================
+// Roligt Plant Ops -- Deluge posting engine, v4
+//
+// WRITTEN IN THE NEW-CREATOR FUNCTION DIALECT, every construct verified against
+// this org's own compiler (function editor, 21-Sep-2026):
+//   - fetch:    var = Form[criteria] sort by Field asc|desc range from x to y;
+//   - add:      resp = insert into Form [ Field = value  Field = value ];
+//   - update:   fetchedRecord.Field = value;   (assignment on the record var)
+//   - loops:    listVar = {"a","b"};  for each x in listVar { ... }
+//               (list literal must be assigned to a variable first; elements
+//               quoted; for each over a form collection also verified)
+//   - NO ternary "? :"  -> use if/else blocks (iff() exists but untested here)
+//   - NO map literals   -> m = Map(); m.put("k", v);
+//   - null tests via isNull(x)
+//   - sort() only sorts scalar lists; record ordering goes in the fetch clause
+//   - NO += / ++ / String.repeat()
+//
+// TWO-STAGE WIRING (emitted by scripts/zoho/embed-engine.mjs):
+//   on validate -> postGrnCheck / postBatchCheck   pure checks, cancel submit
+//   on success  -> postGrn / postBatch             posting; input.ID exists and
+//                  resolves the QC_Records.Batch lookup
+//
+// mintDocNo concurrency note (v4): the fetch->assign update model has no
+// compare-and-swap; two truly simultaneous mints could duplicate a number.
+// The 5-spikes (concurrent mintDocNo) measure this before real use.
+//
+// Field link names (imported app roligt-plant-ops):
+//   Counters: Series, Prefix, Pattern, Pad, Next
+//   Ledger:   Doc, Type_field(text), Item(lookup->Items), Lot,
+//             Location(lookup->Storage_Locations), Status(text), Qty_In, Qty_Out,
+//             Unit_Cost, Expiry(date), Time(datetime), Data_JSON
+//   Audit_Log: Doc, Action_field, Details, Actor(text), Time(datetime)
+//   GRNs: Doc_No, Date_field, Product(->Purchase_Products), UOM,
+//         Location(->Storage_Locations), Vendor(->Vendors), Area, Harvested_On,
+//         Total, Accepted, Free, Grade_A/B/C, Reject, Rate, Other_Charges,
+//         Status(Draft/Posted), Notes
+//   Batches: Batch_No, Date_field, Kind(Extraction/Melange),
+//            Location(->Storage_Locations), Spoiled, Cost_per_Unit,
+//            Status(Awaiting QC/Released/On Hold/Rejected), Data_JSON
+//   QC_Records: Doc_No, Batch(lookup->Batches), Item(lookup->Items),
+//            Disposition(Awaiting/Released/On Hold/Rejected), Tests_JSON
+//
+// Batches.Data_JSON contract (written into the Data JSON field, read here):
+//   {"sources":[{"item":"Tender Coconut","lot":"LOT-...","qty":500}],
+//    "blends" :[{"item":"Coconut Water (bulk)","lot":"BAT-...","qty":180}],
+//    "outputs":[{"item":"Coconut Water (bulk)","qty":180,"main":true},
+//               {"item":"Malai (bulk)","qty":12,"main":false}]}
+//   (item = Items.Name; lot = the producing document's number)
+// ============================================================================
+
+// -- mintDocNo ----------------------------------------------------------------
+string mintDocNo(string seriesKey)
+{
+    cRec = Counters[Series == seriesKey];
+    if(cRec.count() == 0)
+    {
+        return "-NO-SERIES-";
+    }
+    n = cRec.Next;
+    now = zoho.currentdate;
+    code = cRec.Pattern;
+    if(isNull(code))
+    {
+        code = "{P}-{YYYY}-{N}";
+    }
+    // This dialect's replaceAll(search, replace, isRegex) defaults to regex;
+    // the third argument false makes the search LITERAL. No replace() exists.
+    code = code.replaceAll("{P}", cRec.Prefix, false);
+    code = code.replaceAll("{YYYYMMDD}", now.toString("yyyyMMdd"), false);
+    code = code.replaceAll("{YYYY}", now.toString("yyyy"), false);
+    padded = n.toString();
+    padN = cRec.Pad;
+    if(isNull(padN))
+    {
+        padN = 0;
+    }
+    pads = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"};
+    for each z in pads
+    {
+        if(padded.length() < padN)
+        {
+            padded = "0" + padded;
+        }
+    }
+    code = code.replaceAll("{N}", padded, false);
+    // The update: assignment on the fetched record persists.
+    cRec.Next = n + 1;
+    return code;
+}
+
+// -- itemRef / locRef ---------------------------------------------------------
+// Ledger.Item and Ledger.Location are lookups: they need record IDs. The engine
+// speaks names everywhere (operators do); these resolve at the boundary.
+
+string itemRef(string nameOrId)
+{
+    r = Items[ID == nameOrId];
+    if(r.count() > 0)
+    {
+        return nameOrId;
+    }
+    r = Items[Name == nameOrId];
+    if(r.count() > 0)
+    {
+        return r.ID;
+    }
+    return "";
+}
+
+string locRef(string nameOrId)
+{
+    r = Storage_Locations[ID == nameOrId];
+    if(r.count() > 0)
+    {
+        return nameOrId;
+    }
+    r = Storage_Locations[Name == nameOrId];
+    if(r.count() > 0)
+    {
+        return r.ID;
+    }
+    return "";
+}
+
+// -- ledgerBalance ------------------------------------------------------------
+// What is on hand of one item's lot, optionally restricted to statuses -- the
+// counterpart of onHand() in lib/posting.ts. Balance = sum(in) - sum(out) over
+// the whole ledger; nothing is ever edited, so the sum is always the truth.
+
+decimal ledgerBalance(string item, string lot, list statuses)
+{
+    iid = itemRef(item);
+    rows = Ledger[Item == iid && Lot == lot];
+    bal = 0.0;
+    for each r in rows
+    {
+        if(statuses.size() > 0 && !statuses.contains(r.Status))
+        {
+            continue;
+        }
+        qin = 0.0;
+        if(!isNull(r.Qty_In))
+        {
+            qin = r.Qty_In.toDecimal();
+        }
+        qout = 0.0;
+        if(!isNull(r.Qty_Out))
+        {
+            qout = r.Qty_Out.toDecimal();
+        }
+        bal = bal + qin - qout;
+    }
+    return bal;
+}
+
+// -- drawStock ----------------------------------------------------------------
+// The one consume pattern, ported from lib/posting.ts. Takes `qty` of one
+// item's lot from wherever it sits (FIFO by ledger Time, via the fetch-time
+// sort clause) among `statuses`, writing one OUT line per stock bucket drawn
+// and returning {cost, unitCost}.
+
+map drawStock(string doc, string type, string item, string lot, decimal qty, list statuses)
+{
+    iid = itemRef(item);
+    rows = Ledger[Item == iid && Lot == lot] sort by Time asc;
+    remaining = qty;
+    cost = 0.0;
+    for each r in rows
+    {
+        if(remaining <= 0.0001)
+        {
+            break;
+        }
+        if(statuses.size() > 0 && !statuses.contains(r.Status))
+        {
+            continue;
+        }
+        qin = 0.0;
+        if(!isNull(r.Qty_In))
+        {
+            qin = r.Qty_In.toDecimal();
+        }
+        qout = 0.0;
+        if(!isNull(r.Qty_Out))
+        {
+            qout = r.Qty_Out.toDecimal();
+        }
+        bal = qin - qout;
+        if(bal <= 0.0001)
+        {
+            continue;
+        }
+        use = remaining;
+        if(bal < remaining)
+        {
+            use = bal;
+        }
+        uc = 0.0;
+        if(!isNull(r.Unit_Cost))
+        {
+            uc = r.Unit_Cost.toDecimal();
+        }
+        l = Map();
+        l.put("doc", doc);
+        l.put("type", type);
+        l.put("item", iid);
+        l.put("lot", lot);
+        l.put("location", r.Location);
+        l.put("status", r.Status);
+        l.put("qtyIn", 0);
+        l.put("qtyOut", use);
+        l.put("unitCost", uc);
+        l.put("expiry", r.Expiry);
+        l.put("time", zoho.currenttime);
+        appendLedger(l);
+        cost = cost + (use * uc);
+        remaining = remaining - use;
+    }
+    res = Map();
+    res.put("cost", cost);
+    ucost = 0.0;
+    if(qty > 0)
+    {
+        ucost = cost / qty;
+    }
+    res.put("unitCost", ucost);
+    return res;
+}
+
+// -- appendLedger -------------------------------------------------------------
+// The only way anything ever touches the Ledger. Append-only by convention: no
+// function anywhere updates or deletes a Ledger row; a reversal is a new row.
+
+map appendLedger(map line)
+{
+    lResp = insert into Ledger
+    [
+        Doc = line.get("doc")
+        Type_field = line.get("type")
+        Item = line.get("item")
+        Lot = line.get("lot")
+        Location = line.get("location")
+        Status = line.get("status")
+        Qty_In = line.get("qtyIn")
+        Qty_Out = line.get("qtyOut")
+        Unit_Cost = line.get("unitCost")
+        Expiry = line.get("expiry")
+        Time = line.get("time")
+        Data_JSON = line.get("data")
+    ];
+    return lResp;
+}
+
+// -- audit --------------------------------------------------------------------
+void audit(string doc, string action, string details)
+{
+    aResp = insert into Audit_Log
+    [
+        Doc = doc
+        Action_field = action
+        Details = details
+        Actor = zoho.loginuser
+        Time = zoho.currenttime
+    ];
+}
+
+// -- postGrnCheck -------------------------------------------------------------
+// Stage 1 for the GRNs on-add workflow: pure checks, no writes. Returns "" when
+// the submission may proceed.
+
+string postGrnCheck(map form)
+{
+    accepted = 0.0;
+    if(!isNull(form.get("Accepted")))
+    {
+        accepted = form.get("Accepted").toDecimal();
+    }
+    if(accepted < 1)
+    {
+        return "Accepted quantity has to be more than zero.";
+    }
+    vendor = Vendors[ID == form.get("Vendor")];
+    if(vendor.count() == 0)
+    {
+        return "Pick the farmer or vendor this load came from.";
+    }
+    loc = Storage_Locations[ID == form.get("Location")];
+    if(loc.count() == 0)
+    {
+        return "Pick where this load is put away.";
+    }
+    pp = Purchase_Products[ID == form.get("Product")];
+    if(pp.count() == 0)
+    {
+        return "Pick the product this load is.";
+    }
+    if(isNull(pp.Item) || pp.Item == "")
+    {
+        return "This purchase product has no item behind it.";
+    }
+    return "";
+}
+
+// -- postGrn ------------------------------------------------------------------
+// Stage 2: mint, ledger, audit. Assumes postGrnCheck passed. Costing identical
+// to the reference app:
+//   landed     = rate * accepted + otherCharges    (what the load cost)
+//   usableCost = landed / accepted                 (rejects and free stock cost
+//                                                 nothing per unit -- the whole
+//                                                 load rides on the accepted qty)
+
+map postGrn(map form)
+{
+    accepted = form.get("Accepted").toDecimal();
+    pp = Purchase_Products[ID == form.get("Product")];
+    loc = Storage_Locations[ID == form.get("Location")];
+    iid = pp.Item;
+    rate = 0.0;
+    if(!isNull(form.get("Rate")))
+    {
+        rate = form.get("Rate").toDecimal();
+    }
+    otherCharges = 0.0;
+    if(!isNull(form.get("Other_Charges")))
+    {
+        otherCharges = form.get("Other_Charges").toDecimal();
+    }
+    landed = (rate * accepted) + otherCharges;
+    usableCost = 0.0;
+    if(accepted > 0)
+    {
+        usableCost = landed / accepted;
+    }
+    grnNo = mintDocNo("grn");
+    if(grnNo.startsWith("-"))
+    {
+        err = Map();
+        err.put("error", "Could not mint a GRN number. Try again.");
+        return err;
+    }
+    lotNo = mintDocNo("lot");
+    // Raw produce is usable on arrival -- QC gates what production makes, not
+    // what the grove sends. Status Released, no expiry (produce is consumed,
+    // never shipped).
+    l = Map();
+    l.put("doc", grnNo);
+    l.put("type", "GRN");
+    l.put("item", iid);
+    l.put("lot", lotNo);
+    l.put("location", form.get("Location"));
+    l.put("status", "Released");
+    l.put("qtyIn", accepted);
+    l.put("qtyOut", 0);
+    l.put("unitCost", usableCost);
+    l.put("expiry", null);
+    l.put("time", zoho.currenttime);
+    appendLedger(l);
+    audit(grnNo, "Posted GRN", "Lot " + lotNo + " | " + accepted.toString() + " into " + loc.Label);
+    res = Map();
+    res.put("grn", grnNo);
+    res.put("lot", lotNo);
+    res.put("landed", landed);
+    res.put("usableCost", usableCost);
+    return res;
+}
+
+// -- postBatchCheck -----------------------------------------------------------
+// Stage 1 for the Batches on-add workflow: pure checks, no writes. Ported from
+// checkBatch (lib/posting.ts):
+//   - every line's item must resolve; outputs unique with qty > 0
+//   - exactly one output marked main (the one the whole input cost sits on)
+//   - stock sufficiency summed per item+lot across duplicate lines
+//   - raw produce issues from Available; bulk blends from anything drawable
+//     (Available/Quarantine/Released) -- QC-rejected bulk reaches no bottle
+
+string postBatchCheck(map form)
+{
+    kind = form.get("Kind");
+    blending = kind == "Melange";
+    if(isNull(form.get("Location")) || form.get("Location") == "")
+    {
+        return "Pick where the batch output is put away.";
+    }
+    if(isNull(form.get("Data_JSON")) || form.get("Data_JSON") == "")
+    {
+        return "Batch payload (Data JSON) is missing.";
+    }
+    payload = form.get("Data_JSON").toMap();
+    rawS = payload.get("sources");
+    sources = List();
+    if(!isNull(rawS))
+    {
+        sources = rawS.toList();
+    }
+    rawB = payload.get("blends");
+    blends = List();
+    if(!isNull(rawB))
+    {
+        blends = rawB.toList();
+    }
+    rawO = payload.get("outputs");
+    outputs = List();
+    if(!isNull(rawO))
+    {
+        outputs = rawO.toList();
+    }
+    if(blending && blends.size() == 0)
+    {
+        return "Add at least one bulk component to blend.";
+    }
+    if(!blending && sources.size() == 0)
+    {
+        return "Add at least one source lot.";
+    }
+    if(outputs.size() == 0)
+    {
+        return "Record what came out of the batch.";
+    }
+    // Outputs: unique items, exactly one main, items resolvable.
+    mains = 0;
+    outItems = List();
+    for each o in outputs
+    {
+        om = o.toMap();
+        oq = 0.0;
+        if(!isNull(om.get("qty")))
+        {
+            oq = om.get("qty").toDecimal();
+        }
+        if(oq <= 0)
+        {
+            continue;
+        }
+        if(outItems.contains(om.get("item")))
+        {
+            return "Each output can only be listed once.";
+        }
+        if(itemRef(om.get("item")) == "")
+        {
+            return "Unknown output item: " + om.get("item");
+        }
+        outItems.add(om.get("item"));
+        if(om.get("main") == true)
+        {
+            mains = mains + 1;
+        }
+    }
+    if(mains != 1)
+    {
+        return "Mark exactly one output as the one the batch cost sits on.";
+    }
+    srcStat = {"Available"};
+    drawStat = {"Available", "Quarantine", "Released"};
+    wanted = Map();
+    for each l in sources
+    {
+        lm = l.toMap();
+        k = lm.get("item") + "|" + lm.get("lot");
+        q = 0.0;
+        if(!isNull(lm.get("qty")))
+        {
+            q = lm.get("qty").toDecimal();
+        }
+        cur = 0.0;
+        if(!isNull(wanted.get(k)))
+        {
+            cur = wanted.get(k).toDecimal();
+        }
+        wanted.put(k, cur + q);
+    }
+    for each k in wanted.keys()
+    {
+        parts = k.split("|");
+        if(itemRef(parts.get(0)) == "")
+        {
+            return "Unknown source item: " + parts.get(0);
+        }
+        if(wanted.get(k).toDecimal() > ledgerBalance(parts.get(0), parts.get(1), srcStat) + 0.0001)
+        {
+            return parts.get(1) + " does not have that much " + parts.get(0) + " left.";
+        }
+    }
+    if(blending)
+    {
+        wantedB = Map();
+        for each l in blends
+        {
+            lm = l.toMap();
+            k = lm.get("item") + "|" + lm.get("lot");
+            q = 0.0;
+            if(!isNull(lm.get("qty")))
+            {
+                q = lm.get("qty").toDecimal();
+            }
+            cur = 0.0;
+            if(!isNull(wantedB.get(k)))
+            {
+                cur = wantedB.get(k).toDecimal();
+            }
+            wantedB.put(k, cur + q);
+        }
+        for each k in wantedB.keys()
+        {
+            parts = k.split("|");
+            if(itemRef(parts.get(0)) == "")
+            {
+                return "Unknown component item: " + parts.get(0);
+            }
+            if(wantedB.get(k).toDecimal() > ledgerBalance(parts.get(0), parts.get(1), drawStat) + 0.0001)
+            {
+                return parts.get(1) + " does not have that much " + parts.get(0) + " left.";
+            }
+        }
+        // A component cannot be its own blend.
+        for each l in blends
+        {
+            if(outItems.contains(l.toMap().get("item")))
+            {
+                return l.toMap().get("item") + " cannot be both a component and the blend it makes.";
+            }
+        }
+    }
+    issued = 0.0;
+    for each l in sources
+    {
+        lm = l.toMap();
+        q = 0.0;
+        if(!isNull(lm.get("qty")))
+        {
+            q = lm.get("qty").toDecimal();
+        }
+        issued = issued + q;
+    }
+    if(!blending && !isNull(form.get("Spoiled")) && form.get("Spoiled").toDecimal() >= issued && issued > 0)
+    {
+        return "Spoiled quantity must be less than the quantity issued.";
+    }
+    return "";
+}
+
+// -- postBatch ----------------------------------------------------------------
+// Stage 2: draw, outputs, QC records, audit. Assumes postBatchCheck passed.
+// batchRecId is input.ID from the on-success workflow -- the Batches record
+// exists by then, which is what lets the QC_Records.Batch lookup resolve.
+//   - every line drawn at the cost it carries (FIFO) -- never at a typed price
+//   - outputs enter stock as Quarantine ("Awaiting QC"), one QC record each
+//   - the WHOLE input cost lands on the one output marked main; a by-product
+//     carries zero
+
+map postBatch(map form, string batchRecId)
+{
+    kind = form.get("Kind");
+    blending = kind == "Melange";
+    payload = form.get("Data_JSON").toMap();
+    rawS = payload.get("sources");
+    sources = List();
+    if(!isNull(rawS))
+    {
+        sources = rawS.toList();
+    }
+    rawB = payload.get("blends");
+    blends = List();
+    if(!isNull(rawB))
+    {
+        blends = rawB.toList();
+    }
+    rawO = payload.get("outputs");
+    outputs = List();
+    if(!isNull(rawO))
+    {
+        outputs = rawO.toList();
+    }
+    srcStat = {"Available"};
+    drawStat = {"Available", "Quarantine", "Released"};
+    seriesKey = "batch";
+    if(blending)
+    {
+        seriesKey = "melangeBatch";
+    }
+    batchNo = mintDocNo(seriesKey);
+    if(batchNo.startsWith("-"))
+    {
+        err = Map();
+        err.put("error", "Could not mint a batch number. Try again.");
+        return err;
+    }
+    // Draw everything issued; cost accumulates from the rows actually taken.
+    inputCost = 0.0;
+    for each l in sources
+    {
+        lm = l.toMap();
+        q = 0.0;
+        if(!isNull(lm.get("qty")))
+        {
+            q = lm.get("qty").toDecimal();
+        }
+        d = drawStock(batchNo, "Production Consume", lm.get("item"), lm.get("lot"), q, srcStat);
+        inputCost = inputCost + d.get("cost").toDecimal();
+    }
+    for each l in blends
+    {
+        lm = l.toMap();
+        q = 0.0;
+        if(!isNull(lm.get("qty")))
+        {
+            q = lm.get("qty").toDecimal();
+        }
+        d = drawStock(batchNo, "Melange Consume", lm.get("item"), lm.get("lot"), q, drawStat);
+        inputCost = inputCost + d.get("cost").toDecimal();
+    }
+    // Outputs into the bulk cold room as Quarantine, cost on the main line only.
+    mainQty = 0.0;
+    for each o in outputs
+    {
+        om = o.toMap();
+        qty = 0.0;
+        if(!isNull(om.get("qty")))
+        {
+            qty = om.get("qty").toDecimal();
+        }
+        if(qty <= 0)
+        {
+            continue;
+        }
+        isMain = om.get("main") == true;
+        uc = 0.0;
+        if(isMain && qty > 0)
+        {
+            uc = inputCost / qty;
+        }
+        l = Map();
+        l.put("doc", batchNo);
+        typeWord = "Production Output";
+        if(blending)
+        {
+            typeWord = "Melange Output";
+        }
+        l.put("type", typeWord);
+        l.put("item", itemRef(om.get("item")));
+        l.put("lot", batchNo);
+        l.put("location", form.get("Location"));
+        l.put("status", "Quarantine");
+        l.put("qtyIn", qty);
+        l.put("qtyOut", 0);
+        l.put("unitCost", uc);
+        l.put("expiry", null);
+        l.put("time", zoho.currenttime);
+        appendLedger(l);
+        qcNo = mintDocNo("qc");
+        qResp = insert into QC_Records
+        [
+            Doc_No = qcNo
+            Batch = batchRecId
+            Item = itemRef(om.get("item"))
+            Disposition = "Awaiting"
+            Tests_JSON = "{}"
+        ];
+        audit(qcNo, "Raised QC record", om.get("item") + " from " + batchNo + ".");
+        if(isMain)
+        {
+            mainQty = qty;
+        }
+    }
+    action = "Posted production";
+    if(blending)
+    {
+        action = "Posted melange";
+    }
+    audit(batchNo, action, batchNo + " | cost " + inputCost.toString());
+    res = Map();
+    res.put("batch", batchNo);
+    res.put("inputCost", inputCost);
+    res.put("mainQty", mainQty);
+    costPerUnit = 0.0;
+    if(mainQty > 0)
+    {
+        costPerUnit = inputCost / mainQty;
+    }
+    res.put("costPerUnit", costPerUnit);
+    return res;
+}
+
+// ============================================================================
+// NEXT PORTS (same skeleton -- check/post split, draw via drawStock,
+// refuse loudly, audit): releaseQc (on-edit of QC_Records), postPacking,
+// postDispatch, postIssue. Sources: src/context/domains/quality.ts,
+// packing (lib/posting.ts checkPacking/postPackingLines), sales.ts, inventory.ts.
+// ============================================================================
+
+// -- FORM WIRING (emitted into the workflow block by embed-engine.mjs) --------
+//
+// GRNs / on validate:
+//   e = postGrnCheck(input.toMap());
+//   if(e != "") { alert e; cancel submit; }
+// GRNs / on success:
+//   r = postGrn(input.toMap());
+//   if(r.get("error") == null) {
+//     input.Doc_No = r.get("grn"); input.Status = "Posted";
+//     input.Notes = (input.Notes == null ? "" : input.Notes) + " | Lot " + r.get("lot");
+//   } else { alert "Posting failed - record saved WITHOUT stock lines: " + r.get("error"); }
+//
+// Batches / on validate:
+//   e = postBatchCheck(input.toMap());
+//   if(e != "") { alert e; cancel submit; }
+// Batches / on success:
+//   r = postBatch(input.toMap(), input.ID);
+//   if(r.get("error") == null) {
+//     input.Batch_No = r.get("batch"); input.Cost_per_Unit = r.get("costPerUnit");
+//     input.Status = "Awaiting QC";
+//   } else { alert "Posting failed - record saved WITHOUT stock lines: " + r.get("error"); }

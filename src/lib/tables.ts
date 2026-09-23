@@ -21,7 +21,9 @@
  * get real columns. Typing the rest is the next step, and a smaller one from here.
  */
 
-import type { AppState, AuditEntry, LedgerEntry } from '../types'
+// Extension is explicit: this file is also compiled by the nodenext api build (the
+// BFF's snapshot reader imports it), where extensionless imports do not resolve.
+import type { AppState, AuditEntry, LedgerEntry } from '../types.ts'
 
 /** The `AppState` keys that are stored as one row per entry. */
 export type CollectionKey =
@@ -60,9 +62,9 @@ export interface CollectionSpec {
    */
   immutable?: boolean
   /**
-   * True when only an administrator may write this table. Mirrors the RLS policy in
-   * `supabase/schema.sql` — the database is what enforces it; this is documentation
-   * and lets the client fail early with a readable message.
+   * True when only an administrator may write this table. Mirrors the write policy
+   * the BFF enforces per table; this is documentation and lets the client fail
+   * early with a readable message.
    */
   adminOnly?: boolean
 }

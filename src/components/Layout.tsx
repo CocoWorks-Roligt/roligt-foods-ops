@@ -74,7 +74,7 @@ const BOTTOM_NAV: (NavItem & { Icon: ComponentType<{ className?: string }> })[] 
 /**
  * Whether this device's work has actually reached the database.
  *
- * "Data is saved to Supabase" was printed here unconditionally, which was a promise
+ * "Data is saved to the server" was printed here unconditionally, which was a promise
  * the app could not keep: with no signal, nothing was being saved anywhere and the
  * one toast that said so had already been and gone. This reads the real state.
  */

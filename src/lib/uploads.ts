@@ -1,22 +1,24 @@
-import { supabase } from './supabaseClient'
-
+/**
+ * Attachments — interim, local-device edition.
+ *
+ * These used to live in a Supabase Storage bucket; that went away with the SDK.
+ * Until the BFF grows its own upload endpoint, the bytes stay on this device for
+ * the session: an attachment can be added and opened while you work, but one
+ * saved on an earlier session (or another device) cannot be opened and says so
+ * plainly. The record keeps its object key either way, so nothing has to be
+ * rewritten when the server-side store arrives.
+ */
 export interface UploadedFile {
   fileName: string
-  /** @deprecated the bucket is private now; kept so records written earlier still read.
-   *  Read through `signedUrlFor`, never used as an href directly. */
+  /** @deprecated kept so records written earlier still read. Use `signedUrlFor`. */
   url: string
-  /** Object key inside the bucket. What a signed URL is minted from. */
+  /** Object key of the attachment. What a view link is minted from. */
   path?: string
   uploadedAt: string
 }
 
-/**
- * One private bucket for every file the plant attaches — lab reports and the
- * photographs taken at a delivery. Its name is historical: it was created for QC
- * reports, and renaming a bucket means moving every object already in it, which is a
- * far worse trade than a slightly dated name on a folder nobody sees.
- */
-const BUCKET = 'qc-reports'
+/** This session's files, by object key. */
+const blobs = new Map<string, Blob>()
 
 function safeName(name: string) {
   return name.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 80)
@@ -40,11 +42,7 @@ export async function uploadAttachment(file: File, prefix = 'qc'): Promise<Uploa
   const stamp = Date.now().toString(36)
   const path = `${safeName(prefix)}-${stamp}-${safeName(file.name)}`
 
-  const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
-    contentType: file.type || 'application/pdf',
-    upsert: false,
-  })
-  if (error) throw new Error(error.message || 'Upload failed.')
+  blobs.set(path, file)
 
   return {
     fileName: file.name,
@@ -54,7 +52,7 @@ export async function uploadAttachment(file: File, prefix = 'qc'): Promise<Uploa
   }
 }
 
-/** The name this had while the bucket only ever held lab reports. */
+/** The name this had while the store only ever held lab reports. */
 export const uploadReport = uploadAttachment
 
 /**
@@ -62,22 +60,26 @@ export const uploadReport = uploadAttachment
  *
  * Reports used to live in a public bucket, so what was stored was a public URL that
  * anybody who guessed it could open — lab results and customer names included. The
- * bucket is private now and attachments carry their key, but records written before
- * that still hold the old URL, and the key is the tail of it.
+ * bucket went private and attachments carried their key instead, but records written
+ * before that still hold the old URL, and the key is the tail of it.
  */
 export function attachmentPath(a: { path?: string; url?: string }): string | null {
   if (a.path) return a.path
-  const marker = `/object/public/${BUCKET}/`
+  const marker = '/object/public/qc-reports/'
   const at = a.url?.indexOf(marker) ?? -1
   if (at < 0) return null
   return decodeURIComponent(a.url!.slice(at + marker.length))
 }
 
-/** A link that works for ten minutes, which is long enough to read a report. */
+/** A link that opens the attachment. */
 export async function signedUrlFor(a: { path?: string; url?: string }): Promise<string> {
   const path = attachmentPath(a)
   if (!path) throw new Error('That report has no file attached any more.')
-  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 600)
-  if (error || !data?.signedUrl) throw new Error(error?.message || 'Could not open that report.')
-  return data.signedUrl
+  const blob = blobs.get(path)
+  if (!blob) {
+    throw new Error(
+      'That attachment is not on this device — attachment storage returns with the BFF upload endpoint.',
+    )
+  }
+  return URL.createObjectURL(blob)
 }

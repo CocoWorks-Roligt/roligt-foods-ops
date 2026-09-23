@@ -1,4 +1,4 @@
-# Roligt Foods — Operations Control
+# Roligt Foods — Operations Control (Zoho Tables fork)
 
 Plant operations for a tender-coconut processor, from the load arriving at the gate to
 the challan leaving with the vehicle: procurement, extraction and melange production,
@@ -9,52 +9,78 @@ into one append-only stock ledger. Nothing stores a balance — every quantity, 
 valuation on every screen is folded out of that ledger. That is the single idea the
 rest of the codebase follows from.
 
+This fork replaces the old Supabase backend with **Zoho Tables behind a BFF**: a Vite
+SPA in `src/`, and serverless handlers under `api/` (`/api/snapshot`, `/api/revision`,
+`/api/commit`) that hold the Zoho credentials and enforce roles. The design and the
+migration plan live in `docs/zoho-tables-fork-design-2026-09-21.md` and
+`docs/zoho-tables-fork-plan-2026-09-21.md`.
+
 ## Running it
 
 ```bash
 npm install
-cp .env.example .env.local     # fill in your Supabase project's URL and anon key
-npm run dev
+cp .env.example .env          # fill in the Zoho keys (see below)
+npm run build                 # typecheck + build the SPA into dist/
+npx tsx scripts/dev-server.mjs  # serves dist/ + the api/ handlers on :3000
 ```
+
+`npm run dev` runs the Vite dev server for UI work only — it does not serve the BFF;
+use `scripts/dev-server.mjs` for the full app locally (`vercel dev` works too, in a
+linked checkout). On Vercel, `vercel.json`'s SPA rewrite plus the `api/` handlers are
+the whole deployment; the same env keys go in the project settings.
 
 | Script | What it does |
 | --- | --- |
-| `npm run dev` | Vite dev server against your real Supabase project |
+| `npm run dev` | Vite dev server (UI only, no BFF) |
 | `npm run build` | Typecheck and production build |
+| `npm test` | Vitest suite (unit + BFF logic against fakes) |
 | `npm run lint` | oxlint |
 
-### Supabase setup
+### Environment
 
-Run `supabase/schema.sql` once in the SQL editor. Then, in the dashboard:
+Server-side (BFF only — never give these a `VITE_` prefix):
 
-1. **Authentication → Providers → Email: turn off "Allow new users to sign up."**
-   A new sign-up becomes an Operator automatically, which is enough to post against
-   the plant. Create operators from the dashboard instead.
-2. Create your account under **Authentication → Users**, then make it an admin by
-   putting its email into `supabase/set-admin.sql` and running that file:
-   ```sql
-   update public.app_user set role = 'Admin' where email = 'you@example.com';
-   ```
-3. Moving an existing plant off the old single-row `app_state`? Run
-   `supabase/verify-migration.sql` afterwards — every table should match what the old
-   row held.
+- `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET`, `ZOHO_REFRESH_TOKEN` — the self-client the
+  BFF refreshes its access token with
+- `ZOHO_BASE_ID` — the base the app reads and writes
+- `ZOHO_DC` — data centre, defaults to `tables.zoho.in`
+- `ALLOW_DEV_SESSION=1` — dev only: with no token, no `KINDE_DOMAIN` and
+  `NODE_ENV !== 'production'`, anonymous callers get a dev session (Admin, or
+  Operator via the `x-dev-role` header). Under production or a configured Kinde
+  tenant this flag is ignored and anonymous callers get 401.
+- `KINDE_DOMAIN` / `KINDE_AUDIENCE` — optional; once set, the BFF verifies bearer
+  JWTs against the tenant and refuses the dev session
 
-The `supabase/` folder holds exactly these three files: the schema, the admin grant,
-and the migration check.
+Browser-side (optional Kinde SPA credentials; absent means the dev session):
+`VITE_KINDE_DOMAIN`, `VITE_KINDE_CLIENT_ID`, `VITE_KINDE_REDIRECT_URI`,
+`VITE_KINDE_LOGOUT_URI`.
+
+### Scratch vs production base
+
+`api/_lib/baseSchema.ts` is **generated** (`scripts/zoho/gen-base-schema.mjs`) and
+pinned to one base — its `BASE_ID` is the base every table id in it belongs to.
+Switching bases means switching `ZOHO_BASE_ID` in `.env` *and* regenerating the
+schema; doing only one half is caught at boot: the shared client refuses to start
+(`assertBaseMatch` in `api/_lib/shared.ts`) when `ZOHO_BASE_ID` and the generated
+`BASE_ID` disagree. `scripts/zoho/make-scratch.mjs` builds a disposable scratch base
+for e2e; the dev server's `--seed-scratch` seeds it and refuses any other base.
 
 Roles are `Operator` (receive, produce, pack, dispatch) and `Admin` (that, plus
-masters, settings, numbering and clearing records).
+masters, settings, numbering and clearing records) — enforced in the BFF's commit
+path, not just the UI.
 
 ## How the code is laid out
 
 ```
-src/lib/        the rules — pure, no React, no Supabase
+src/lib/        the rules — pure, no React, no network
 src/context/    state, persistence and every write the app can make
 src/pages/      one screen per route
 src/components/ shared UI
+api/            the BFF: handlers + _lib (auth, Zoho client, commit, snapshot)
+scripts/zoho/   base tooling: build tables, generate schema, probe, seed scratch
 ```
 
-`src/lib` is deliberately free of React and of the Supabase client, so the arithmetic
+`src/lib` is deliberately free of React and of any network client, so the arithmetic
 that matters — landed cost, usable yield, by-product cost allocation, stock folding,
 document numbering — can be read on its own. If you are adding a rule, it goes there.
 
@@ -71,7 +97,7 @@ name a row — dropdowns, React keys, allocation maps. Getting this wrong has ca
 same bug more than once.
 
 **Check totals, not rows.** Two lines of one form can name the same lot. Compared one
-at a time each clears; added up they take more than there is. Aggregate first.
+by one each clears; added up they take more than there is. Aggregate first.
 
 **Documents are edited by reversing and re-posting.** Every `update*` deletes its own
 ledger lines and writes them again, and validates against stock with its own lines
@@ -85,27 +111,24 @@ excluded (`withoutDoc`). Quantities freeze once something downstream draws on th
 
 ## Persistence
 
-Each document is a row in its own table. A save works out what changed against the
-last state the database is known to hold and writes only that, so two operators
-posting two different receipts are two independent writes rather than a race to
-overwrite the plant. Changes are written to the device first, so work done without
-signal survives a refresh and uploads on reconnect. Clients poll a trigger-maintained
-revision counter to notice each other's postings.
+Each document is a row in its own table (plus a `Data JSON` payload column). A save
+works out what changed against the last state the server is known to hold
+(`src/lib/sync.ts`) and posts only that diff to `/api/commit`, so two operators posting
+two different receipts are two independent writes rather than a race to overwrite the
+plant. Changes are written to the device first (`localStorage`), so work done without
+signal survives a refresh and uploads on reconnect. Clients poll `/api/revision` to
+notice each other's postings.
 
-Because the split is real, **role separation is enforced by the database**, not just
-by the UI: masters are admin-write, the day's work is operator-write, and the audit
-trail is insert-only with no update policy at all.
+Because the browser only ever holds the caller's own session token, **role separation
+is enforced by the BFF**, not just by the UI: masters and config are admin-write, the
+day's work is operator-write, and the audit trail is insert-only — a commit naming an
+audit App ID that already exists is skipped, never rewritten.
 
-The ledger has real columns and three indexes; it is the one table anything queries
-and the only one that grows without limit. The document tables keep a `data` jsonb
-payload rather than a column per field — that is what let the in-memory shape stay
-identical through the migration, so no screen or posting rule had to change. Giving
-them typed columns is the next step, and a much smaller one from here.
+Every write is a keyed upsert (by App ID, Series or Setting), which is what makes a
+commit safe to retry after a partial failure: the second attempt re-writes the same
+rows instead of duplicating ledger lines. Zoho's per-key rate limit is budgeted in the
+client (`api/_lib/zoho.ts`); a lock surfaces to the UI as 503 + Retry-After.
 
 Two people editing the *same* document within a save window still resolve
 last-write-wins on that row; the poll then shows the other's version. That is a far
-narrower window than the whole database, but it is not zero.
-
-`supabase/schema.sql` migrates an existing `app_state` blob into the tables once,
-only when they are still empty, and leaves the old row alone so you can check the
-result before dropping it.
+narrower window than the whole plant, but it is not zero.

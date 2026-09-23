@@ -12,6 +12,9 @@
  * two operators posting two receipts.
  */
 
+// Extension is explicit: this file is also compiled by the nodenext api build (the
+// BFF's commit writer imports its StateChanges type), where extensionless imports
+// do not resolve.
 import {
   AUDIT_TABLE,
   COLLECTIONS,
@@ -19,8 +22,8 @@ import {
   auditToRow,
   ledgerToRow,
   type CollectionSpec,
-} from './tables'
-import type { AppState } from '../types'
+} from './tables.ts'
+import type { AppState } from '../types.ts'
 
 export interface TableChange {
   table: string

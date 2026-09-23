@@ -1,0 +1,35 @@
+import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { ZohoLockedError } from './_lib/zoho.ts'
+import { authenticate, AuthError } from './_lib/auth.ts'
+import { commitChanges, Forbidden } from './_lib/commit.ts'
+import { zoho } from './_lib/shared.ts'
+import { toWebRequest } from './_lib/vercel.ts'
+import type { StateChanges } from '../src/lib/sync.ts'
+
+export default async function (req: VercelRequest, res: VercelResponse) {
+  try {
+    const caller = await authenticate(toWebRequest(req))
+    const body = (typeof req.body === 'string' ? JSON.parse(req.body) : req.body) as { changes?: StateChanges }
+    if (!body?.changes?.tables) {
+      res.status(400).json({ error: 'Malformed commit payload.' })
+      return
+    }
+    const revision = await commitChanges(zoho, caller, body.changes)
+    res.status(200).json({ revision })
+  } catch (e) {
+    if (e instanceof AuthError) {
+      res.status(401).json({ error: e.message })
+      return
+    }
+    if (e instanceof Forbidden) {
+      res.status(403).json({ error: e.message, table: e.table })
+      return
+    }
+    if (e instanceof ZohoLockedError) {
+      res.setHeader('Retry-After', String(e.retryAfterSec))
+      res.status(503).json({ error: 'Zoho is rate-limited — the change is saved on this device and will retry.' })
+      return
+    }
+    res.status(500).json({ error: (e as Error).message })
+  }
+}

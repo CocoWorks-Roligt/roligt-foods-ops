@@ -1,0 +1,453 @@
+{
+  "tables": {
+    "Vendor Types": {
+      "id": "Q51KfQ",
+      "primary": "RL55hQ",
+      "done": true,
+      "clean": true,
+      "fields": {
+        "Name": "RL55hQ",
+        "Source Kind": "eOYZug",
+        "Description": "aDofuw",
+        "Status": "iMG4UA",
+        "Link to Vendors": "M7YYig"
+      }
+    },
+    "Vendors": {
+      "id": "emPb1Q",
+      "primary": "04uhjg",
+      "done": true,
+      "clean": true,
+      "fields": {
+        "Name": "04uhjg",
+        "Phone": "_hmL6A",
+        "Area": "RxTCGw",
+        "Payment Terms": "d_VTlw",
+        "Status": "MYyIYQ",
+        "Email": "i6_-sQ",
+        "Notes": "9B6uxQ",
+        "Vendor Type": "f6eWVA"
+      }
+    },
+    "Customers": {
+      "id": "uq7Lag",
+      "primary": "rXuTTA",
+      "done": true,
+      "clean": true,
+      "fields": {
+        "Name": "rXuTTA",
+        "Ship To": "8r5wrg",
+        "GSTIN": "KlHKKA",
+        "Status": "SaKg-w",
+        "Phone": "EBqtDg",
+        "Email": "m2fbUQ",
+        "Contact Person": "kBb5ow",
+        "Notes": "CQmW2Q"
+      }
+    },
+    "Items": {
+      "id": "-pn8Rg",
+      "primary": "PPC3zw",
+      "done": true,
+      "clean": true,
+      "fields": {
+        "Name": "PPC3zw",
+        "Type": "fDbxMQ",
+        "UOM": "ZYWKcg",
+        "Lot Controlled": "taWNSw",
+        "Reorder Level": "nPXgUg",
+        "Cost Method": "8b5QaQ"
+      }
+    },
+    "Purchase Products": {
+      "id": "j937WA",
+      "primary": "2MjAAA",
+      "done": true,
+      "clean": true,
+      "fields": {
+        "Name": "2MjAAA",
+        "Default UOM": "5V_gAQ",
+        "Item": "203N1A",
+        "Linked Vendors": "oP1slA"
+      }
+    },
+    "Storage Locations": {
+      "id": "eU3gew",
+      "primary": "Fbdl9w",
+      "done": true,
+      "clean": true,
+      "fields": {
+        "Name": "Fbdl9w",
+        "Label": "6QTydg",
+        "Holds": "YfR-Ng",
+        "Type": "Mo383Q",
+        "Status": "_ikJig"
+      }
+    },
+    "Test Categories": {
+      "id": "4U0lqg",
+      "primary": "IN88Vg",
+      "done": true,
+      "clean": true,
+      "fields": {
+        "Title": "IN88Vg",
+        "Format": "UdSLBQ",
+        "Required for Release": "rjN7Cg",
+        "Pass Score": "iguVZg",
+        "Minor Score": "hMuX6w",
+        "Signatory": "FKCE7Q",
+        "Status": "jQyGmw"
+      }
+    },
+    "Test Parameters": {
+      "id": "hBvaNA",
+      "primary": "Jo7nGQ",
+      "done": true,
+      "clean": true,
+      "fields": {
+        "Name": "Jo7nGQ",
+        "Method": "RS4gkA",
+        "Unit": "ve9YZQ",
+        "Category": "LwwoFw"
+      }
+    },
+    "Products": {
+      "id": "wtZplw",
+      "primary": "R84ItA",
+      "done": true,
+      "clean": true,
+      "fields": {
+        "Name": "R84ItA",
+        "Format": "i0jfDQ",
+        "Size": "_aK5Lg",
+        "Unit": "JbsGxA",
+        "Pack Volume": "A2e6JA",
+        "Shelf Life Days": "TYw0lg",
+        "Chilled Shelf Life Days": "HRHNQw",
+        "MRP": "ao_uIg",
+        "Medium": "LX9yXA",
+        "Bulk Item": "8Q5QNg"
+      }
+    },
+    "BOM Lines": {
+      "id": "_BMFqw",
+      "primary": "HaG3HQ",
+      "done": true,
+      "clean": true,
+      "fields": {
+        "Line": "HaG3HQ",
+        "Qty per Pack": "_ZiaEg",
+        "Product": "X8OAEw",
+        "Item": "J9lLLQ"
+      }
+    },
+    "Melanges": {
+      "id": "HxQjjQ",
+      "primary": "ywkOcw",
+      "done": true,
+      "clean": true,
+      "fields": {
+        "Name": "ywkOcw",
+        "Status": "qQx6Jg",
+        "Output Item": "iXRk5A"
+      }
+    },
+    "Melange Components": {
+      "id": "eDbSvg",
+      "primary": "NcmTiw",
+      "done": true,
+      "clean": true,
+      "fields": {
+        "Line": "NcmTiw",
+        "Share": "-NXEbQ",
+        "Melange": "Oh5T5A",
+        "Item": "_JfkNw"
+      }
+    },
+    "Counters": {
+      "id": "la-DXQ",
+      "primary": "NlaXqg",
+      "done": true,
+      "clean": true,
+      "fields": {
+        "Series": "NlaXqg",
+        "Prefix": "TQXrSw",
+        "Pattern": "NgfLVg",
+        "Pad": "R9OwRw",
+        "Next": "SabsYg"
+      }
+    },
+    "Config": {
+      "id": "0jAjUQ",
+      "primary": "batStA",
+      "done": true,
+      "clean": true,
+      "fields": {
+        "Setting": "batStA",
+        "Value": "WcDTZQ",
+        "Notes": "GM8CUg"
+      }
+    },
+    "Staff": {
+      "id": "-7_2Lw",
+      "primary": "mKGDbQ",
+      "done": true,
+      "clean": true,
+      "fields": {
+        "Staff No": "mKGDbQ",
+        "Name": "MSPtUA",
+        "Role": "SvWaiw",
+        "Phone": "4kjuow",
+        "Status": "ZwCzNQ",
+        "Added On": "HB5G_Q"
+      }
+    },
+    "GRNs": {
+      "id": "zYc_3A",
+      "primary": "mpuNTw",
+      "done": true,
+      "clean": true,
+      "fields": {
+        "Doc No": "mpuNTw",
+        "Date": "tZMtQA",
+        "UOM": "5yAcKg",
+        "Area": "n1Upgg",
+        "Harvested On": "B3gZhw",
+        "Total": "jnuzPw",
+        "Accepted": "tBSfBw",
+        "Free": "uRm70g",
+        "Grade A": "LmBRqg",
+        "Grade B": "n5c3ig",
+        "Grade C": "mMWFNA",
+        "Reject": "2nbJkQ",
+        "Rate": "eLB1gQ",
+        "Other Charges": "Epkb8A",
+        "Status": "8B9oGw",
+        "Notes": "XuWNDg",
+        "Product": "Xcb2lQ",
+        "Location": "ksCnhQ",
+        "Vendor": "tG3byA"
+      }
+    },
+    "Batches": {
+      "id": "zYKaHQ",
+      "primary": "SNbqHw",
+      "done": true,
+      "clean": true,
+      "fields": {
+        "Batch No": "SNbqHw",
+        "Date": "M3XoOA",
+        "Kind": "sGas1w",
+        "Spoiled": "-wO95A",
+        "Cost per Unit": "D6eCXA",
+        "Status": "ahgEMQ",
+        "Data JSON": "Z3iOkg",
+        "Location": "772fnw"
+      }
+    },
+    "Packing Runs": {
+      "id": "UiOExg",
+      "primary": "ta6pPw",
+      "done": true,
+      "clean": true,
+      "fields": {
+        "Run No": "ta6pPw",
+        "Date": "XzOTag",
+        "Drawn": "JooyRg",
+        "Status": "gNpRNg",
+        "Data JSON": "wrDPVQ",
+        "Batch": "muIYuA",
+        "Bulk Item": "JKMIyw",
+        "Location": "8Ka4_w"
+      }
+    },
+    "QC Records": {
+      "id": "bnL8sQ",
+      "primary": "Psi57w",
+      "done": true,
+      "clean": true,
+      "fields": {
+        "Doc No": "Psi57w",
+        "Disposition": "3JtFig",
+        "Tests JSON": "m02Ymw",
+        "Attachments": "Rvm7QQ",
+        "Batch": "5a85Nw",
+        "Item": "lntI1Q"
+      }
+    },
+    "Lab Reports": {
+      "id": "6KPiJg",
+      "primary": "6VOBSA",
+      "done": true,
+      "clean": true,
+      "fields": {
+        "Report No": "6VOBSA",
+        "Sample Date": "r1h8Vw",
+        "Issue Date": "qWabHQ",
+        "Scores JSON": "VSc8Hg",
+        "Decision": "FcMUjg",
+        "Attachment": "5pGvYw",
+        "Category": "rNtGjg",
+        "Batch": "OaFgbw",
+        "Customer": "wmWZpw"
+      }
+    },
+    "Orders": {
+      "id": "faITbA",
+      "primary": "eK3rpw",
+      "done": true,
+      "clean": true,
+      "fields": {
+        "Order No": "eK3rpw",
+        "Date": "SxaYSw",
+        "Status": "HCGtCA",
+        "Notes": "AHaJkQ",
+        "Customer": "IYIjIA"
+      }
+    },
+    "Order Lines": {
+      "id": "NfaemA",
+      "primary": "Pc0AxA",
+      "done": true,
+      "clean": true,
+      "fields": {
+        "Line": "Pc0AxA",
+        "Qty": "SflKkw",
+        "Order": "dZYIyg",
+        "SKU": "nZTjuQ"
+      }
+    },
+    "Dispatches": {
+      "id": "WwwsFQ",
+      "primary": "F6Q_AQ",
+      "done": true,
+      "clean": true,
+      "fields": {
+        "Challan No": "F6Q_AQ",
+        "Date": "3OLwcw",
+        "Expiry": "RKgphA",
+        "Qty": "3FedPg",
+        "Vehicle": "nDxKiw",
+        "Status": "osN62w",
+        "POD": "X9oQqQ",
+        "Customer": "tLTqzQ",
+        "SKU": "UEbucA",
+        "Batch": "IFO-lw",
+        "Location": "WgAK7A"
+      }
+    },
+    "Stock Issues": {
+      "id": "gFa2tg",
+      "primary": "pXisDw",
+      "done": true,
+      "clean": true,
+      "fields": {
+        "Doc No": "pXisDw",
+        "Date": "jwwpwg",
+        "Reason": "wR16KA",
+        "Issued To": "Z2sN9Q",
+        "Lines JSON": "xrHNLQ",
+        "Value": "twCHUQ"
+      }
+    },
+    "Production Plans": {
+      "id": "_FPGJw",
+      "primary": "oG-tMQ",
+      "done": true,
+      "clean": true,
+      "fields": {
+        "Plan No": "oG-tMQ",
+        "Day": "aKU7tw",
+        "Stage": "1vfDmQ",
+        "Product": "o5HFSg",
+        "Qty": "UCPu2w",
+        "UOM": "yK5rAA",
+        "Note": "phNpmw",
+        "Status": "R8_qzg"
+      }
+    },
+    "Shifts": {
+      "id": "FjRdFA",
+      "primary": "eWXQ-w",
+      "done": true,
+      "clean": true,
+      "fields": {
+        "Key": "eWXQ-w",
+        "Date": "3lR-qw",
+        "Shift": "pIup2g",
+        "Line": "VbNidQ",
+        "Note": "m7dM1A",
+        "Staff": "zDYSmA"
+      }
+    },
+    "Attendance": {
+      "id": "NCe8vQ",
+      "primary": "V1998Q",
+      "done": true,
+      "clean": true,
+      "fields": {
+        "Key": "V1998Q",
+        "Date": "SZQqAQ",
+        "Status": "F4YsSg",
+        "Note": "jeyxPg",
+        "Staff": "iMUGGw"
+      }
+    },
+    "Ledger": {
+      "id": "TUf1EA",
+      "primary": "ISSAjA",
+      "done": true,
+      "clean": true,
+      "fields": {
+        "Doc": "ISSAjA",
+        "Type": "tF3wKw",
+        "Lot": "LLKIHg",
+        "Status": "sE5dZA",
+        "Qty In": "Rc-sSA",
+        "Qty Out": "a3roIQ",
+        "Unit Cost": "1SVG0Q",
+        "Expiry": "Hi-K0Q",
+        "Time": "ZyVR8Q",
+        "Data JSON": "XnQjTw",
+        "Item": "H14YGQ",
+        "Location": "gAC7Qw"
+      }
+    },
+    "Audit Log": {
+      "id": "Ozntnw",
+      "primary": "x-XwPg",
+      "done": true,
+      "clean": true,
+      "fields": {
+        "Doc": "x-XwPg",
+        "Action": "fv2PTw",
+        "Details": "df8NMA",
+        "Actor": "u7pGxA",
+        "Time": "dZucpg"
+      }
+    },
+    "Sticker Templates": {
+      "id": "9wnUOg",
+      "primary": "TtX0xw",
+      "done": true,
+      "clean": true,
+      "fields": {
+        "Name": "TtX0xw",
+        "Stage": "aJlcLg",
+        "Template JSON": "92YhGA"
+      }
+    }
+  },
+  "seeded": {
+    "Vendor Types": 2,
+    "Storage Locations": 5,
+    "Items": 14,
+    "Products": 4,
+    "BOM Lines": 7,
+    "Test Categories": 5,
+    "Test Parameters": 7,
+    "Counters": 21,
+    "Config": 9,
+    "Staff": 5
+  }
+}
