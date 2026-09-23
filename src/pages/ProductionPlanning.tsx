@@ -3,13 +3,14 @@
  *
  * A plan is not written from thin air. It starts from what must ship: the open
  * customer orders. The demand table reads them the way the floor does — by
- * drink, not by pack SKU. Each drink row works out the bulk its unmade packs
- * still need (packs × pack volume), nets that against the bulk released in the
- * cold room and the packing plans already on the board, and says whether the
- * bulk is extracted or blended — a melange's components spelled out in their
- * shares. The pack formats sit beneath their drink, each with its own Plan
- * button, so the page reads as the week's pathway: extract or blend so much,
- * then pack it into these formats.
+ * drink, not by pack SKU. Each drink row works out the bulk its packs commit —
+ * both the ones still to fill and the ones a packing plan on the board will
+ * draw when it runs — then nets that against the bulk released in the cold room
+ * and the bulk the extraction and melange plans on the board will make, and
+ * says whether more bulk must be extracted or blended — a melange's components
+ * spelled out in their shares. The pack formats sit beneath their drink, each
+ * with its own Plan button, so the page reads as the week's pathway: extract or
+ * blend so much, then pack it into these formats.
  *
  * A plan raised from that table carries the order ids it serves, so the link
  * outlives the note text: the list reads it back, and flags a plan whose orders
@@ -107,10 +108,13 @@ interface DrinkRow {
   name: string
   isMelange: boolean
   formats: FormatRow[]
-  /** Base units the still-unmade packs will draw from the bulk. */
+  /** Base units the drink's packs commit — owed by open orders, or promised by the
+   *  packing plans on the board, which draw their bulk when they run. */
   needed: number
   /** Released bulk waiting in the cold room. */
   onHand: number
+  /** Bulk the extraction and melange plans on the board will make. */
+  plannedBulk: number
   toMakeBulk: number
   uom: string
   /** Every open order behind any of the drink's formats. */
@@ -190,10 +194,20 @@ export function ProductionPlanning() {
     /** Packs already on Planned/In-progress packing plans, keyed by product name —
      *  a plan on the board is work spoken for, so demand must not ask for it twice. */
     const onBoard: Record<string, number> = {}
+    /** Bulk the extraction and melange plans on the board will make, by bulk item —
+     *  the same netting the packing plans get, one stage upstream. A Done plan is
+     *  not counted: its run is posted, so the bulk is already a stock row. */
+    const bulkIncoming: Record<string, number> = {}
     for (const p of state.productionPlans) {
-      if (p.stage !== 'Packing' || (p.status !== 'Planned' && p.status !== 'In progress')) continue
-      if (p.uom !== 'Packs') continue
-      onBoard[p.product] = (onBoard[p.product] || 0) + p.qty
+      if (p.status !== 'Planned' && p.status !== 'In progress') continue
+      if (p.stage === 'Packing') {
+        if (p.uom !== 'Packs') continue
+        onBoard[p.product] = (onBoard[p.product] || 0) + p.qty
+      } else {
+        if (p.uom === 'Packs') continue
+        const item = state.items.find((i) => i.type === 'Semi Finished' && i.name === p.product)
+        if (item) bulkIncoming[item.id] = (bulkIncoming[item.id] || 0) + p.qty
+      }
     }
 
     const itemById = new Map(state.items.map((i) => [i.id, i]))
@@ -229,6 +243,7 @@ export function ProductionPlanning() {
           formats: [fmt],
           needed: 0,
           onHand: 0,
+          plannedBulk: 0,
           toMakeBulk: 0,
           uom: '',
           orders: fmt.orders,
@@ -249,6 +264,7 @@ export function ProductionPlanning() {
           formats: [],
           needed: 0,
           onHand: 0,
+          plannedBulk: 0,
           toMakeBulk: 0,
           uom: item?.uom || bulkUomForUnit(product.unit),
           orders: [],
@@ -258,7 +274,11 @@ export function ProductionPlanning() {
         groups.set(bulkId, g)
       }
       g.formats.push(fmt)
-      g.needed += toMake * (product.packVolume || 0)
+      // The bulk a format commits is the larger of what is owed and what is planned:
+      // `toMake` excludes the packs a packing plan will fill, but those packs draw
+      // their bulk from the drink just the same when the plan runs.
+      const owed = Math.max(0, d - rel)
+      g.needed += Math.max(owed, planned) * (product.packVolume || 0)
     }
 
     const packsToMake = (g: DrinkRow) => g.formats.reduce((s, f) => s + f.toMake, 0)
@@ -268,7 +288,8 @@ export function ProductionPlanning() {
       g.orders = [...new Set(g.formats.flatMap((f) => f.orders))]
       g.overdue = new Set(g.formats.flatMap((f) => f.overdue)).size
       g.onHand = g.bulkId ? releasedBulk[g.bulkId] || 0 : 0
-      g.toMakeBulk = Math.max(0, g.needed - g.onHand)
+      g.plannedBulk = g.bulkId ? bulkIncoming[g.bulkId] || 0 : 0
+      g.toMakeBulk = Math.max(0, g.needed - g.onHand - g.plannedBulk)
       // A drink with bulk to make or packs to fill stays on the page; one the
       // store and the board already cover between them steps out of the way.
       if (g.toMakeBulk > 0 || packsToMake(g) > 0) withWork.push(g)
@@ -413,10 +434,35 @@ export function ProductionPlanning() {
       product: item.name,
       qty: d.toMakeBulk,
       uom: d.uom === 'Kg' ? 'Kg' : 'Litre',
-      note: openFormats ? `For open orders — ${openFormats}` : '',
+      note: [
+        openFormats ? `For open orders — ${openFormats}` : '',
+        d.plannedBulk
+          ? `${fmtQty(d.plannedBulk)} ${shortUom(d.uom)} already planned on the board`
+          : '',
+      ]
+        .filter(Boolean)
+        .join(' · '),
       serves: d.orders,
     })
     setOpen(true)
+  }
+
+  /** The drink header's bulk line — the whole upstream story in one sentence:
+   *  what the packs commit, and what is released or planned against it. */
+  const bulkSentence = (d: DrinkRow) => {
+    const u = shortUom(d.uom)
+    const supply = [
+      d.onHand ? `${fmtQty(d.onHand)} ${u} released` : '',
+      d.plannedBulk ? `${fmtQty(d.plannedBulk)} ${u} planned on the board` : '',
+    ].filter(Boolean)
+    if (d.toMakeBulk > 0)
+      return `${fmtQty(d.needed)} ${u} of bulk to fill these packs · ${
+        supply.join(' + ') || 'nothing released or planned yet'
+      }`
+    const surplus = d.onHand + d.plannedBulk - d.needed
+    return `Bulk covered — ${supply.join(' + ') || 'no bulk needed'}${
+      surplus > 0 ? ` · ${fmtQty(surplus)} ${u} beyond these packs` : ''
+    }`
   }
 
   const openEdit = (p: ProductionPlan) => {
@@ -573,9 +619,7 @@ export function ProductionPlanning() {
                         {d.bulkId ? (
                           <>
                             <td colSpan={3} className="cell-sub" style={drinkRowTop}>
-                              {d.toMakeBulk > 0
-                                ? `${fmtQty(d.needed)} ${u} of bulk to fill these packs · ${fmtQty(d.onHand)} ${u} released in cold room`
-                                : `Bulk covered — ${fmtQty(d.onHand)} ${u} released in cold room`}
+                              {bulkSentence(d)}
                             </td>
                             <td
                               data-label="To make"
