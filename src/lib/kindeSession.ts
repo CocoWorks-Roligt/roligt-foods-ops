@@ -53,11 +53,50 @@ export async function getKindeSession(): Promise<KindeSession> {
   const token = await kinde.getToken()
   if (!token) return { session: null, role: 'Operator', token: null }
   const user = await kinde.getUserProfile()
-  const claims = await kinde.getClaims<{ roles?: { value?: unknown } }>()
+  // getClaims returns the decoded token itself, so `roles` is the raw claim
+  // array (role keys, or role objects carrying key/name). The wrapped
+  // {name, value} shape belongs to getClaim(key) — not to getClaims().
+  const claims = await kinde.getClaims<{ roles?: unknown }>()
+  let role = roleFromClaims(claims?.roles)
+  if (role !== 'Admin') {
+    try {
+      // No roles claim in the token (customization unticked)? The SDK can
+      // still ask Kinde's account API what roles this user holds. The BFF
+      // keeps enforcing from the token, so a divergence only costs a 403.
+      role = roleFromClaims(await kinde.getRoles())
+    } catch {
+      // Claim absent and the account API refused — Operator stands.
+    }
+  }
   return {
     session: { user: { email: user?.email ?? 'unknown@user' } },
-    role: roleFromClaims(claims?.roles?.value),
+    role,
     token,
+  }
+}
+
+/**
+ * A current access token for the BFF. `force` first asks the SDK to refresh
+ * (Kinde access tokens are short-lived); getToken alone may hand back one that
+ * has already expired. Never throws — a dead session reads as null, which is
+ * the caller's cue to send the user back to the login screen.
+ */
+export async function freshToken(force = false): Promise<string | null> {
+  const kinde = await client()
+  if (force) {
+    try {
+      // The provider binds the tenant config into this method; the context type
+      // still demands it, so call through the shape the runtime accepts.
+      await (kinde.refreshToken as (config?: unknown) => Promise<unknown>)()
+    } catch {
+      // Refresh refused (signed out elsewhere, refresh token expired) — the
+      // getToken below reports the truth.
+    }
+  }
+  try {
+    return (await kinde.getToken()) ?? null
+  } catch {
+    return null
   }
 }
 

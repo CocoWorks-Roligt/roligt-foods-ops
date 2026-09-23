@@ -228,7 +228,10 @@ export function Layout() {
           </div>
           <div className="topbar-actions">
             <InstallButton />
-            <div className="pill">{email}</div>
+            <div className="pill">
+              {email}
+              {isAdmin ? ' (admin)' : ''}
+            </div>
             <button className="btn btn-light" type="button" onClick={() => void signOut()}>
               Sign out
             </button>

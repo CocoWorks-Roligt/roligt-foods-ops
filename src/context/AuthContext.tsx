@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from 'react'
 import type { Role } from '../types'
-import { setAuthToken } from '../lib/authToken'
+import { setAuthTokenProvider, setUnauthorizedHandler } from '../lib/authToken'
 import { KINDE_CONFIGURED, getDevRole } from '../lib/authMode'
 
 /** A structural subset of the Kinde session — everything the app reads from it. */
@@ -40,7 +40,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Dev fallback: no Kinde account yet. Role is switchable from the login screen.
       setSession({ user: { email: 'dev@roligt.local' } })
       setRole(getDevRole())
-      setAuthToken(null) // BFF runs with ALLOW_DEV_SESSION=1
+      setAuthTokenProvider(async () => null) // BFF runs with ALLOW_DEV_SESSION=1
+      setUnauthorizedHandler(null)
       setReady(true)
       return
     }
@@ -48,12 +49,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void (async () => {
       try {
         // The SDK is loaded dynamically so the fallback path has no Kinde code at all.
-        const { getKindeSession } = await import('../lib/kindeSession')
+        // The token is handed over as a provider, not a value: Kinde access tokens
+        // expire and the SDK refreshes them, so dbApi must ask for a current one on
+        // every request rather than reuse the string captured at sign-in.
+        const { getKindeSession, freshToken } = await import('../lib/kindeSession')
+        setAuthTokenProvider((force) => freshToken(force))
         const s = await getKindeSession()
         if (cancelled) return
         setSession(s.session)
         setRole(s.role)
-        setAuthToken(s.token)
       } catch {
         if (!cancelled) setSession(null)
       } finally {
@@ -63,6 +67,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
+  }, [])
+
+  // The BFF refused the token even after a forced refresh (dbApi's 401 path):
+  // the session is dead. Clearing it renders the login screen; this device's
+  // unsaved work survives in the local mirror and is pushed after re-signing-in.
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      setSession(null)
+      setRole('Operator')
+    })
+    return () => setUnauthorizedHandler(null)
   }, [])
 
   const signIn = useCallback(async () => {
@@ -76,7 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // is the only way back in after a fallback signOut.
     setSession({ user: { email: 'dev@roligt.local' } })
     setRole(getDevRole())
-    setAuthToken(null) // BFF dev session covers it
+    setAuthTokenProvider(async () => null) // BFF dev session covers it
     return null
   }, [])
 
@@ -92,7 +107,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     // Dev fallback: land on the login screen (no reload) so the role picker is
     // reachable and the picked role survives as the next default.
-    setAuthToken(null)
     setSession(null)
     setRole('Operator')
   }, [])

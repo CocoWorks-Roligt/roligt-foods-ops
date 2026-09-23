@@ -25,7 +25,7 @@ import { usePlanning, type PlanInput } from './domains/planning'
 import { useStaffRoster, type ShiftInput, type StaffInput } from './domains/roster'
 import { useStorageLocations } from './domains/storage'
 import { seed } from '../data/seed'
-import { fetchDb, fetchRevision, saveDb } from '../lib/dbApi'
+import { fetchDb, fetchRevision, saveDb, UnauthorizedError } from '../lib/dbApi'
 import { readLocal, writeLocal } from '../lib/localDb'
 import {
   activityScore,
@@ -339,8 +339,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         // No row at all means a first run, and only then does the seed apply.
         setState(server ?? (local ? migrateState(local.state, fromDb) : migrateState(seed)))
-      } catch {
+      } catch (e) {
         if (cancelled) return
+        if (e instanceof UnauthorizedError) {
+          // A dead session is not an outage — dbApi has already told AuthContext,
+          // which swaps in the login screen. This device's copy stays the record.
+          synced.current = null
+          if (local) setState(migrateState(local.state, fromDb))
+          showToast(e.message)
+          return
+        }
         // Offline at startup. The device's own copy is the only record there is, and
         // nothing is known about the server, so nothing may be diffed against it.
         synced.current = null
@@ -434,6 +442,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
             // Row-level security refused. The database is what enforces who may change
             // a master, so this is the honest place to hear about it — and it means
             // the local copy is now ahead of what the plant will accept.
+            showToast(result.message)
+            return
+          }
+          if (result.reason === 'unauthorized') {
+            // Session expired: dbApi has already routed the user to the login
+            // screen. The work stays held on this device and goes up after the
+            // next sign-in — showing the offline banner instead would promise a
+            // reconnect that signing in again, not the network, delivers.
             showToast(result.message)
             return
           }

@@ -10,18 +10,41 @@
 import { diffState, type StateChanges } from './sync'
 import { COLLECTIONS } from './tables'
 import type { AppState } from '../types'
-import { getAuthToken } from './authToken'
+import { currentAuthToken, notifyUnauthorized } from './authToken'
+
+/** The BFF refused the token even after a forced refresh — the session is gone. */
+export class UnauthorizedError extends Error {
+  constructor() {
+    super('Your session expired — sign in again.')
+  }
+}
 
 async function api(path: string, init?: RequestInit): Promise<Response> {
-  const token = getAuthToken()
-  const res = await fetch(path, {
-    ...init,
-    headers: {
-      'content-type': 'application/json',
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
-      ...(init?.headers ?? {}),
-    },
-  })
+  const go = async (token: string | null) =>
+    fetch(path, {
+      ...init,
+      headers: {
+        'content-type': 'application/json',
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        ...(init?.headers ?? {}),
+      },
+    })
+
+  const token = await currentAuthToken()
+  let res = await go(token)
+  if (res.status === 401) {
+    // Kinde access tokens are short-lived; the SDK can refresh them silently.
+    // One forced-refresh retry covers the routine expiry — only a session that
+    // survives that is really dead.
+    const fresh = await currentAuthToken(true)
+    if (fresh && fresh !== token) {
+      res = await go(fresh)
+    }
+    if (res.status === 401) {
+      notifyUnauthorized() // AuthContext clears the session → login screen
+      throw new UnauthorizedError()
+    }
+  }
   if (res.status === 503) {
     const retryAfter = Number(res.headers.get('retry-after')) || 60
     throw new ThrottledError(retryAfter)
@@ -58,15 +81,30 @@ export async function fetchDb(): Promise<DbSnapshot> {
 export type SaveResult =
   | { ok: true; revision: number }
   | { ok: false; reason: 'forbidden'; message: string }
+  | { ok: false; reason: 'unauthorized'; message: string }
   | { ok: false; reason: 'error'; message: string }
 
 export async function saveDb(next: AppState, prev: AppState | null): Promise<SaveResult> {
   const changes: StateChanges = diffState(prev, next)
-  if (changes.empty) return { ok: true, revision: await fetchRevision() }
-  const res = await api('/api/commit', {
-    method: 'POST',
-    body: JSON.stringify({ changes }),
-  })
+  let res!: Response
+  try {
+    if (changes.empty) {
+      const revision = await fetchRevision()
+      return { ok: true, revision }
+    }
+    res = await api('/api/commit', {
+      method: 'POST',
+      body: JSON.stringify({ changes }),
+    })
+  } catch (e) {
+    // A dead session is not an outage: the work stays held on this device and
+    // is pushed after signing in again. Reporting it as offline would promise a
+    // reconnect that never comes.
+    if (e instanceof UnauthorizedError) {
+      return { ok: false, reason: 'unauthorized', message: e.message }
+    }
+    throw e
+  }
   if (res.ok) {
     const j = (await res.json()) as { revision: number }
     return { ok: true, revision: Number(j.revision) || 0 }

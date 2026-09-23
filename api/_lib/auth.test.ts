@@ -4,10 +4,10 @@ import { authenticate, AuthError } from './auth.ts'
 
 const ISSUER = 'https://roligt.kinde.com'
 
-async function makeToken(roles: string[]) {
+async function makeToken(roles: string[], extra: Record<string, string> = {}) {
   const { publicKey, privateKey } = await generateKeyPair('RS256')
   const jwk = await exportJWK(publicKey)
-  const token = await new SignJWT({ roles })
+  const token = await new SignJWT({ roles, ...extra })
     .setProtectedHeader({ alg: 'RS256' })
     .setIssuer(ISSUER)
     .setSubject('user-1')
@@ -36,7 +36,7 @@ afterEach(() => {
 
 describe('authenticate', () => {
   it('maps the roles claim to Admin and passes the email through', async () => {
-    const { token, jwk } = await makeToken(['Admin'])
+    const { token, jwk } = await makeToken(['Admin'], { email: 'lead@roligt.local' })
     process.env.KINDE_DOMAIN = ISSUER
     process.env.ALLOW_DEV_SESSION = ''
     const mod = await import('./auth.ts')
@@ -45,8 +45,23 @@ describe('authenticate', () => {
       headers: { Authorization: `Bearer ${token}` },
     }))
     expect(caller.role).toBe('Admin')
-    expect(caller.email).toBe('unknown@user') // signed token carries no email claim
+    expect(caller.email).toBe('lead@roligt.local')
     mod.__setJwks(null) // reset the hook so later tests take the real JWKS path
+  })
+
+  it('identifies the caller by subject while the email claim is not customized into the token', async () => {
+    // Kinde adds email to access tokens only via token customization; until that
+    // is switched on the user id is the honest identity — never a placeholder.
+    const { token, jwk } = await makeToken(['admin'])
+    process.env.KINDE_DOMAIN = ISSUER
+    process.env.ALLOW_DEV_SESSION = ''
+    const mod = await import('./auth.ts')
+    mod.__setJwks({ keys: [jwk] })
+    const caller = await authenticate(new Request('https://bff.roligt.local/api/revision', {
+      headers: { Authorization: `Bearer ${token}` },
+    }))
+    expect(caller).toEqual({ email: 'user-1', role: 'Admin' })
+    mod.__setJwks(null)
   })
 
   it('rejects a missing token with AuthError', async () => {
