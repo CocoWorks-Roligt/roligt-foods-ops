@@ -46,8 +46,11 @@ interface OrderDraft {
   /** Bulk-item ids in the order they were picked; `orphan:${sku}` for a line whose
    *  product has left the master. */
   picked: string[]
-  /** Quantity per pack sku — '' means the format was left unquantified, and only
-   *  quantified formats become lines. */
+  /** The pack formats actually chosen, per drink — a drink shows only the packs
+   *  picked for it, never its whole catalogue with blank boxes. */
+  formats: Record<string, string[]>
+  /** Quantity per chosen pack sku — '' means the box was left blank, and only a
+   *  quantified format becomes a line. */
   qtys: Record<string, number | ''>
 }
 
@@ -57,6 +60,7 @@ const blankDraft = (): OrderDraft => ({
   dueDate: '',
   notes: '',
   picked: [],
+  formats: {},
   qtys: {},
 })
 
@@ -69,9 +73,9 @@ interface DrinkGroup {
 }
 
 /**
- * One block of the form — a picked drink with its live formats, or a single sku
- * the master no longer knows, which still has to be seen and editable because
- * the order for it may be perfectly dispatchable.
+ * One block of the form — a picked drink with the formats chosen for it, or a
+ * single sku the master no longer knows, which still has to be seen and editable
+ * because the order for it may be perfectly dispatchable.
  */
 interface DraftBlock {
   key: string
@@ -200,15 +204,18 @@ export function Orders() {
 
   const openEdit = (o: Order) => {
     setEditId(o.id)
-    // The flat lines rebuild into drinks in the order the customer named them; a
-    // sku the master no longer knows keeps its own block so it stays on the order.
+    // The flat lines rebuild into drinks in the order the customer named them —
+    // each drink holding only the packs the order actually asks for. A sku the
+    // master no longer knows keeps its own block so it stays on the order.
     const picked: string[] = []
+    const formats: Record<string, string[]> = {}
     const qtys: Record<string, number | ''> = {}
     for (const l of o.lines) {
       qtys[l.sku] = l.qty
       const p = productById.get(l.sku)
       const key = p ? bulkItemOf(p) : `orphan:${l.sku}`
       if (!picked.includes(key)) picked.push(key)
+      if (p) (formats[key] ||= []).push(l.sku)
     }
     setForm({
       customerId: o.customerId,
@@ -216,6 +223,7 @@ export function Orders() {
       dueDate: o.dueDate || '',
       notes: o.notes || '',
       picked,
+      formats,
       qtys,
     })
     setOpen(true)
@@ -243,11 +251,16 @@ export function Orders() {
         continue
       }
       const d = drinkById.get(key)
+      // Only the formats chosen for this drink, and only those still in the master
+      // — a chosen sku that has left it is carried by the orphan pass below.
+      const chosen = (draft.formats[key] || [])
+        .map((sku) => d?.formats.find((p) => p.id === sku))
+        .filter((p): p is Product => !!p)
       blocks.push({
         key,
         name: d?.name || drinkName(itemById.get(key)?.name || key),
         isMelange: d?.isMelange || melangeOutputs.has(key),
-        formats: d?.formats || [],
+        formats: chosen,
       })
     }
     for (const [sku, q] of Object.entries(draft.qtys)) {
@@ -264,17 +277,40 @@ export function Orders() {
     setForm((f) => ({ ...f, picked: [...f.picked, bulkId] }))
   }
 
-  /** Removing a drink clears its quantities too — re-adding starts blank, so a
-   *  removed block can never come back carrying an order nobody can see. */
+  /** Removing a drink clears its packs and quantities too — re-adding starts
+   *  blank, so a removed block can never come back carrying an order nobody can
+   *  see. */
   const removeBlock = (key: string) => {
     setForm((f) => {
       const qtys = { ...f.qtys }
+      const formats = { ...f.formats }
       if (key.startsWith('orphan:')) {
         delete qtys[key.slice('orphan:'.length)]
       } else {
-        for (const p of drinkById.get(key)?.formats || []) delete qtys[p.id]
+        for (const sku of formats[key] || []) delete qtys[sku]
+        delete formats[key]
       }
-      return { ...f, picked: f.picked.filter((k) => k !== key), qtys }
+      return { ...f, picked: f.picked.filter((k) => k !== key), formats, qtys }
+    })
+  }
+
+  const addFormat = (bulkId: string, sku: string) => {
+    if (!sku) return
+    setForm((f) => ({
+      ...f,
+      formats: { ...f.formats, [bulkId]: [...(f.formats[bulkId] || []), sku] },
+    }))
+  }
+
+  const removeFormat = (bulkId: string, sku: string) => {
+    setForm((f) => {
+      const qtys = { ...f.qtys }
+      delete qtys[sku]
+      return {
+        ...f,
+        formats: { ...f.formats, [bulkId]: (f.formats[bulkId] || []).filter((s) => s !== sku) },
+        qtys,
+      }
     })
   }
 
@@ -629,7 +665,7 @@ export function Orders() {
         <div className="subform">
           <div className="subform-head">
             <span>What they want</span>
-            <span className="small">Pick a drink, then say how many of each pack</span>
+            <span className="small">Pick a drink, then add only the packs they want</span>
           </div>
           <div className="subform-body">
             {(() => {
@@ -664,6 +700,9 @@ export function Orders() {
                   </div>
                   {blocks.map((b) => {
                     const orphanSku = b.sku
+                    const drinkFormats = drinkById.get(b.key)?.formats || []
+                    const chosenIds = new Set(b.formats.map((p) => p.id))
+                    const remaining = drinkFormats.filter((p) => !chosenIds.has(p.id))
                     return (
                       <div className="subform" key={b.key} style={{ marginTop: 12 }}>
                         <div className="subform-head">
@@ -702,36 +741,70 @@ export function Orders() {
                               <span className="subform-unit">units</span>
                               <span />
                             </div>
-                          ) : b.formats.length ? (
-                            b.formats.map((p) => {
-                              const qty = form.qtys[p.id] ?? ''
-                              const have = onHand(p.id)
-                              const short = Number(qty) > have
-                              return (
-                                <div className="subform-row" key={p.id} style={{ alignItems: 'center' }}>
-                                  <span>
-                                    {p.name} · {p.type}
-                                  </span>
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    step="1"
-                                    placeholder="Units"
-                                    value={qty}
-                                    onChange={(e) => setQty(p.id, e.target.value)}
-                                  />
-                                  <span className={`subform-unit${short ? ' off-recipe' : ''}`}>
-                                    {`${Number(have.toFixed(2))} on hand`}
-                                  </span>
-                                  <span />
-                                </div>
-                              )
-                            })
                           ) : (
-                            <div className="note warning-note">
-                              No pack formats for this drink any more — its products left the
-                              master.
-                            </div>
+                            <>
+                              {/* The packs this drink comes in, offered one at a time —
+                                  only a pack chosen here gets a quantity box, so an
+                                  unwanted format is never on the screen at all. */}
+                              <div
+                                className="subform-row"
+                                style={{ gridTemplateColumns: 'minmax(0, 1fr)' }}
+                              >
+                                <Select
+                                  value=""
+                                  aria-label={`Add pack for ${b.name}`}
+                                  disabled={!remaining.length}
+                                  onChange={(e) => addFormat(b.key, e.target.value)}
+                                >
+                                  <option value="">
+                                    {!drinkFormats.length
+                                      ? 'No pack formats for this drink any more'
+                                      : remaining.length
+                                        ? '+ Add pack'
+                                        : 'All packs added'}
+                                  </option>
+                                  {remaining.map((p) => (
+                                    <option key={p.id} value={p.id}>
+                                      {p.name} · {p.type}
+                                    </option>
+                                  ))}
+                                </Select>
+                              </div>
+                              {b.formats.map((p) => {
+                                const qty = form.qtys[p.id] ?? ''
+                                const have = onHand(p.id)
+                                const short = Number(qty) > have
+                                return (
+                                  <div
+                                    className="subform-row"
+                                    key={p.id}
+                                    style={{ alignItems: 'center' }}
+                                  >
+                                    <span>
+                                      {p.name} · {p.type}
+                                    </span>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="1"
+                                      placeholder="Units"
+                                      value={qty}
+                                      onChange={(e) => setQty(p.id, e.target.value)}
+                                    />
+                                    <span className={`subform-unit${short ? ' off-recipe' : ''}`}>
+                                      {`${Number(have.toFixed(2))} on hand`}
+                                    </span>
+                                    <button
+                                      className="btn btn-danger"
+                                      type="button"
+                                      onClick={() => removeFormat(b.key, p.id)}
+                                    >
+                                      ×
+                                    </button>
+                                  </div>
+                                )
+                              })}
+                            </>
                           )}
                         </div>
                       </div>
