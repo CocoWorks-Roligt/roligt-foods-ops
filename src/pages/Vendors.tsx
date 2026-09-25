@@ -68,18 +68,18 @@ export function Vendors() {
 
   return (
     <div className="vendors-page">
-      <div className="grid grid-3 vendors-stats">
-        <div className="card metric">
+      <div className="card metric-strip vendors-stats">
+        <div className="metric">
           <div className="label">Total</div>
           <div className="value">{state.vendors.length}</div>
           <div className="sub">All sources</div>
         </div>
-        <div className="card metric">
+        <div className="metric">
           <div className="label">Farmers</div>
           <div className="value">{farmers.length}</div>
           <div className="sub">Produce suppliers</div>
         </div>
-        <div className="card metric">
+        <div className="metric">
           <div className="label">Vendors</div>
           <div className="value">{materialVendors.length}</div>
           <div className="sub">Material suppliers</div>

@@ -1,24 +1,126 @@
+/* ── The Husk × Ledger blend (docs/blend-ui-design-2026-09-25.md) ─────────────
+   White surfaces, hairline depth, one brand ink — the coconut's husk — that is
+   never a button fill, and a quiet status-accent family. Self-hosted type: the
+   app is an offline PWA, so the font comes from the precache, never the network. */
+@font-face {
+  font-family: 'Bricolage Grotesque';
+  src: url('/fonts/BricolageGrotesque-latin.woff2') format('woff2');
+  font-weight: 300 800;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* The latin-ext subset carries the rupee sign (U+20B9 sits in U+20AD-20C0) —
+   without it every ₹ in the plant falls back to another font mid-figure. */
+@font-face {
+  font-family: 'Bricolage Grotesque';
+  src: url('/fonts/BricolageGrotesque-latin-ext.woff2') format('woff2');
+  font-weight: 300 800;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
 :root {
-  --bg: #f5f0e6;
-  --panel: #fffdf7;
-  --ink: #1f251f;
-  --muted: #697065;
-  --green: #253d2b;
-  --green-2: #3e5b45;
-  --accent: #c96543;
-  --gold: #d9a847;
-  --line: #d8d0c1;
-  --danger: #a23f34;
-  --warning: #9b6b18;
-  --success: #2f6b42;
-  --shadow: 0 10px 30px rgba(31, 37, 31, 0.08);
-  --radius: 16px;
-  font-family: 'Segoe UI', 'Source Sans 3', system-ui, sans-serif;
+  /* Surfaces — a warm paper field, white cards sitting on it, chrome for the
+     shell. The field is grayer than the brand water so a badge never blends
+     into the page behind it. */
+  --bg: #f6f4ee;
+  --chrome: #f1efe8;
+  --well: #eceae2;
+  --panel: #ffffff;
+
+  /* Hairlines do the depth. -strong is the structural edge: table head rule,
+     topbar and app bar borders. */
+  --hair: #e3dfd4;
+  --hair-soft: #ecebe3;
+  --hair-strong: #d9d3c4;
+
+  /* Ink — text and primary fills only. */
+  --ink: #15181b;
+  --ink-soft: #5b626a;
+  --ink-mute: #8c9098;
+  --ink-faint: #b3b7bd;
+
+  /* Brand — the coconut: husk gives the ink, water gives the wash. Ink only;
+     a husk fill is never a button. */
+  --husk: #5a4531;
+  --husk-deep: #43331f;
+  --water: #f3f0e7;
+
+  /* Status — a family, not a stoplight. Tender green is badges-only, never chrome. */
+  --tender: #355a44;
+  --tender-wash: #eef3f0;
+  --amber: #a4761f;
+  --amber-wash: #faf2d9;
+  --clay: #b4543a;
+  --clay-wash: #faeeea;
+  --slate: #4a6d8c;
+  --slate-wash: #e8eff5;
+
+  /* Elevation: three real shadows (popover, dialog, drawer) — plus one
+     whisper-soft lift on resting cards, restored on review after the
+     white-on-white field read as flat. Cards now visibly sit on the page. */
+  --shadow-card: 0 1px 2px rgba(31, 26, 17, 0.05), 0 2px 10px rgba(31, 26, 17, 0.04);
+  --shadow-pop: 0 6px 24px rgba(21, 24, 27, 0.1);
+  --shadow-dialog: 0 24px 64px rgba(21, 24, 27, 0.18);
+  --shadow-drawer: 0 0 44px rgba(21, 24, 27, 0.28);
+
+  --radius: 10px;
+  --radius-control: 8px;
+
+  /* Legacy names still read across the stylesheet and by inline styles in the
+     pages: each maps to its living relative — the greens became ink/husk, so a
+     green fill lands on ink and a green accent lands on husk. --success,
+     --accent, --gold and --shadow had no readers left and were deleted. */
+  --line: var(--hair);
+  --muted: var(--ink-soft);
+  --warning: var(--amber);
+  --danger: var(--clay);
+  --green: var(--ink);
+  --green-2: var(--husk);
+
+  font-family: 'Bricolage Grotesque', system-ui, sans-serif;
+  /* A ledger app: every figure a tabular one, everywhere. */
+  font-variant-numeric: tabular-nums;
   color: var(--ink);
   background: var(--bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Type roles (§4 of the design). Body is the default — 13px in tables, 14 in
+   forms; numerals are tabular from :root and 700 where they lead. */
+.type-display {
+  font-size: 46px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.05;
+}
+
+.type-headline {
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.014em;
+}
+
+.type-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.type-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.type-num {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 * {
@@ -61,8 +163,9 @@ body.drawer-open {
 }
 
 .sidebar {
-  background: var(--green);
-  color: white;
+  background: var(--chrome);
+  color: var(--ink);
+  border-right: 1px solid var(--hair);
   padding: 24px 18px;
   position: sticky;
   top: 0;
@@ -77,15 +180,16 @@ body.drawer-open {
   margin-bottom: 28px;
 }
 
+/* The brand mark: husk ink on coconut water. */
 .mark {
   width: 42px;
   height: 42px;
   border-radius: 50%;
-  background: var(--gold);
+  background: var(--water);
   display: grid;
   place-items: center;
-  color: var(--green);
-  font-weight: 900;
+  color: var(--husk);
+  font-weight: 800;
   font-size: 20px;
 }
 
@@ -97,7 +201,7 @@ body.drawer-open {
 
 .brand small {
   display: block;
-  color: #d7e1d6;
+  color: var(--ink-mute);
   margin-top: 4px;
   font-size: 11px;
   letter-spacing: 0.08em;
@@ -108,7 +212,7 @@ body.drawer-open {
   font-size: 11px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: #9fb29f;
+  color: var(--ink-mute);
   margin: 18px 10px 8px;
 }
 
@@ -129,7 +233,7 @@ body.drawer-open {
   font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--muted, #6b6455);
+  color: var(--muted);
   flex: 0 0 auto;
 }
 
@@ -145,9 +249,9 @@ body.drawer-open {
   cursor: pointer;
 }
 .page-chip.on {
-  background: #e2ece2;
-  border-color: var(--green-2);
-  color: var(--green);
+  background: var(--ink);
+  border-color: var(--ink);
+  color: white;
 }
 
 .link-btn {
@@ -155,7 +259,7 @@ body.drawer-open {
   background: none;
   padding: 0;
   font: inherit;
-  color: var(--green, #253d2b);
+  color: var(--husk);
   text-decoration: underline;
   cursor: pointer;
 }
@@ -164,7 +268,7 @@ body.drawer-open {
   font-size: 10px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #7f927f;
+  color: var(--ink-mute);
   margin: 12px 10px 4px;
 }
 
@@ -177,38 +281,46 @@ body.drawer-open {
   text-align: left;
   border: 0;
   background: transparent;
-  color: #e8efe8;
+  color: var(--ink-soft);
   padding: 11px 12px;
-  border-radius: 10px;
+  border-radius: 8px;
   cursor: pointer;
   margin: 2px 0;
 }
 
-.nav button:hover,
+.nav button:hover {
+  background: var(--hair-soft);
+  color: var(--ink);
+}
+
+/* The blend's clean underline, rotated vertical: the active page carries the
+   husk ink, a straight 2px husk rail on its left edge, and a white wash that
+   lifts it off the chrome — no brand fill anywhere. */
 .nav button.active {
-  background: rgba(255, 255, 255, 0.11);
-  color: white;
+  background: white;
+  color: var(--husk);
+  box-shadow: inset 2px 0 0 var(--husk);
 }
 
 .sidebar-footer {
   margin-top: 30px;
-  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  border-top: 1px solid var(--hair);
   padding-top: 18px;
 }
 
 .sidebar-footer label {
   font-size: 11px;
-  color: #c4d1c4;
+  color: var(--ink-mute);
   display: block;
   margin-bottom: 6px;
 }
 
 .sidebar-footer select {
   width: 100%;
-  background: #1c3022;
-  color: white;
-  border: 1px solid #58705d;
-  border-radius: 9px;
+  background: white;
+  color: var(--ink);
+  border: 1px solid var(--hair);
+  border-radius: 8px;
   padding: 9px;
 }
 
@@ -222,9 +334,9 @@ body.drawer-open {
 }
 
 .topbar {
-  background: rgba(255, 253, 247, 0.92);
+  background: rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(8px);
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--hair-strong);
   padding: 17px 26px;
   position: sticky;
   top: 0;
@@ -236,7 +348,10 @@ body.drawer-open {
 
 .topbar h2 {
   margin: 0;
-  font-size: 22px;
+  /* Headline role (§4): the page's name is the loudest thing on the page. */
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.014em;
 }
 
 .topbar p {
@@ -261,8 +376,9 @@ body.drawer-open {
 .pill {
   padding: 7px 11px;
   border-radius: 999px;
-  background: #e8efe8;
-  color: var(--green);
+  background: white;
+  border: 1px solid var(--hair);
+  color: var(--ink-soft);
   font-size: 12px;
   font-weight: 700;
 }
@@ -285,7 +401,7 @@ body.drawer-open {
   height: 44px;
   flex: 0 0 auto;
   border: 0;
-  border-radius: 12px;
+  border-radius: 10px;
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -293,7 +409,7 @@ body.drawer-open {
 }
 
 .icon-btn:active {
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(21, 24, 27, 0.06);
 }
 
 /* Declared after .icon-btn so the shared display rule does not win it back. */
@@ -303,8 +419,9 @@ body.drawer-open {
 
 /* Two classes deep so it survives .btn, which is declared further down. */
 .btn.btn-chip {
-  background: rgba(255, 255, 255, 0.16);
-  color: white;
+  background: white;
+  border: 1px solid var(--hair);
+  color: var(--ink);
   font-size: 12px;
   min-height: 36px;
   padding: 8px 13px;
@@ -337,8 +454,8 @@ body.drawer-open {
   background: var(--panel);
   color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: 12px;
-  box-shadow: 0 12px 30px rgba(31, 37, 31, 0.18);
+  border-radius: 10px;
+  box-shadow: var(--shadow-pop);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -359,9 +476,9 @@ body.drawer-open {
   align-items: center;
   gap: 10px;
   padding: 10px 26px;
-  background: #fbf1dc;
-  border-bottom: 1px solid #ead9b0;
-  color: #6d4d12;
+  /* One of the few justified dark moments: an alert strip, not a surface (§6). */
+  background: var(--ink);
+  color: rgba(255, 255, 255, 0.92);
   font-size: 12.5px;
   font-weight: 600;
   line-height: 1.45;
@@ -405,8 +522,8 @@ body.drawer-open {
   padding: 14px 16px;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 16px;
-  box-shadow: 0 18px 50px rgba(31, 37, 31, 0.22);
+  border-radius: 10px;
+  box-shadow: var(--shadow-pop);
 }
 
 .pwa-prompt-text {
@@ -424,11 +541,15 @@ body.drawer-open {
 
 .content {
   padding: 24px 26px 60px;
+  /* On a wide monitor an uncapped ledger reads as one line of text stretched
+     across the room; the page composes itself inside this measure. */
+  max-width: 1600px;
+  margin: 0 auto;
 }
 
 .grid {
   display: grid;
-  gap: 16px;
+  gap: 14px;
   align-items: start;
 }
 
@@ -446,28 +567,54 @@ body.drawer-open {
 
 .card {
   background: var(--panel);
-  border: 1px solid var(--line);
+  border: 1px solid var(--hair);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
   padding: 18px;
+  box-shadow: var(--shadow-card);
 }
 
 .metric .label {
-  color: var(--muted);
-  font-size: 12px;
+  color: var(--husk);
+  font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.14em;
 }
 
 .metric .value {
   font-size: 28px;
-  font-weight: 800;
+  font-weight: 700;
   margin: 8px 0 2px;
 }
 
 .metric .sub {
   font-size: 12px;
   color: var(--muted);
+}
+
+/* A row of metrics reads as one instrument panel, not four floating cards: the
+   strip is a single card and hairline dividers separate the dials. */
+.metric-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 0;
+  overflow: hidden;
+}
+
+.metric-strip .metric {
+  border-left: 1px solid var(--hair);
+  border-radius: 0;
+}
+
+.metric-strip .metric:first-child {
+  border-left: 0;
+}
+
+.metric-strip .metric:not(.metric-expandable) {
+  padding: 16px 18px;
+}
+
+.metric-strip.vendors-stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .metric-expandable {
@@ -512,7 +659,7 @@ body.drawer-open {
   gap: 12px;
   font-size: 13px;
   padding: 8px 0;
-  border-bottom: 1px solid #f0ece3;
+  border-bottom: 1px solid var(--hair-soft);
 }
 
 .metric-breakdown-row:last-child {
@@ -531,7 +678,7 @@ body.drawer-open {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin: 4px 0 14px;
+  margin: 2px 0 12px;
   gap: 12px;
   /* Between the phone breakpoint and a wide desktop the actions can genuinely run
      out of room. Dropping the whole group to a second line beats overflowing the
@@ -590,8 +737,8 @@ body.drawer-open {
 }
 
 .btn {
-  border: 0;
-  border-radius: 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
   padding: 10px 14px;
   cursor: pointer;
   font-weight: 700;
@@ -600,28 +747,40 @@ body.drawer-open {
   white-space: nowrap;
 }
 
-.btn-primary {
-  background: var(--green);
+/* Primary is ink-strong. The brand husk is ink for text and rails, never a
+   button fill. `.btn.primary` is Login's unprefixed pair of the same rule. */
+.btn-primary,
+.btn.primary {
+  background: var(--ink);
+  border-color: var(--ink);
   color: white;
 }
 
-.btn-primary:hover {
-  background: var(--green-2);
-}
-
-.btn-accent {
-  background: var(--accent);
-  color: white;
+.btn-primary:hover,
+.btn.primary:hover {
+  background: #33383e;
 }
 
 .btn-light {
-  background: #ece7dc;
+  background: white;
+  border-color: var(--hair);
   color: var(--ink);
 }
 
+.btn-light:hover {
+  background: var(--chrome);
+  border-color: #d5d1c8;
+}
+
+/* Danger is clay on a clay wash — outline treatment, never a clay fill (§5). */
 .btn-danger {
-  background: var(--danger);
-  color: white;
+  background: var(--clay-wash);
+  border-color: rgba(180, 84, 58, 0.45);
+  color: var(--clay);
+}
+
+.btn-danger:hover {
+  border-color: var(--clay);
 }
 
 .btn:disabled {
@@ -634,14 +793,14 @@ body.drawer-open {
   gap: 10px;
   align-items: center;
   flex-wrap: wrap;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
 .toolbar input,
 .toolbar select {
   border: 1px solid var(--line);
   background: white;
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   padding: 9px 10px;
 }
 
@@ -654,7 +813,7 @@ body.drawer-open {
 .table-wrap {
   overflow: auto;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 10px;
 }
 
 table {
@@ -666,29 +825,38 @@ table {
 
 th,
 td {
-  padding: 11px 12px;
-  border-bottom: 1px solid #ece7dd;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--hair);
   text-align: left;
   font-size: 13px;
   vertical-align: top;
 }
 
 th {
-  background: #f0ece3;
+  background: var(--chrome);
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #556055;
+  color: var(--ink-soft);
   position: sticky;
   top: 0;
+  /* The head rule is the table's strongest line — the ledger reads under it. */
+  border-bottom: 1px solid var(--hair-strong);
 }
 
 tr:last-child td {
   border-bottom: 0;
 }
 
+/* Zebra striping: a faint warm band on alternate rows so a wide ledger row
+   keeps its place while the eye runs across it. Every hover, focus and subrow
+   state below out-ranks it. */
+tbody tr:nth-child(even) td {
+  background: #f9f8f3;
+}
+
 .selectable-row:hover td {
-  background: #f6f3ec;
+  background: var(--well);
 }
 
 /* A row whose whole surface opens the record's detail view. The View button
@@ -698,7 +866,7 @@ tr:last-child td {
 }
 
 .row-open:hover td {
-  background: #f6f3ec;
+  background: var(--well);
 }
 
 /* The row is also the keyboard path to the detail, so the stop has to be visible. */
@@ -707,7 +875,7 @@ tr:last-child td {
 }
 
 .row-open:focus-visible td {
-  background: #f0ece3;
+  background: var(--chrome);
 }
 
 /* Sortable column heads — the head itself is the control. */
@@ -727,7 +895,7 @@ tr:last-child td {
 
 .th-sort:hover,
 .th-sort:focus-visible {
-  color: var(--green-2);
+  color: var(--husk);
 }
 
 .sort-mark {
@@ -738,7 +906,7 @@ tr:last-child td {
 /* The sorted column says so with more than an arrow — the whole head takes
    the link colour, so the state reads from across the room. */
 .th-sort.active {
-  color: var(--green-2);
+  color: var(--husk);
 }
 
 .th-sort.active .sort-mark {
@@ -780,7 +948,7 @@ tr:last-child td {
 /* A set shift is a filled chip, not a dashed empty one. */
 .shift-cell.set {
   border-style: solid;
-  background: #eef3ec;
+  background: var(--water);
 }
 
 .shift-tag {
@@ -788,7 +956,7 @@ tr:last-child td {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--green-2);
+  color: var(--husk);
 }
 
 /* Attendance marks keep the segmented control but shrink to fit a table cell. */
@@ -813,15 +981,15 @@ tr:last-child td {
   padding: 4px 10px;
   border-radius: 999px;
   border: 1px solid var(--line);
-  background: #f7f5f0;
-  color: #435044;
+  background: var(--well);
+  color: var(--ink-soft);
   cursor: pointer;
 }
 
 .quick-pick:hover,
 .quick-pick.picked {
-  border-color: var(--green-2);
-  color: var(--green-2);
+  border-color: var(--husk);
+  color: var(--husk);
 }
 
 .roster-week-nav {
@@ -888,41 +1056,51 @@ th.cell-num {
 .cell-sub {
   margin-top: 2px;
   font-size: 11.5px;
-  color: #7d857e;
+  color: var(--ink-mute);
   line-height: 1.35;
 }
 
+/* The status family (§5): a wash plus its accent-family ink, and — since the
+   first on-screen review found the washes alone too faint — a same-family
+   hairline border so a badge holds its shape beside text. Tender green lives
+   here and nowhere else in the chrome. */
 .status {
   display: inline-block;
-  padding: 5px 8px;
-  border-radius: 999px;
+  padding: 4px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .status.success {
-  background: #dff0e3;
-  color: var(--success);
+  background: var(--tender-wash);
+  border-color: rgba(53, 90, 68, 0.22);
+  color: var(--tender);
 }
 
 .status.warning {
-  background: #f7ebcf;
-  color: var(--warning);
+  background: var(--amber-wash);
+  border-color: rgba(164, 118, 31, 0.25);
+  color: var(--amber);
 }
 
 .status.danger {
-  background: #f4dcd7;
-  color: var(--danger);
+  background: var(--clay-wash);
+  border-color: rgba(180, 84, 58, 0.25);
+  color: var(--clay);
 }
 
 .status.neutral {
-  background: #e8ebe8;
-  color: #556055;
+  background: #ecebe6;
+  border-color: rgba(21, 24, 27, 0.08);
+  color: var(--ink-soft);
 }
 
 .status.info {
-  background: #dde9f4;
-  color: #2f5f87;
+  background: var(--slate-wash);
+  border-color: rgba(74, 109, 140, 0.22);
+  color: var(--slate);
 }
 
 .form-grid {
@@ -948,7 +1126,7 @@ th.cell-num {
 label {
   font-size: 12px;
   font-weight: 700;
-  color: #4f5b50;
+  color: var(--ink-soft);
 }
 
 input,
@@ -956,7 +1134,7 @@ select,
 textarea {
   border: 1px solid var(--line);
   background: white;
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   padding: 10px 11px;
   outline: none;
 }
@@ -964,8 +1142,8 @@ textarea {
 input:focus,
 select:focus,
 textarea:focus {
-  border-color: var(--green-2);
-  box-shadow: 0 0 0 3px rgba(62, 91, 69, 0.12);
+  border-color: var(--husk);
+  box-shadow: 0 0 0 3px rgba(90, 69, 49, 0.14);
 }
 
 textarea {
@@ -983,7 +1161,7 @@ textarea {
   font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--green-2);
+  color: var(--husk);
 }
 
 .detail-grid {
@@ -996,9 +1174,9 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  background: #f7f5f0;
+  background: var(--well);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   padding: 9px 11px;
   min-width: 0;
 }
@@ -1012,12 +1190,12 @@ textarea {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  color: #7d857e;
+  color: var(--ink-mute);
 }
 
 .detail-value {
   font-size: 14px;
-  color: #2c3730;
+  color: var(--ink);
   overflow-wrap: anywhere;
 }
 
@@ -1031,29 +1209,30 @@ textarea {
 input:disabled,
 select:disabled,
 textarea:disabled {
-  background: #f2f0ea;
-  color: #7d857e;
+  background: var(--well);
+  color: var(--ink-mute);
   cursor: not-allowed;
 }
 
+/* Notes carry the brand quietly: coconut water behind a husk rail. */
 .note {
   padding: 12px 14px;
-  border-radius: 12px;
-  background: #eef3ec;
-  border-left: 4px solid var(--green-2);
+  border-radius: 10px;
+  background: var(--water);
+  border-left: 4px solid var(--husk);
   font-size: 13px;
-  color: #435044;
+  color: var(--ink-soft);
   margin: 12px 0;
 }
 
 .warning-note {
-  background: #fbf1dc;
-  border-left-color: var(--gold);
+  background: var(--amber-wash);
+  border-left-color: var(--amber);
 }
 
 .danger-note {
-  background: #f8e4df;
-  border-left-color: var(--danger);
+  background: var(--clay-wash);
+  border-left-color: var(--clay);
 }
 
 /* A refusal said in place, inside the row that caused it. */
@@ -1077,12 +1256,27 @@ textarea:disabled {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
   padding: 10px;
-  border-bottom: 1px solid #ece7dd;
+  border-bottom: 1px solid var(--hair);
+  /* The transparent lead bar reserves the same 3px on every row, so the
+     exception rows that colour theirs do not push their text past the column
+     the rows beside them keep. */
+  border-left: 3px solid transparent;
   align-items: center;
 }
 
 .kpi-row:last-child {
   border-bottom: 0;
+}
+
+/* Attention lead bars (§5): an exception paints its severity off the same
+   status its badge carries — clay for danger, amber for warning, nothing for
+   the informational rest. Never a full-row tint. */
+.kpi-row:has(.status.danger) {
+  border-left-color: var(--clay);
+}
+
+.kpi-row:has(.status.warning) {
+  border-left-color: var(--amber);
 }
 
 /* The reports dialog: one card per document — id leading, verdict on the right. */
@@ -1098,9 +1292,9 @@ textarea:disabled {
   flex-wrap: wrap;
   gap: 10px 12px;
   padding: 11px 13px;
-  background: #f7f5f0;
+  background: var(--well);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
 }
 
 .report-item-main {
@@ -1140,8 +1334,8 @@ textarea:disabled {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--muted);
-  background: #ece7dd;
+  color: var(--husk);
+  background: var(--water);
   border-radius: 4px;
   padding: 2px 6px;
   margin-right: 8px;
@@ -1150,7 +1344,7 @@ textarea:disabled {
 
 .bar {
   height: 8px;
-  background: #e8e2d7;
+  background: var(--well);
   border-radius: 999px;
   overflow: hidden;
   margin-top: 6px;
@@ -1159,7 +1353,7 @@ textarea:disabled {
 .bar span {
   display: block;
   height: 100%;
-  background: var(--green-2);
+  background: var(--husk);
 }
 
 /* Roomy on desktop, but never wider than the phone it is sitting on. */
@@ -1182,7 +1376,7 @@ textarea:disabled {
   bottom: 10px;
   width: 48px;
   pointer-events: none;
-  background: linear-gradient(to right, rgba(255, 253, 247, 0), var(--panel, #fffdf7));
+  background: linear-gradient(to right, rgba(255, 255, 255, 0), var(--panel, #ffffff));
   opacity: var(--trace-fade, 1);
   transition: opacity 0.15s ease;
 }
@@ -1214,15 +1408,15 @@ textarea:disabled {
   min-width: 180px;
   background: white;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 10px;
   padding: 13px;
 }
 
 .arrow {
   display: grid;
   place-items: center;
-  color: var(--accent);
-  font-weight: 900;
+  color: var(--husk);
+  font-weight: 800;
 }
 
 /* The date a link in the chain happened on. Set apart from the rest of the node,
@@ -1233,7 +1427,7 @@ textarea:disabled {
   border-top: 1px dashed var(--line);
   font-size: 12px;
   font-weight: 600;
-  color: var(--accent);
+  color: var(--husk);
 }
 
 /* Proof photographs on a delivery. Every image behind these is fetched through a
@@ -1291,9 +1485,10 @@ textarea:disabled {
 }
 
 /* A row opened out under the row it belongs to — the lots behind one packing
-   material. It is a continuation of that row, so it drops the zebra striping. */
-tbody tr.subrow > td {
-  background: #faf8f3;
+   material. It is a continuation of that row, so it drops the zebra striping
+   (the `table` prefix out-ranks the stripe rule above). */
+table tbody tr.subrow > td {
+  background: var(--chrome);
   padding-top: 0;
 }
 
@@ -1305,7 +1500,7 @@ tbody tr.subrow > td {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(10, 18, 12, 0.5);
+  background: rgba(21, 24, 27, 0.45);
   display: flex;
   /* Anchored to the top, not centred. Every form here grows as you fill it — a live
      total appears, a warning resolves — and a centred dialog re-centres on each of
@@ -1322,15 +1517,16 @@ tbody tr.subrow > td {
   overflow-y: auto;
 }
 
+/* A dialog earns one of the three surviving shadows (§3). */
 .modal-box {
   background: var(--panel);
-  border-radius: 18px;
+  border-radius: 14px;
   max-width: 960px;
   width: 100%;
   /* The backdrop scrolls now, so the dialog itself does not need to cap its height
      and trap a second scrollbar inside the first. */
   max-height: none;
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--shadow-dialog);
   margin: clamp(20px, 6vh, 64px) 0 20px;
 }
 
@@ -1392,11 +1588,12 @@ tbody tr.subrow > td {
   top: 18px;
   left: 50%;
   transform: translateX(-50%);
-  background: #1f2e22;
-  color: white;
+  background: white;
+  border: 1px solid var(--hair);
+  color: var(--ink);
   padding: 12px 16px;
-  border-radius: 12px;
-  box-shadow: var(--shadow);
+  border-radius: 10px;
+  box-shadow: var(--shadow-pop);
   z-index: 100;
   max-width: min(420px, calc(100vw - 32px));
   /* Never intercept a click: a validation message must not block the button that
@@ -1438,23 +1635,23 @@ tbody tr.subrow > td {
 .split {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
-  gap: 16px;
+  gap: 14px;
 }
 
 .subform {
   margin-top: 14px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 10px;
   overflow: hidden;
 }
 
 .subform-head {
-  background: #f0ece3;
+  background: var(--chrome);
   padding: 10px 12px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-weight: 800;
+  font-weight: 700;
   font-size: 13px;
 }
 
@@ -1463,7 +1660,7 @@ tbody tr.subrow > td {
   grid-template-columns: minmax(0, 3fr) minmax(0, 1fr) minmax(0, 1fr) auto;
   gap: 8px;
   padding: 10px 12px;
-  border-top: 1px solid #ece7dd;
+  border-top: 1px solid var(--hair);
   background: white;
 }
 
@@ -1479,8 +1676,8 @@ tbody tr.subrow > td {
    an input nobody has filled in. */
 .field-fixed {
   padding: 10px 12px;
-  border-radius: 10px;
-  background: #f2eee5;
+  border-radius: var(--radius-control);
+  background: var(--well);
   border: 1px solid var(--line);
   color: var(--muted);
   font-size: 14px;
@@ -1525,13 +1722,13 @@ tbody tr.subrow > td {
 }
 
 .pack-row-head {
-  background: #faf7f0;
+  background: var(--well);
   border-top: none;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--muted, #6b6455);
+  color: var(--muted);
 }
 
 /* The trailing cell sits under the remove button, which the header has no use for. */
@@ -1545,7 +1742,7 @@ tbody tr.subrow > td {
 }
 
 .subform-body + .subform-body {
-  border-top: 1px solid #ece7dd;
+  border-top: 1px solid var(--hair);
 }
 
 .subform-body .table-wrap {
@@ -1562,8 +1759,8 @@ tbody tr.subrow > td {
   z-index: 1000;
   background: white;
   border: 1px solid var(--line);
-  border-radius: 10px;
-  box-shadow: var(--shadow);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-pop);
   max-height: 220px;
   overflow-y: auto;
   padding: 6px;
@@ -1571,14 +1768,14 @@ tbody tr.subrow > td {
 
 .autocomplete-option {
   padding: 8px 10px;
-  border-radius: 7px;
+  border-radius: 6px;
   font-size: 13px;
   cursor: pointer;
 }
 
 .autocomplete-option:hover,
 .autocomplete-option.active {
-  background: #f0ece3;
+  background: var(--well);
 }
 
 .table-cell-input {
@@ -1613,7 +1810,7 @@ tbody tr.subrow > td {
   gap: 8px;
   border: 1px solid var(--line);
   background: white;
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   padding: 10px 11px;
   font: inherit;
   color: inherit;
@@ -1622,12 +1819,12 @@ tbody tr.subrow > td {
 }
 
 .ui-select-trigger:hover {
-  border-color: #c7bfae;
+  border-color: #d5d1c8;
 }
 
 .ui-select-trigger[aria-expanded='true'] {
-  border-color: var(--green-2);
-  box-shadow: 0 0 0 3px rgba(62, 91, 69, 0.12);
+  border-color: var(--husk);
+  box-shadow: 0 0 0 3px rgba(90, 69, 49, 0.14);
 }
 
 .ui-select-trigger:disabled {
@@ -1660,8 +1857,8 @@ tbody tr.subrow > td {
   z-index: 1000;
   background: white;
   border: 1px solid var(--line);
-  border-radius: 10px;
-  box-shadow: var(--shadow);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-pop);
   max-height: 260px;
   overflow-y: auto;
   padding: 6px;
@@ -1669,31 +1866,32 @@ tbody tr.subrow > td {
 
 .ui-select-option {
   padding: 8px 10px;
-  border-radius: 7px;
+  border-radius: 6px;
   font-size: 13px;
   cursor: pointer;
 }
 
 .ui-select-option:hover {
-  background: #f0ece3;
+  background: var(--well);
 }
 
+/* The chosen option is an ink fill — selection is ink, never brand (§5). */
 .ui-select-option.active {
-  background: var(--green-2);
+  background: var(--ink);
   color: white;
 }
 
 /* Where the keyboard is, which is not necessarily what is selected. Outlined rather
    than filled so it stays visible on top of the selected row. */
 .ui-select-option.focused {
-  outline: 2px solid var(--green-2);
+  outline: 2px solid var(--husk);
   outline-offset: -2px;
-  background: #f0ece3;
+  background: var(--well);
 }
 
 .ui-select-option.active.focused {
-  background: var(--green-2);
-  outline-color: var(--gold);
+  background: var(--ink);
+  outline-color: white;
 }
 
 .ui-select-option.disabled {
@@ -1718,6 +1916,17 @@ tbody tr.subrow > td {
   .split {
     grid-template-columns: minmax(0, 1fr);
   }
+  /* The metric strip folds to two dials a row; the dividers follow the fold. */
+  .metric-strip,
+  .metric-strip.vendors-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .metric-strip .metric:nth-child(odd) {
+    border-left: 0;
+  }
+  .metric-strip .metric:nth-child(n + 3) {
+    border-top: 1px solid var(--hair);
+  }
 }
 
 @media (max-width: 760px) {
@@ -1729,6 +1938,18 @@ tbody tr.subrow > td {
   .grid-2,
   .form-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+  /* The strip stacks its dials; the dividers turn horizontal. */
+  .metric-strip,
+  .metric-strip.vendors-stats {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .metric-strip .metric {
+    border-left: 0;
+    border-top: 1px solid var(--hair);
+  }
+  .metric-strip .metric:first-child {
+    border-top: 0;
   }
   .field.span-2,
   .field.span-3 {
@@ -1784,7 +2005,7 @@ tbody tr.subrow > td {
   display: inline-flex;
   padding: 4px;
   gap: 4px;
-  background: #efe9dc;
+  background: var(--well);
   border-radius: 999px;
 }
 
@@ -1808,7 +2029,7 @@ tbody tr.subrow > td {
   min-width: min(320px, 100%);
   border: 1px solid var(--line);
   background: white;
-  border-radius: 12px;
+  border-radius: var(--radius-control);
   padding: 10px 12px;
 }
 
@@ -1818,27 +2039,29 @@ tbody tr.subrow > td {
   gap: 14px;
 }
 
+/* A resting card: white, hairline, the soft card lift. Farmer and trade
+   vendor each keep a 3px lead bar — tender for the farmer, slate for the trade
+   vendor, the two source types of the coconut's supply. */
 .vendor-card {
   border: 1px solid var(--line);
-  border-radius: 16px;
-  background: linear-gradient(180deg, #fffef9 0%, #f7f2e8 100%);
+  border-radius: 10px;
+  background: white;
+  box-shadow: var(--shadow-card);
   padding: 16px;
   display: grid;
   gap: 14px;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .vendor-card:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow);
+  border-color: #d5d1c8;
 }
 
 .vendor-card.is-farmer {
-  border-top: 3px solid var(--green-2);
+  border-top: 3px solid var(--tender);
 }
 
 .vendor-card.is-vendor {
-  border-top: 3px solid var(--accent);
+  border-top: 3px solid var(--slate);
 }
 
 .vendor-card-top {
@@ -1851,7 +2074,7 @@ tbody tr.subrow > td {
 .vendor-avatar {
   width: 42px;
   height: 42px;
-  border-radius: 12px;
+  border-radius: 10px;
   display: grid;
   place-items: center;
   font-weight: 800;
@@ -1859,11 +2082,11 @@ tbody tr.subrow > td {
 }
 
 .vendor-avatar.farmer {
-  background: var(--green-2);
+  background: var(--tender);
 }
 
 .vendor-avatar.vendor {
-  background: var(--accent);
+  background: var(--slate);
 }
 
 .vendor-card-title h4 {
@@ -1879,13 +2102,13 @@ tbody tr.subrow > td {
 }
 
 .type-chip.farmer {
-  background: #dff0e3;
-  color: var(--success);
+  background: var(--tender-wash);
+  color: var(--tender);
 }
 
 .type-chip.vendor {
-  background: #f8e4df;
-  color: var(--accent);
+  background: var(--slate-wash);
+  color: var(--slate);
 }
 
 .vendor-meta {
@@ -1931,8 +2154,8 @@ tbody tr.subrow > td {
 
 .vendors-empty {
   border: 1px dashed var(--line);
-  border-radius: 14px;
-  background: #faf6ee;
+  border-radius: 10px;
+  background: var(--well);
 }
 
 /* A QC card carries no avatar, so the title took the fixed column and grew until it
@@ -1970,7 +2193,7 @@ tbody tr.subrow > td {
   justify-content: space-between;
   gap: 10px;
   padding: 10px 0;
-  border-bottom: 1px solid #ece7dd;
+  border-bottom: 1px solid var(--hair);
 }
 
 .room-stock-row > div {
@@ -2000,8 +2223,8 @@ tbody tr.subrow > td {
 
 .qc-review-card {
   border: 1px solid var(--line);
-  border-radius: 16px;
-  background: linear-gradient(180deg, #fffef9 0%, #f7f2e8 100%);
+  border-radius: 10px;
+  background: white;
   padding: 16px;
   display: grid;
   gap: 6px;
@@ -2037,7 +2260,7 @@ tbody tr.subrow > td {
 
 .qc-file-row a,
 .qc-file-row .link-button {
-  color: var(--green);
+  color: var(--husk);
   font-weight: 700;
   font-size: 13px;
   word-break: break-all;
@@ -2050,7 +2273,7 @@ tbody tr.subrow > td {
   border: 0;
   padding: 0;
   font: inherit;
-  color: var(--green);
+  color: var(--husk);
   font-weight: 700;
   text-align: left;
   text-decoration: underline;
@@ -2099,8 +2322,8 @@ tbody tr.subrow > td {
   font-weight: 700;
   padding: 5px 9px;
   border-radius: 999px;
-  background: #e8efe8;
-  color: var(--green);
+  background: var(--well);
+  color: var(--ink-soft);
 }
 
 .supplier-picker {
@@ -2112,9 +2335,9 @@ tbody tr.subrow > td {
 
 .supplier-group {
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 10px;
   padding: 12px;
-  background: #fffef9;
+  background: white;
   max-height: 240px;
   overflow: auto;
 }
@@ -2149,7 +2372,7 @@ tbody tr.subrow > td {
   text-align: left;
   border: 1px solid var(--line);
   background: white;
-  border-radius: 14px;
+  border-radius: 10px;
   padding: 14px;
   cursor: pointer;
   display: grid;
@@ -2166,15 +2389,15 @@ tbody tr.subrow > td {
 }
 
 .kind-option.active.farmer {
-  border-color: var(--green-2);
-  background: #eef5ef;
-  box-shadow: 0 0 0 3px rgba(62, 91, 69, 0.12);
+  border-color: var(--tender);
+  background: var(--tender-wash);
+  box-shadow: 0 0 0 3px rgba(53, 90, 68, 0.12);
 }
 
 .kind-option.active.vendor {
-  border-color: var(--accent);
-  background: #fbf0eb;
-  box-shadow: 0 0 0 3px rgba(201, 101, 67, 0.12);
+  border-color: var(--slate);
+  background: var(--slate-wash);
+  box-shadow: 0 0 0 3px rgba(74, 109, 140, 0.12);
 }
 
 @media (max-width: 760px) {
@@ -2190,11 +2413,14 @@ tbody tr.subrow > td {
   }
 }
 
+/* The print sheets keep the retired ink — hairline, 16px radius, the old
+   ambient shadow — because the design stops at paper's edge (§5). Everything
+   from here through .report-comments is frozen on the old values on purpose. */
 .report-sheet {
   background: white;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  border: 1px solid #d8d0c1;
+  border-radius: 16px;
+  box-shadow: 0 10px 30px rgba(31, 37, 31, 0.08);
   padding: 18mm 16mm;
   width: 100%;
   max-width: 210mm;
@@ -2442,10 +2668,12 @@ tbody tr.subrow > td {
   color: white;
 }
 
-/* A critical attribute scored below 3 holds the product — the pressed button says so. */
+/* A critical attribute scored below 3 holds the product — the pressed button
+   says so in clay on a clay wash, the danger treatment, never a clay fill. */
 .score-btn.low.active {
-  background: var(--danger);
-  border-color: var(--danger);
+  background: var(--clay-wash);
+  border-color: var(--clay);
+  color: var(--clay);
 }
 
 .sensory-summary {
@@ -2456,9 +2684,9 @@ tbody tr.subrow > td {
 
 .sensory-summary > div {
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 10px;
   padding: 10px 12px;
-  background: #fffef9;
+  background: white;
   display: grid;
   gap: 4px;
   align-content: start;
@@ -2500,7 +2728,7 @@ tbody tr.subrow > td {
     grid-template-columns: minmax(0, 1fr);
     /* Only the app bar and <main> are in flow here (drawer, scrim and bottom nav
        are fixed). Without explicit rows the grid spreads the leftover 100dvh
-       across both, which stretches the app bar into a tall green slab. */
+       across both, which stretches the app bar into a tall slab. */
     grid-template-rows: auto minmax(0, 1fr);
   }
 
@@ -2518,8 +2746,9 @@ tbody tr.subrow > td {
     z-index: 30;
     min-width: 0;
     max-width: 100%;
-    background: var(--green);
-    color: white;
+    background: var(--chrome);
+    border-bottom: 1px solid var(--hair-strong);
+    color: var(--ink);
     padding: 8px 12px 8px 6px;
     padding-top: calc(8px + env(safe-area-inset-top));
     padding-left: calc(6px + env(safe-area-inset-left));
@@ -2537,6 +2766,9 @@ tbody tr.subrow > td {
   .mobile-appbar-title h2 {
     margin: 0;
     font-size: 17px;
+    /* Headline role weight (§4) — the page's name is the loudest thing on
+       the screen at thumb height too. */
+    font-weight: 600;
     line-height: 1.2;
     white-space: nowrap;
     overflow: hidden;
@@ -2546,7 +2778,7 @@ tbody tr.subrow > td {
   .mobile-appbar-title p {
     margin: 2px 0 0;
     font-size: 11px;
-    color: #adc0ae;
+    color: var(--ink-mute);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2558,7 +2790,7 @@ tbody tr.subrow > td {
     position: fixed;
     inset: 0;
     z-index: 50;
-    background: rgba(10, 18, 12, 0.5);
+    background: rgba(21, 24, 27, 0.4);
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.24s ease;
@@ -2587,7 +2819,8 @@ tbody tr.subrow > td {
 
   .sidebar.open {
     transform: none;
-    box-shadow: 0 0 44px rgba(0, 0, 0, 0.4);
+    /* The drawer earns one of the three surviving shadows (§3). */
+    box-shadow: var(--shadow-drawer);
   }
 
   .brand {
@@ -2597,7 +2830,7 @@ tbody tr.subrow > td {
   .icon-btn.drawer-close {
     display: grid;
     margin: -8px -6px 0 auto;
-    color: #d7e1d6;
+    color: var(--ink-soft);
   }
 
   /* Comfortable thumb targets for the 15 drawer destinations. */
@@ -2615,7 +2848,7 @@ tbody tr.subrow > td {
     right: 0;
     bottom: 0;
     z-index: 40;
-    background: rgba(255, 253, 247, 0.97);
+    background: rgba(255, 255, 255, 0.97);
     backdrop-filter: blur(10px);
     border-top: 1px solid var(--line);
     padding-bottom: env(safe-area-inset-bottom);
@@ -2631,7 +2864,7 @@ tbody tr.subrow > td {
     padding: 8px 2px;
     border: 0;
     background: none;
-    color: var(--muted);
+    color: var(--ink-mute);
     font-size: 10.5px;
     font-weight: 700;
     letter-spacing: 0.01em;
@@ -2644,8 +2877,14 @@ tbody tr.subrow > td {
     height: 22px;
   }
 
+  /* Active at thumb size needs the ink weight in the label plus the husk in
+     the icon — a rail alone is too subtle for a gloved thumb (§6). */
   .bottom-nav button.active {
-    color: var(--green);
+    color: var(--ink);
+  }
+
+  .bottom-nav button.active svg {
+    color: var(--husk);
   }
 
   .bottom-nav button.active::before {
@@ -2656,7 +2895,7 @@ tbody tr.subrow > td {
     right: 22%;
     height: 3px;
     border-radius: 0 0 3px 3px;
-    background: var(--green);
+    background: var(--husk);
   }
 
   /* Keep the last row of content clear of the fixed bottom nav. */
@@ -2868,14 +3107,14 @@ tbody tr.subrow > td {
 
   .table-wrap tbody {
     display: grid;
-    gap: 10px;
+    gap: 8px;
   }
 
   .table-wrap tr {
     display: block;
     background: white;
     border: 1px solid var(--line);
-    border-radius: 12px;
+    border-radius: 10px;
     padding: 2px 13px;
   }
 
@@ -2885,12 +3124,18 @@ tbody tr.subrow > td {
     justify-content: flex-end;
     gap: 14px;
     padding: 10px 0;
-    border-bottom: 1px solid #f2eee5;
+    border-bottom: 1px solid var(--hair-soft);
     text-align: right;
   }
 
   .table-wrap tr td:last-child {
     border-bottom: 0;
+  }
+
+  /* The desktop stripe is a row treatment; on a phone each row is its own
+     card and the stripe would tint half the cells inside it. */
+  .table-wrap tbody tr:nth-child(even) td {
+    background: transparent;
   }
 
   .table-wrap td[data-label]::before {
@@ -2901,7 +3146,9 @@ tbody tr.subrow > td {
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: var(--muted);
+    /* The card's field labels carry the husk — a scannable brand eyebrow on
+       every row, and colour the phone otherwise spends only on badges. */
+    color: var(--husk);
   }
 
   /* Full-width cells: the empty state and any action row. */
@@ -2963,7 +3210,7 @@ tbody tr.subrow > td {
 
   .table-wrap tr:has(td.empty) {
     border-style: dashed;
-    background: #faf6ee;
+    background: var(--well);
   }
 
   .table-wrap .table-cell-input {
@@ -3062,7 +3309,7 @@ tbody tr.subrow > td {
   text-align: left;
   padding: 14px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--bg);
   color: var(--ink);
   cursor: pointer;
@@ -3108,7 +3355,7 @@ tbody tr.subrow > td {
   text-align: left;
   padding: 10px 12px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: var(--panel);
   color: var(--ink);
   cursor: pointer;
@@ -3132,7 +3379,7 @@ tbody tr.subrow > td {
   padding: 12px;
   background: var(--bg);
   border: 1px dashed var(--line);
-  border-radius: 12px;
+  border-radius: 10px;
 }
 
 .sticker-preview {
@@ -3236,7 +3483,7 @@ tbody tr.subrow > td {
   align-items: center;
   padding: 6px 10px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: var(--bg);
 }
 
@@ -3311,7 +3558,7 @@ tbody tr.subrow > td {
   gap: 12px;
   padding: 10px 12px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: var(--bg);
 }
 
@@ -3336,9 +3583,11 @@ tbody tr.subrow > td {
   font-weight: 700;
 }
 
+/* A finished step is a positive: the one place tender green appears outside
+   a badge, and it is still a state chip, not chrome. */
 .setup-steps li.done .setup-tick {
-  background: var(--green);
-  border-color: var(--green);
+  background: var(--tender);
+  border-color: var(--tender);
   color: #fff;
 }
 
@@ -3346,10 +3595,10 @@ tbody tr.subrow > td {
    batch code in a sentence, a lot in a table cell — and underlines to say it goes
    somewhere. */
 .doc-link {
-  color: var(--green);
+  color: var(--husk);
   font-weight: 700;
   text-decoration: underline;
-  text-decoration-color: rgba(37, 61, 43, 0.35);
+  text-decoration-color: rgba(90, 69, 49, 0.35);
   text-underline-offset: 2px;
   cursor: pointer;
 }
@@ -3465,7 +3714,7 @@ tbody tr.subrow > td {
   color: #fff;
   font-size: 12px;
   line-height: 1.35;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-pop);
   pointer-events: none;
   transform: translate(-50%, calc(-100% - 10px));
 }
@@ -3495,9 +3744,11 @@ tbody tr.subrow > td {
   vertical-align: -1px;
 }
 
+/* Document-kind swatches — they distinguish kinds, not severity. Only the four
+   that repeated the retired chrome greens are re-hued to their new homes. */
 .kind-source { --swatch: #b8892f; }
-.kind-grn { --swatch: #3e5b45; }
-.kind-batch { --swatch: #253d2b; }
+.kind-grn { --swatch: #355a44; }
+.kind-batch { --swatch: #5a4531; }
 .kind-melange { --swatch: #5f8a63; }
 .kind-qc { --swatch: #9b6b18; }
 .kind-material { --swatch: #8a8478; }
@@ -3505,8 +3756,8 @@ tbody tr.subrow > td {
 .kind-order { --swatch: #6a5fa8; }
 .kind-dispatch { --swatch: #3d6c96; }
 .kind-issue { --swatch: #a23f34; }
-.kind-customer { --swatch: #1f251f; }
-.kind-stock { --swatch: #697065; }
+.kind-customer { --swatch: #15181b; }
+.kind-stock { --swatch: #5b626a; }
 
 /* ─── Live reports ─────────────────────────────────────────────────────────── */
 
@@ -3547,7 +3798,7 @@ tbody tr.subrow > td {
 }
 
 .report-meta b {
-  color: var(--ink, #1f251f);
+  color: var(--ink, #15181b);
 }
 
 .method-note {
@@ -3568,19 +3819,19 @@ tbody tr.subrow > td {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #697065;
+  background: var(--ink-mute);
 }
 
 .sync-note.ok::before {
-  background: #3e7b4a;
+  background: var(--tender);
 }
 
 .sync-note.busy::before {
-  background: #b8892f;
+  background: var(--amber);
 }
 
 .sync-note.off::before {
-  background: #a23f34;
+  background: var(--clay);
 }
 
 .compare-table .delta {
@@ -3589,11 +3840,11 @@ tbody tr.subrow > td {
 }
 
 .compare-table .delta.good {
-  color: #2e7d43;
+  color: var(--tender);
 }
 
 .compare-table .delta.bad {
-  color: #b3261e;
+  color: var(--clay);
 }
 
 .report-catalog-family {
@@ -3613,16 +3864,16 @@ tbody tr.subrow > td {
   gap: 4px;
   align-content: start;
   padding: 14px;
-  background: #f7f5f0;
+  background: var(--well);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   text-decoration: none;
   color: inherit;
 }
 
 .report-card:hover {
-  border-color: #c9bfa8;
-  background: #f1ede4;
+  border-color: #d5d1c8;
+  background: var(--hair-soft);
 }
 
 .report-card b {

@@ -254,11 +254,11 @@ export function Dashboard() {
         </div>
       </div>
 
-      <div className="grid grid-4">
+      <div className="card metric-strip">
         {cards.map((c) => {
           const isOpen = !!openCards[c.key]
           return (
-            <div className="card metric metric-expandable" key={c.key}>
+            <div className="metric metric-expandable" key={c.key}>
               <button
                 type="button"
                 className="metric-expand-toggle"

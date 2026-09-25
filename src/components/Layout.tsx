@@ -247,7 +247,7 @@ export function Layout() {
         ) : null}
 
         <div className="sidebar-footer">
-          <div className="small" style={{ color: '#c9d5ca' }}>
+          <div className="small" style={{ color: 'var(--ink-mute)' }}>
             Signed in as {email}
             {isAdmin ? ' (admin)' : ''}. <SaveIndicator />
           </div>

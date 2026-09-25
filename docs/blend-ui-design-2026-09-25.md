@@ -1,6 +1,8 @@
-# Roligt Foods Ops — "Leaf × Ledger" blend design
+# Roligt Foods Ops — "Husk × Ledger" blend design
 
-**Status:** Proposal (2026-09-25). Implementation not started.
+**Status:** Implemented 2026-09-25, same day as the coconut re-theme — Phases A–C landed in `src/index.css` (tokens, self-hosted Bricolage with the ₹-bearing latin-ext subset, shell reskin, per-surface pass) plus the shell chrome colors in `index.html` / `vite.config.ts`. `btn-accent` turned out to have zero call sites and was deleted outright. Report sheets are frozen on the retired literals at their rule, per §5. §8's open questions still stand for review on a device.
+
+**Amended later the same day, after the first on-screen review** (verdict: *too plain, pages sparse*): the page field left pure white for warm paper so cards visibly sit on it (`--bg #f6f4ee`), resting cards got one whisper-soft lift back (`--shadow-card` — pop/dialog/drawer stay the only real elevations), badges gained same-family hairline borders, tables got zebra rows and a stronger head rule (`--hair-strong`), KPI rows became single-card metric strips with hairline dividers (Dashboard, Vendors), metric labels took the husk, the page composes inside a 1600px measure, and the phone card-tables print their field labels in husk. §2/§3/§5 below carry the amended values.
 **Author:** Naresh + Claude (adaptation session).
 **Source design:** the SmoothieBar admin's "Mineral × Botanical" blend — `admin/docs/superpowers/specs/2026-06-12-smoothiebar-blend-design.md`. This doc carries that design language over **lightly**: tokens, locked rules, and component treatments, adapted to this app's reality. It is not a port of SmoothieBar's power-user chrome.
 
@@ -18,13 +20,17 @@ The sister project (SmoothieBar admin) already solved this with the **blend**: w
 |---|---|---|
 | White surfaces, hairline depth, ink-family text, brand-as-ink, status wash family, Bricolage + role scale, tabular numerals | The RBAC page catalog + grouped nav (Operations / Masters / Administration), the **phone thumb bar** + drawer, the offline bar + save indicator, PWA install prompts, the document/DocViewer model, print report sheets | Cream field, dark-green sidebar fill, gold accents, resting card shadows, `16px` radius, Segoe UI stack |
 
+### The hue is Roligt's own: the coconut
+
+The blend carries structure, not color. SmoothieBar's identity was mineral × botanical; Roligt's is the **coconut** — the plant procures coconuts from its farmers, extracts the water, and blends its melanges on that water (the product is itself a blend, so the design language's name fits twice over). The brand ink is the **husk**, the brown that says coconut at a glance; the badge wash is the **water**, the pale straw of the drink itself. The leaf greens leave the chrome entirely, and their only survivor is a tender green inside positive status badges — a young coconut's skin is green too, and a Released badge still has to read as "good" on a plant floor.
+
 ---
 
 ## 2. Locked rules (carried from the blend — do NOT re-litigate)
 
-- **Brand leaf-green is INK ONLY** — links, active nav, the "needs attention" highlight, the brand mark. **Never a button fill.** Primary CTAs are ink-strong (`--ink`).
+- **Brand husk-brown is INK ONLY** — links, active nav, the "needs attention" highlight, the brand mark. **Never a button fill.** Primary CTAs are ink-strong (`--ink`).
 - **No dark surfaces**, ever. The green sidebar becomes a light chrome surface. (The offline bar may stay ink-dark — it is an alert strip, not a surface; see §6.)
-- **No card shadows on resting surfaces.** Hairlines do the depth. Exactly three shadow tokens survive: popover, dialog, drawer.
+- **No card shadows on resting surfaces.** Hairlines do the depth. Exactly three shadow tokens survive: popover, dialog, drawer. *(Amended same-day after review: resting cards carry `--shadow-card`, a whisper-soft two-stop lift — the white-on-white field read as flat. It is a paper lift, not an elevation; pop/dialog/drawer remain the only true shadows.)*
 - **No emoji as UI affordance. Never render raw enum strings.** (`statusLabel`/`statusClass` in `lib/utils` already hold this line — keep it that way as statuses evolve.)
 - **Numerals are tabular, everywhere** — `font-feature-settings:'tnum' 1` on every qty, UoM total, ₹ figure, KPI, count. This is a ledger app; ragged number columns are a defect.
 - **Buttons:** primary = ink fill (`--ink` bg, white text); secondary = white + hairline; the current terracotta `.btn-accent` fill retires (accent lives in text/ink, not chrome).
@@ -33,23 +39,24 @@ The sister project (SmoothieBar admin) already solved this with the **blend**: w
 
 ---
 
-## 3. Design tokens (the Leaf × Ledger blend)
+## 3. Design tokens (the Husk × Ledger blend)
 
-All in `:root` of `src/index.css` — this app's singlestylesheet is an advantage: one file to change. Old names map to new values in place where a class already reads them.
+All in `:root` of `src/index.css` — this app's single stylesheet is an advantage: one file to change. Old names map to new values in place where a class already reads them.
 
 ### Surfaces
 | Token | Value | Replaces | Use |
 |---|---|---|---|
-| `--bg` | `#ffffff` | `#f5f0e6` cream | content surface — white-forward |
-| `--chrome` | `#fbfaf7` | — (new) | sidebar / topbar / table head — faint warm white |
-| `--well` | `#f6f5f1` | `--panel #fffdf7` | recessed wells: chip tracks, KPI strips, pick lists |
-| `--panel` | `#ffffff` | `#fffdf7` | cards — now pure white, hairline-bordered |
+| `--bg` | `#f6f4ee` | `#ffffff` (phase A) ← `#f5f0e6` cream | content field — warm paper; white cards sit on it |
+| `--chrome` | `#f1efe8` | — (new) | sidebar / topbar / app bar / table head |
+| `--well` | `#eceae2` | `--panel #fffdf7` | recessed wells: chip tracks, KPI strips, pick lists |
+| `--panel` | `#ffffff` | `#fffdf7` | cards — pure white on the tinted field |
 
 ### Hairlines
 | Token | Value | Replaces |
 |---|---|---|
-| `--hair` | `#e8e5dd` | `--line #d8d0c1` |
-| `--hair-soft` | `#f0eee8` | — (new) |
+| `--hair` | `#e3dfd4` | `--line #d8d0c1` |
+| `--hair-soft` | `#ecebe3` | — (new) |
+| `--hair-strong` | `#d9d3c4` | — (new) — table head rule, topbar/app bar edge |
 
 ### Ink (warm-cool neutral)
 | Token | Value | Replaces | Use |
@@ -59,33 +66,38 @@ All in `:root` of `src/index.css` — this app's singlestylesheet is an advantag
 | `--ink-mute` | `#8c9098` | — | labels, captions |
 | `--ink-faint` | `#b3b7bd` | — | footnotes, placeholders |
 
-### Brand — leaf green (ink only)
-Roligt's two greens (`#253d2b`, `#3e5b45`) collapse into one ink-grade leaf:
+### Brand — husk & water (ink only)
+The coconut is the brand: the **husk** gives the ink, the **water** gives the wash. Roligt's two greens (`#253d2b`, `#3e5b45`) leave the chrome entirely — their only survivor is the tender status green below.
 | Token | Value | Use |
 |---|---|---|
-| `--leaf` | `#355a44` | brand/positive ink, active nav underline, links, brand mark |
-| `--leaf-deep` | `#274634` | inline text actions ("Edit", "Adjust") |
-| `--leaf-wash` | `#eef3f0` | tinted fill for badges only |
+| `--husk` | `#5a4531` | brand ink — links, active nav rail, "needs attention" highlight, brand mark |
+| `--husk-deep` | `#43331f` | inline text actions ("Edit", "Adjust") |
+| `--water` | `#f3f0e7` | tinted fill for badges and the `.mark` chip — coconut water held up to the light |
+
+Yes, `--water` sits near the retired cream `#f5f0e6`. That is deliberate and safe: it is a badge wash on white, never the page field — the field (amended) is a grayer warm paper that the water only ever meets as a chip tint on a white card.
 
 ### Status accents (a family, not a stoplight)
 | Status | fg | wash | Replaces |
 |---|---|---|---|
-| Positive / brand | `--leaf #355a44` | `#eef3f0` | `--success #2f6b42` |
-| Warning | `--amber #a4761f` | `#faf3e4` | `--warning #9b6b18` + gold `#d9a847` (gold retires) |
+| Positive | `--tender #355a44` | `#eef3f0` | `--success #2f6b42` — badges only, never chrome; the tender coconut's green |
+| Warning | `--amber #a4761f` | `#faf2d9` | `--warning #9b6b18` + gold `#d9a847` (gold retires) |
 | Error / attention | `--clay #b4543a` | `#faeeea` | `--danger #a23f34` + accent `#c96543` (the two terracottas merge into one clay) |
 | Info | `--slate #4a6d8c` | — | — |
+
+The warning wash leans yellower than the water so a warning badge never reads as a brand badge beside it.
 
 ### Depth + shape (Roligt addition — the blend spec is silent here, decide once)
 | Token | Value | Note |
 |---|---|---|
-| `--shadow-pop` / `--shadow-dialog` / `--shadow-drawer` | small y-offset, low-alpha ink | the only three shadows in the app (modal, DocViewer, drawer) |
+| `--shadow-pop` / `--shadow-dialog` / `--shadow-drawer` | small y-offset, low-alpha ink | the only three real shadows in the app (modal, DocViewer, drawer) |
+| `--shadow-card` | `0 1px 2px` + `0 2px 10px`, ~5% ink | the amended paper lift on resting cards — depth, not elevation |
 | `--radius` | `10px` (cards) / `8px` (controls, chips) | down from 16px; crisp but not sharp — plant-gloved fingers still tap these |
 
 ---
 
 ## 4. Typography — one variable family
 
-**Family:** **Bricolage Grotesque** (variable; axes `opsz 12..96`, `wght 300..800`) — the same family the SmoothieBar blend locked. Editorial at display size; its optical-size axis keeps dense 13px ledger rows legible.
+**Family:** **Bricolage Grotesque** (variable; axes `opsz 12..96`, `wght 300..800`) — the same family the SmoothieBar blend locked. Editorial at display size; its optical-size axis keeps dense 13px ledger rows legible. Type is theme-neutral — the coconut re-hue does not touch it.
 
 **Loading (Vite, not Next):** self-host — `BricolageGrotesque[opsz,wdth,wght].woff2` in `public/fonts/` + one `@font-face` with `font-weight: 300 800` and `font-stretch/opsz` axes. No Google Fonts link: the app is an **offline PWA**, so the font must come from the precache, not the network. (Add the woff2 to the service worker's precache `globPatterns` if it doesn't match.)
 
@@ -106,13 +118,13 @@ Segoe UI / Source Sans 3 are removed. No mono family by default — ledger numer
 
 ## 5. Component rules (mapped to this app's classes)
 
-- **`.status` badges** (StatusBadge + `statusClass`): wash fill + accent-family ink text (leaf/amber/clay per `statusClass`). No borders, no radius beyond 8px. The kind chips (`.kind-grn`, `.kind-qc`, …) get the same wash treatment, keyed to a small fixed palette — they distinguish document kinds, not severity.
-- **Filter chips (`.chip-row`, `.page-chip`):** active = **ink fill**, neutral; inactive = white + hairline. Never leaf fill.
-- **Buttons (`.btn`, `.btn-primary`, `.btn-light`, `.btn-danger`):** primary = ink fill; light/secondary = white + hairline; danger = clay **text or outline**, not a clay fill. `.btn-accent` (terracotta fill) is deleted; its call sites move to primary or an inline leaf-deep text action.
-- **Cards (`.card`, `.stage-card`, `.qc-card`, …):** white + `--hair` border, `--radius`, **no shadow**. `.metric`/`.kpi-row`: numeral 700 tabular, label in `--ink-mute` Label role.
-- **Tables (`.table-wrap`, `.cell-num`):** 13px Body, hairline row separators, `--chrome` head with Label role, tabular numerals right-aligned. `.cell-id` (doc IDs) in 600 weight — the ID is the handle the whole app trades in; it should scan like a name.
+- **`.status` badges** (StatusBadge + `statusClass`): wash fill + accent-family ink text (tender/amber/clay per `statusClass`), and — amended on review — a same-family hairline border so the chip holds its shape beside text. No radius beyond 8px. The kind chips (`.kind-grn`, `.kind-qc`, …) get the same wash treatment, keyed to a small fixed palette — they distinguish document kinds, not severity.
+- **Filter chips (`.chip-row`, `.page-chip`):** active = **ink fill**, neutral; inactive = white + hairline. Never husk fill.
+- **Buttons (`.btn`, `.btn-primary`, `.btn-light`, `.btn-danger`):** primary = ink fill; light/secondary = white + hairline; danger = clay **text or outline**, not a clay fill. `.btn-accent` (terracotta fill) is deleted; its call sites move to primary or an inline husk-deep text action.
+- **Cards (`.card`, `.stage-card`, `.qc-card`, …):** white + `--hair` border, `--radius`, the amended `--shadow-card` lift. `.metric`/`.kpi-row`: numeral 700 tabular, label in the husk Label role; a page's KPI row is one **metric strip** card with hairline dividers, not N floating cards.
+- **Tables (`.table-wrap`, `.cell-num`):** 13px Body, hairline row separators, zebra banding (`#f9f8f3`, amended in), `--chrome` head with Label role over a `--hair-strong` bottom rule, tabular numerals right-aligned. `.cell-id` (doc IDs) in 600 weight — the ID is the handle the whole app trades in; it should scan like a name.
 - **Attention rows** (dashboard exceptions, stock issues, QC holds): a 3px **lead bar** at the row's left edge (clay/amber) — not a full-row tint. `buildExceptions` already computes the severity; it drives the bar color.
-- **Sidebar:** `--chrome` background, hairline right edge, nav items ink; active item = leaf text + a straight 2px leaf underline on the left edge (the blend's clean-underline treatment, rotated to a vertical rail). Group titles (`Operations` / `Masters` / `Administration`) in the Label role. The `.mark` "R" chip: leaf ink on `--leaf-wash`.
+- **Sidebar:** `--chrome` background, hairline right edge, nav items ink; active item = husk text + a straight 2px husk underline on the left edge (the blend's clean-underline treatment, rotated to a vertical rail). Group titles (`Operations` / `Masters` / `Administration`) in the Label role. The `.mark` "R" chip: husk ink on `--water`.
 - **Topbar:** white, hairline bottom edge (no shadow). Title/subtitle in Headline/Body; the email `.pill` becomes a hairline chip. **Save indicator stays exactly as it is** — its honesty is a feature — restyled to `--ink-mute` with the offline case in clay.
 - **Offline bar:** may stay ink-dark (`--ink` bg, white text) — it is an alert, one of the few justified dark moments, matching the blend's "three shadows" style of rationing.
 - **Modal / DocViewer / drawer:** the only surfaces that earn a shadow token. DocViewer document chrome goes white + hairline; the **print report sheets** (`.report-sheet` and friends) are print CSS and are **not touched** by this design at all.
@@ -125,7 +137,7 @@ Segoe UI / Source Sans 3 are removed. No mono family by default — ledger numer
 The shell is already right for this app; it gets a reskin only:
 
 - Keep: RBAC-driven nav (the page catalog), the grouped sidebar, the mobile app bar + drawer, the **bottom thumb bar** (Dashboard · Procure · Produce · Quality · More), `OfflineBar`, install prompts.
-- Change: sidebar cream→chrome (see §5), topbar de-shadowed, thumb bar → white + hairline top edge with active = leaf icon + ink label (active icons on phones need the ink weight, underline alone is too subtle at thumb size).
+- Change: sidebar cream→chrome (see §5), topbar de-shadowed, thumb bar → white + hairline top edge with active = husk icon + ink label (active icons on phones need the ink weight, underline alone is too subtle at thumb size).
 - **Editorial moment (optional, cheap):** the dashboard opens with one sentence in Display type — "The day's work" headline + the day's date and open-exception count — the blend's Console moment, one-line version. Not a fleet paragraph; this app's poetry is the ledger itself.
 
 **Explicitly not ported** from SmoothieBar (its power-user chrome — wrong users here): command palette + keyboard model, Workstrip, WorkspaceDock, the 12-tab machine-detail strip. Plant operators are on phones with gloves, not mod-keys. Revisit only if an office power-user role emerges.
@@ -136,7 +148,7 @@ The shell is already right for this app; it gets a reskin only:
 
 **Phase A — Foundations (one file):** replace `:root` tokens per §3, add the `@font-face` + role-scale utility classes in `src/index.css`, delete `--shadow` resting use, set `tnum` on numeral cells. Nothing moves structurally; the whole app shifts skin in one commit.
 
-**Phase B — Shell:** sidebar → chrome + leaf active rail; topbar hairline; thumb bar + drawer reskin; `.mark` re-ink; save-indicator/offline-bar restyle. Verify drawer focus behaviour and `body.drawer-open` still hold (JS untouched).
+**Phase B — Shell:** sidebar → chrome + husk active rail; topbar hairline; thumb bar + drawer reskin; `.mark` re-ink; save-indicator/offline-bar restyle. Verify drawer focus behaviour and `body.drawer-open` still hold (JS untouched).
 
 **Phase C — Pages in place:** per-surface pass down the nav order (dashboard → procurement → production → quality → …), applying §5 as each page is touched: cards de-shadowed, chips → ink-active, attention lead bars, `.btn-accent` call sites migrated. Report sheets and PDF exports (jspdf) untouched.
 
@@ -146,11 +158,12 @@ Each phase is a normal PR; no route, data, or RBAC changes anywhere in this desi
 
 ## 8. Open questions for build time
 
-1. **Leaf value** — `#355a44` proposed from the existing two greens; confirm against the brand mark / logo art once, before Phase A lands.
-2. **Radius** — 10/8 proposed (blend is silent); check the densest tables (Production, Inventory) at 8px before committing.
-3. **Font weight of the offline bar + toasts** — ink-dark allowed, or hairline-light like everything else? Decide in Phase B with the real bar on a phone.
-4. **Whether jspdf exports should ever pick up Bricolage** — default no (embedded fonts bloat the bundle; reports are paper, not UI).
-5. **Dashboard editorial sentence** — in for Phase C, or cut as decoration?
+1. **Husk value** — `#5a4531` proposed (ink-grade on white, ≈9:1 contrast); confirm once against the brand mark / logo art before Phase A lands. The greens leave the chrome either way.
+2. **Positive stays green?** — `--tender #355a44` keeps a green inside Released/Active badges, framed as the tender coconut's skin. If even that green should go, positive can move to husk — but a warm-brown "good" beside an amber "warn" is a thinner difference on a plant floor.
+3. **Radius** — 10/8 proposed (blend is silent); check the densest tables (Production, Inventory) at 8px before committing.
+4. **Font weight of the offline bar + toasts** — ink-dark allowed, or hairline-light like everything else? Decide in Phase B with the real bar on a phone.
+5. **Whether jspdf exports should ever pick up Bricolage** — default no (embedded fonts bloat the bundle; reports are paper, not UI).
+6. **Dashboard editorial sentence** — in for Phase C, or cut as decoration?
 
 ---
 
