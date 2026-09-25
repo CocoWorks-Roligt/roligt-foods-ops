@@ -617,6 +617,15 @@ body.drawer-open {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+/* Inside a report card the strip is a nested panel, framed like a subform, so
+   the summary band reads as one instrument sitting above the table it
+   summarises — not four loose numbers floating on white. */
+.live-report .metric-strip {
+  border: 1px solid var(--hair);
+  border-radius: var(--radius);
+  margin-bottom: 14px;
+}
+
 .metric-expandable {
   padding: 0;
 }
@@ -3782,27 +3791,29 @@ table tbody tr.subrow > td {
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
-  margin: 10px 0 14px;
-  padding-top: 12px;
-  border-top: 1px dashed var(--line);
+  margin: 12px 0 14px;
+  padding: 10px 12px;
+  /* The controls are one band of one report — recessed into the card so the
+     month pick, the span and the comparison read as a single sentence. */
+  background: var(--well);
+  border-radius: var(--radius-control);
 }
 
 .report-meta {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 8px;
+  gap: 8px 12px;
+  margin-top: 10px;
   font-size: 13px;
   color: var(--muted);
 }
 
-.report-meta b {
-  color: var(--ink, #15181b);
-}
-
 .method-note {
-  margin: 8px 0 0;
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  background: var(--well);
+  border-radius: var(--radius-control);
   font-size: 13px;
   color: var(--muted);
   max-width: 70ch;
@@ -3835,7 +3846,7 @@ table tbody tr.subrow > td {
 }
 
 .compare-table .delta {
-  font-weight: 600;
+  font-weight: 700;
   white-space: nowrap;
 }
 
@@ -3845,6 +3856,12 @@ table tbody tr.subrow > td {
 
 .compare-table .delta.bad {
   color: var(--clay);
+}
+
+/* The second window is the side the operator is actually reading; the first
+   is only there to give it a before. */
+.compare-table td:nth-child(3) {
+  font-weight: 600;
 }
 
 .report-catalog-family {
@@ -3872,8 +3889,12 @@ table tbody tr.subrow > td {
 }
 
 .report-card:hover {
-  border-color: #d5d1c8;
+  border-color: var(--husk);
   background: var(--hair-soft);
+}
+
+.report-card:hover b {
+  color: var(--husk);
 }
 
 .report-card b {

@@ -104,23 +104,23 @@ export function PackingMaterials() {
 
   return (
     <>
-      <div className="grid grid-4">
-        <div className="card metric">
+      <div className="card metric-strip">
+        <div className="metric">
           <div className="label">Materials stocked</div>
           <div className="value">{materials.length}</div>
           <div className="sub">Items the plant buys</div>
         </div>
-        <div className="card metric">
+        <div className="metric">
           <div className="label">Total units</div>
           <div className="value">{totalQtyLabel}</div>
           <div className="sub">On hand packing stock</div>
         </div>
-        <div className="card metric">
+        <div className="metric">
           <div className="label">Inventory value</div>
           <div className="value">{inr(totalValue)}</div>
           <div className="sub">Ledger-derived</div>
         </div>
-        <div className="card metric">
+        <div className="metric">
           <div className="label">Below reorder</div>
           <div className="value">{low.length}</div>
           <div className="sub">{low.length ? 'Order these' : 'Nothing to order'}</div>

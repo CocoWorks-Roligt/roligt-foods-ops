@@ -48,7 +48,7 @@ export function ReportShell<T>({ def, range, exportName, columns, rows, controls
           <h3>{def.title}</h3>
           <span>{def.method}</span>
           <div className="report-meta">
-            <b>{range}</b>
+            <span className="pill report-range">{range}</span>
             <SyncNote />
             <button
               type="button"

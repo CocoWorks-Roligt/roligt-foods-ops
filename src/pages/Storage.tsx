@@ -146,8 +146,8 @@ export function Storage() {
 
   return (
     <div>
-      <div className="grid grid-4" style={{ marginBottom: 16 }}>
-        <div className="card metric">
+      <div className="card metric-strip" style={{ marginBottom: 16 }}>
+        <div className="metric">
           <div className="label">Active storage areas</div>
           <div className="value">{active.length}</div>
           <div className="sub">
@@ -155,17 +155,17 @@ export function Storage() {
             {inactive ? ` · ${inactive} inactive` : ''}
           </div>
         </div>
-        <div className="card metric">
+        <div className="metric">
           <div className="label">Holding stock</div>
           <div className="value">{held.size}</div>
           <div className="sub">Areas with something in them</div>
         </div>
-        <div className="card metric">
+        <div className="metric">
           <div className="label">Value stored</div>
           <div className="value">{inr(totalValue)}</div>
           <div className="sub">Across every area, packing material included</div>
         </div>
-        <div className="card metric">
+        <div className="metric">
           <div className="label">Transfers</div>
           <div className="value">{moves.length}</div>
           <div className="sub">Moves between areas</div>

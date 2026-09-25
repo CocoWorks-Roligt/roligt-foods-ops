@@ -197,7 +197,7 @@ function ProcurementView({ def, fruits }: { def: ReportDef; fruits?: boolean }) 
       rows={rows}
       controls={<RangePicker compare={def.compare} />}
     >
-      <div className="grid grid-4">
+      <div className="metric-strip">
         <div className="metric">
           <div className="label">Receipts</div>
           <div className="value">{summary.receipts}</div>
@@ -336,7 +336,7 @@ function LotYieldView({ def }: { def: ReportDef }) {
   return (
     <ReportShell def={def} range={windowLabel(w)} exportName={def.key} columns={columns} rows={rows}
       controls={<RangePicker compare={def.compare} />}>
-      <div className="grid grid-4">
+      <div className="metric-strip">
         <div className="metric">
           <div className="label">Lots in range</div>
           <div className="value">{rows.length}</div>
@@ -460,7 +460,7 @@ function ProductionView({ def }: { def: ReportDef }) {
   return (
     <ReportShell def={def} range={windowLabel(w)} exportName={def.key} columns={columns} rows={report.rows}
       controls={<RangePicker compare={def.compare} />}>
-      <div className="grid grid-4">
+      <div className="metric-strip">
         <div className="metric">
           <div className="label">Net-new bulk</div>
           <div className="value">{fmtUoms(t.netNew)}</div>
@@ -692,6 +692,7 @@ function DispatchView({ def }: { def: ReportDef }) {
       controls={
         <>
           <RangePicker compare={def.compare} />
+          <span className="range-vs">Group by</span>
           <Select value={group} onChange={(e) => setGroup(e.target.value as DispatchGrouping)} id="dispatch-group">
             <option value="month">By month</option>
             <option value="batch">By batch</option>
@@ -809,7 +810,7 @@ function FlowsView({ def, itemTypes, ageing }: { def: ReportDef; itemTypes: stri
   return (
     <ReportShell def={def} range={windowLabel(w)} exportName={def.key} columns={columns} rows={rows}
       controls={<RangePicker compare={def.compare} />}>
-      <div className="grid grid-4">
+      <div className="metric-strip">
         <div className="metric">
           <div className="label">Items moved</div>
           <div className="value">{rows.length}</div>
@@ -980,7 +981,7 @@ function StorageView({ def }: { def: ReportDef }) {
 
   return (
     <ReportShell def={def} range="As of now" exportName={def.key} columns={columns} rows={rows}>
-      <div className="grid grid-4">
+      <div className="metric-strip">
         <div className="metric">
           <div className="label">Finished stock</div>
           <div className="value">{fmtUoms(perUom(rows))}</div>
@@ -1087,7 +1088,7 @@ function QualityView({ def }: { def: ReportDef }) {
   return (
     <ReportShell def={def} range={windowLabel(w)} exportName={def.key} columns={columns} rows={report.byMonth}
       controls={<RangePicker compare={def.compare} />}>
-      <div className="grid grid-4">
+      <div className="metric-strip">
         <div className="metric">
           <div className="label">QC records</div>
           <div className="value">{decided}</div>

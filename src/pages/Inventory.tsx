@@ -138,9 +138,9 @@ export function Inventory() {
 
   return (
     <>
-      <div className="grid grid-4">
+      <div className="card metric-strip">
         {cards.map(([label, value]) => (
-          <div className="card metric" key={label}>
+          <div className="metric" key={label}>
             <div className="label">{label}</div>
             <div className="value">{inr(value)}</div>
             <div className="sub">Ledger-derived</div>
