@@ -9,7 +9,8 @@ import type { StateChanges } from '../src/lib/sync.ts'
 
 export default async function (req: VercelRequest, res: VercelResponse) {
   try {
-    const caller = await authenticate(toWebRequest(req))
+    const { caller, setCookies } = await authenticate(toWebRequest(req))
+    if (setCookies) res.setHeader('Set-Cookie', setCookies)
     const body = (typeof req.body === 'string' ? JSON.parse(req.body) : req.body) as { changes?: StateChanges }
     if (!body?.changes?.tables) {
       res.status(400).json({ error: 'Malformed commit payload.' })

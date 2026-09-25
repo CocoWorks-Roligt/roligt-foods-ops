@@ -1,14 +1,25 @@
 /**
- * Who is calling the BFF. With Kinde configured, the bearer JWT is verified against
- * the tenant's JWKS and the roles claim decides Admin/Operator. Without a token, a dev
- * session is issued only when ALLOW_DEV_SESSION=1 AND the server is not running as
- * production AND no Kinde tenant is configured — with real auth live (or in production),
- * an anonymous caller gets AuthError, never a free Admin role. The guard is the RLS of
- * this fork: every endpoint calls it, and the commit endpoint refuses operator writes
- * to admin-only tables based on exactly this decision.
+ * Who is calling the BFF. Two ways in, tried in order:
+ *
+ * 1. The WorkOS AuthKit session cookie — the browser's only credential. The
+ *    seal is opened by api/_lib/session.ts (@workos/authkit-session), which
+ *    also refreshes the short-lived access token server-side and hands back
+ *    the re-sealed cookie for the response to carry (the data handlers forward
+ *    `setCookies` — a dropped refresh cookie means a session that can never
+ *    refresh twice).
+ * 2. The dev session: ALLOW_DEV_SESSION=1 AND not production AND WorkOS not
+ *    configured. With real auth live (or in production) an anonymous caller
+ *    gets AuthError, never a free admin.
+ *
+ * Authorization is permissions, not roles: the caller holds slugs from
+ * src/lib/permissions.ts and commitChanges gates writes on those — this guard
+ * is the RLS of the fork.
  */
-import { createLocalJWKSet, createRemoteJWKSet, jwtVerify } from 'jose'
-import { roleFromClaims } from '../../src/lib/roles.ts'
+import { devPermissions } from '../../src/lib/permissions.ts'
+import type { Role } from '../../src/types.ts'
+import { withAuth, workosConfigured } from './session.ts'
+import { isActiveMember } from './workosAdmin.ts'
+import type { AuthResult } from '@workos/authkit-session'
 
 export class AuthError extends Error {
   readonly status = 401 as const
@@ -16,98 +27,96 @@ export class AuthError extends Error {
 
 export interface Caller {
   email: string
-  role: 'Admin' | 'Operator'
+  permissions: string[]
 }
 
-let jwksOverride: ReturnType<typeof createLocalJWKSet> | null = null
-/** Test hook — replaces the network JWKS fetch. */
-export function __setJwks(jwks: { keys: unknown[] } | null): void {
-  jwksOverride = jwks ? createLocalJWKSet(jwks as Parameters<typeof createLocalJWKSet>[0]) : null
+export interface Authentication {
+  caller: Caller
+  /** Re-sealed session cookies a refresh produced; the response must carry them back. */
+  setCookies?: string[]
 }
 
-const jwkSets = new Map<string, ReturnType<typeof createRemoteJWKSet>>()
+export type SessionAuthenticator = (
+  req: Request,
+) => Promise<{ auth: AuthResult; setCookies: string[] } | null>
 
-/**
- * The key set for a tenant, at the JWKS URL its own discovery document declares
- * (falls back to the conventional /.well-known/jwks when discovery cannot be
- * reached). Cached per origin; jose re-fetches on key rotation by itself.
- */
-async function jwksFor(issuer: string): Promise<ReturnType<typeof createRemoteJWKSet>> {
-  const url = new URL(issuer)
-  let set = jwkSets.get(url.origin)
-  if (set) return set
-  let jwksUrl = new URL(`${url.origin}/.well-known/jwks`)
-  try {
-    const discovery = await fetch(`${url.origin}/.well-known/openid-configuration`, {
-      signal: AbortSignal.timeout(5000),
-    })
-    if (discovery.ok) {
-      const config = (await discovery.json()) as { jwks_uri?: unknown }
-      if (typeof config.jwks_uri === 'string') jwksUrl = new URL(config.jwks_uri)
-    }
-  } catch {
-    // Unreachable discovery is not fatal — the conventional path is the norm.
-  }
-  set = createRemoteJWKSet(jwksUrl)
-  jwkSets.set(url.origin, set)
-  return set
+let authenticatorOverride: SessionAuthenticator | null = null
+/** Test hook — replaces the cookie branch wholesale. Return null to fall through. */
+export function __setAuthenticator(fn: SessionAuthenticator | null): void {
+  authenticatorOverride = fn
 }
 
-/** Dev sessions need all three: the opt-in flag, a non-production process, no Kinde tenant. */
-function devSessionAllowed(): boolean {
+/** Dev sessions need all three: the opt-in flag, a non-production process, no WorkOS config. */
+export function devSessionAllowed(): boolean {
   return (
     process.env.ALLOW_DEV_SESSION === '1'
     && process.env.NODE_ENV !== 'production'
-    && !process.env.KINDE_DOMAIN
+    && !workosConfigured()
   )
+}
+
+/** The dev session for an x-dev-role header value ('Operator'/'QualityTester' pick themselves, anything else admin). */
+export function devCaller(xDevRole: unknown): Caller {
+  const raw = Array.isArray(xDevRole) ? xDevRole[0] : xDevRole
+  const role: Role = raw === 'Operator' || raw === 'QualityTester' ? raw : 'Admin'
+  return {
+    email: 'dev@roligt.local',
+    permissions: devPermissions(role),
+  }
 }
 
 let devSessionWarned = false
 
-export async function authenticate(req: Request): Promise<Caller> {
-  const header = req.headers.get('authorization') ?? ''
-  const token = header.startsWith('Bearer ') ? header.slice(7) : null
-
-  if (!token) {
-    if (devSessionAllowed()) {
-      if (!devSessionWarned) {
-        devSessionWarned = true
-        console.warn(
-          '[auth] dev session active (ALLOW_DEV_SESSION=1, no KINDE_DOMAIN) — anonymous callers get Admin. ' +
-            'Ignored under NODE_ENV=production or once Kinde is configured; never ship enabled.',
-        )
+export async function authenticate(req: Request): Promise<Authentication> {
+  // 1. the session cookie
+  if (authenticatorOverride || (workosConfigured() && req.headers.get('cookie'))) {
+    let result: { auth: AuthResult; setCookies: string[] } | null
+    try {
+      result = authenticatorOverride ? await authenticatorOverride(req) : await withAuth(req)
+    } catch (e) {
+      throw new AuthError(`Invalid session (${(e as Error).message}). Sign in again.`)
+    }
+    if (result && result.auth.user) {
+      // Single-org app: /api/auth/start scopes every sign-in to the one
+      // organization, so a live session speaks for that org and no other. A
+      // session carrying a different org claim is not one of ours — refuse it
+      // outright rather than admit a caller with an ambiguous permission set.
+      // (No claim ≠ refusal: only the wrong org is provably wrong.)
+      const orgId = process.env.WORKOS_ORG_ID
+      if (orgId && result.auth.organizationId && result.auth.organizationId !== orgId) {
+        throw new AuthError('Your session belongs to another organization. Sign in again.')
       }
-      return { email: 'dev@roligt.local', role: req.headers.get('x-dev-role') === 'Operator' ? 'Operator' : 'Admin' }
+      const email = result.auth.user.email || 'unknown@user'
+      // The seal outlives the membership it came from: removing, deactivating
+      // or deleting someone does nothing to a browser already holding a
+      // session, so the app checks the membership itself (a minute-stale at
+      // worst; the admin endpoints' own mutations drop the mirror at once).
+      // Without the management key there is nothing to check against — then
+      // the commit permission gate is the only line, as it always was.
+      if (process.env.WORKOS_API_KEY && process.env.WORKOS_ORG_ID) {
+        if (!(await isActiveMember(email))) {
+          throw new AuthError('Your access to this app was removed or deactivated. Ask an admin to restore it.')
+        }
+      }
+      return {
+        caller: { email, permissions: result.auth.permissions ?? [] },
+        ...(result.setCookies.length ? { setCookies: result.setCookies } : {}),
+      }
     }
-    throw new AuthError('Sign in first.')
+    // a present-but-unusable cookie is anonymous: dev fallback, then 401
   }
 
-  const issuer = (process.env.KINDE_DOMAIN ?? '').replace(/\/$/, '')
-  if (!issuer) throw new AuthError('Auth is not configured on the server.')
-  try {
-    // Lazy on purpose: a malformed token is rejected during decode, before any
-    // key is asked for, so neither it nor the test suite pays a discovery fetch.
-    const resolveKeys =
-      jwksOverride ??
-      (async (protectedHeader: Parameters<ReturnType<typeof createRemoteJWKSet>>[0], jwt: Parameters<ReturnType<typeof createRemoteJWKSet>>[1]) =>
-        (await jwksFor(issuer))(protectedHeader, jwt))
-    const { payload } = await jwtVerify(token, resolveKeys, {
-      issuer,
-      clockTolerance: 5, // the BFF's clock and Kinde's may disagree a little
-      ...(process.env.KINDE_AUDIENCE ? { audience: process.env.KINDE_AUDIENCE } : {}),
-    })
-    return {
-      // Kinde adds `email` to access tokens only via token customization; the
-      // user id is always there, so the audit trail never degrades to a placeholder.
-      email:
-        typeof payload.email === 'string'
-          ? payload.email
-          : typeof payload.sub === 'string' && payload.sub
-            ? payload.sub
-            : 'unknown@user',
-      role: roleFromClaims(payload.roles),
+  // 2. the dev session
+  if (devSessionAllowed()) {
+    if (!devSessionWarned) {
+      devSessionWarned = true
+      console.warn(
+        '[auth] dev session active (ALLOW_DEV_SESSION=1, no WorkOS config) — anonymous callers get every permission. ' +
+          'Ignored under NODE_ENV=production or once WorkOS is configured; never ship enabled.',
+      )
     }
-  } catch (e) {
-    throw new AuthError(`Invalid session (${(e as Error).message}). Sign in again.`)
+    return { caller: devCaller(req.headers.get('x-dev-role')) }
   }
+
+  throw new AuthError('Sign in first.')
 }

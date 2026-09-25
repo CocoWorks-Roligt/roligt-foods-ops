@@ -23,7 +23,8 @@
 
 // Extension is explicit: this file is also compiled by the nodenext api build (the
 // BFF's snapshot reader imports it), where extensionless imports do not resolve.
-import type { AppState, AuditEntry, LedgerEntry } from '../types.ts'
+import type { AppState, AuditEntry, LedgerEntry, ViewId } from '../types.ts'
+import type { PermissionKey } from './permissions.ts'
 
 /** The `AppState` keys that are stored as one row per entry. */
 export type CollectionKey =
@@ -62,41 +63,58 @@ export interface CollectionSpec {
    */
   immutable?: boolean
   /**
-   * True when only an administrator may write this table. Mirrors the write policy
-   * the BFF enforces per table; this is documentation and lets the client fail
-   * early with a readable message.
+   * The permission a caller must hold to write this table (src/lib/permissions.ts):
+   * one slug, or a list where any one of them is enough (the test parameters are
+   * masters business and the lab tester's own page). Undefined means any signed-in
+   * caller may write it — the day's work. Mirrors the gate the BFF enforces per
+   * table; this is documentation and lets the client fail early with a readable
+   * message.
    */
-  adminOnly?: boolean
+  writePermission?: PermissionKey | readonly PermissionKey[]
+  /**
+   * The day's-work page(s) whose work this table carries — the BFF refuses a
+   * page-scoped caller's writes here unless they hold one of these pages
+   * (src/lib/pages.ts). Deliberately a separate field from writePermission:
+   * that one is an allowlist for every caller, this one is a deny-unless-held
+   * for scoped callers only — the default caller (the whole open day's work)
+   * writes freely. Undefined (ledger, audits, counters) means no page owns it;
+   * those ride every commit and carry their own gates.
+   */
+  page?: ViewId | readonly ViewId[]
 }
 
 const byId = (row: Record<string, unknown>) => String(row.id)
 
 export const COLLECTIONS: CollectionSpec[] = [
-  // ── masters: an operator may read these, only an admin may change them ──
-  { key: 'vendors', table: 'vendors', id: byId, adminOnly: true },
-  { key: 'customers', table: 'customers', id: byId, adminOnly: true },
-  { key: 'purchaseProducts', table: 'purchase_products', id: byId, adminOnly: true },
-  { key: 'storageLocations', table: 'storage_locations', id: byId, adminOnly: true },
-  { key: 'items', table: 'items', id: byId, adminOnly: true },
-  { key: 'products', table: 'products', id: byId, adminOnly: true },
-  { key: 'melanges', table: 'melanges', id: byId, adminOnly: true },
-  { key: 'testParameters', table: 'test_parameters', id: byId, adminOnly: true },
-  { key: 'staff', table: 'staff', id: byId, adminOnly: true },
+  // ── masters: an operator may read these; changing them takes the page that
+  // owns them — a ticked page carries its page's writes, so a suppliers-clerk
+  // role is page.vendors alone. The staff register is the Roster page's own. ──
+  { key: 'vendors', table: 'vendors', id: byId, writePermission: 'page.vendors' },
+  { key: 'customers', table: 'customers', id: byId, writePermission: 'page.customers' },
+  { key: 'purchaseProducts', table: 'purchase_products', id: byId, writePermission: 'page.purchase-products' },
+  { key: 'storageLocations', table: 'storage_locations', id: byId, writePermission: 'page.storage' },
+  { key: 'items', table: 'items', id: byId, writePermission: 'page.purchase-products' },
+  { key: 'products', table: 'products', id: byId, writePermission: 'page.purchase-products' },
+  { key: 'melanges', table: 'melanges', id: byId, writePermission: 'page.purchase-products' },
+  { key: 'testParameters', table: 'test_parameters', id: byId, writePermission: 'page.test-parameters' },
+  { key: 'staff', table: 'staff', id: byId, writePermission: 'page.roster' },
 
-  // ── the day's work ──
-  { key: 'grns', table: 'grns', id: byId },
-  { key: 'batches', table: 'batches', id: byId },
-  { key: 'packingRuns', table: 'packing_runs', id: byId },
-  { key: 'orders', table: 'orders', id: byId },
-  { key: 'qcs', table: 'qcs', id: byId },
-  { key: 'dispatches', table: 'dispatches', id: byId },
-  { key: 'stockIssues', table: 'stock_issues', id: byId },
-  { key: 'labReports', table: 'lab_reports', id: byId },
-  { key: 'shifts', table: 'shifts', id: byId },
-  { key: 'attendance', table: 'attendance', id: byId },
-  { key: 'productionPlans', table: 'production_plans', id: byId },
-  { key: 'stickerTemplates', table: 'sticker_templates', id: (r) => String(r.stage) },
-  { key: 'stickerPrints', table: 'sticker_prints', id: byId, immutable: true },
+  // ── the day's work — open to every unscoped caller; a page-scoped caller
+  // needs the page the table belongs to (the control samples are fields on the
+  // run, and lab reports surface on both the QC and the reports page) ──
+  { key: 'grns', table: 'grns', id: byId, page: 'procurement' },
+  { key: 'batches', table: 'batches', id: byId, page: 'production' },
+  { key: 'packingRuns', table: 'packing_runs', id: byId, page: ['packing', 'control-samples'] },
+  { key: 'orders', table: 'orders', id: byId, page: 'orders' },
+  { key: 'qcs', table: 'qcs', id: byId, page: 'quality' },
+  { key: 'dispatches', table: 'dispatches', id: byId, page: 'dispatch' },
+  { key: 'stockIssues', table: 'stock_issues', id: byId, page: 'stock-issues' },
+  { key: 'labReports', table: 'lab_reports', id: byId, page: ['quality', 'reports'] },
+  { key: 'shifts', table: 'shifts', id: byId, page: 'roster' },
+  { key: 'attendance', table: 'attendance', id: byId, page: 'roster' },
+  { key: 'productionPlans', table: 'production_plans', id: byId, page: 'production-planning' },
+  { key: 'stickerTemplates', table: 'sticker_templates', id: (r) => String(r.stage), page: 'stickers' },
+  { key: 'stickerPrints', table: 'sticker_prints', id: byId, immutable: true, page: 'stickers' },
 ]
 
 /**
@@ -180,8 +198,5 @@ export const REVISION_TABLE = 'app_revision'
 
 export const collectionOf = (key: CollectionKey) =>
   COLLECTIONS.find((c) => c.key === key) as CollectionSpec
-
-/** Collections an operator is allowed to write. Mirrors the RLS policies. */
-export const writableByOperator = (spec: CollectionSpec) => !spec.adminOnly
 
 export type StoredState = Pick<AppState, CollectionKey | 'ledger' | 'audits' | 'config' | 'counters'>

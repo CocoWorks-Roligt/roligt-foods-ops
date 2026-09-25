@@ -1,4 +1,5 @@
 import type { Dispatch, SetStateAction } from 'react'
+import type { PermissionKey } from '../../lib/permissions.ts'
 import type { Attachment, AppState, StockRow } from '../../types'
 
 /**
@@ -28,8 +29,8 @@ export interface CoreDeps {
    * updater and shown once React has committed it — see the note in AppContext.
    */
   announcement: { current: string | null }
-  /** Refuses an action that is not this user's to take, and says so. */
-  forbidden: (what: string) => boolean
+  /** Refuses an action the caller lacks `perm` (any one of them, when a list) for, and says so. */
+  forbidden: (what: string, perm: PermissionKey | readonly PermissionKey[]) => boolean
   rows: StockRow[]
   /** Who is signed in, for the audit trail and QC signatures. */
   actor: string

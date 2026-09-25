@@ -28,6 +28,14 @@ import { COCONUT_ITEM } from '../lib/batches'
 import { useLinkedView } from '../lib/linkedView'
 import { defaultPackingStore, defaultRawStore, postedLocation } from '../lib/posting'
 import { itemName as lookupItemName, locationLabel, areaChoices } from '../lib/stock'
+import {
+  drawnLots,
+  filterGrnRows,
+  grnPreview,
+  orderSuppliersByLink,
+  pmReceiptConsumed,
+  pmReceiptRows,
+} from '../lib/procurementView'
 import { fmtDate, fmtQty, inr, toLocalInputValue } from '../lib/utils'
 import type { Grn, LedgerEntry } from '../types'
 
@@ -122,20 +130,7 @@ export function Procurement() {
   const setTab = (next: 'produce' | 'packing') =>
     setParams(next === 'packing' ? { tab: 'packing' } : {}, { replace: true })
 
-  const rows = useMemo(() => {
-    const q = search.toLowerCase()
-    return state.grns
-      .filter(
-        (g) =>
-          (!status || g.status === status) &&
-          [g.id, g.lot, g.farmerName, g.farmer || '', g.area || '']
-            .join(' ')
-            .toLowerCase()
-            .includes(q),
-      )
-      .slice()
-      .reverse()
-  }, [search, state.grns, status])
+  const rows = useMemo(() => filterGrnRows(state.grns, search, status), [search, state.grns, status])
 
   const { sort, toggle, setSort } = useTableSort()
   const sortBy: SortAccessors<Grn> = {
@@ -150,10 +145,7 @@ export function Procurement() {
   const sorted = sortRows(rows, sort, sortBy)
 
   /** Lots already issued to production are costed into a batch — their numbers are frozen. */
-  const lockedLots = useMemo(
-    () => new Set(state.ledger.filter((l) => l.qtyOut > 0).map((l) => l.lot)),
-    [state.ledger],
-  )
+  const lockedLots = useMemo(() => drawnLots(state.ledger), [state.ledger])
   const editing = editId ? state.grns.find((g) => g.id === editId) : undefined
   const locked = !!editing && lockedLots.has(editing.lot)
 
@@ -246,21 +238,7 @@ export function Procurement() {
    * Every packing-material receipt, newest first. They are one ledger line each, so
    * the ledger is the record — there is no second list to keep in step with it.
    */
-  const pmReceipts = useMemo(() => {
-    const q = pmSearch.trim().toLowerCase()
-    return state.ledger
-      .filter((l) => l.type === 'PM Receipt')
-      .filter(
-        (l) =>
-          !q ||
-          [l.doc, l.item, l.lot, lookupItemName(state, l.item)]
-            .join(' ')
-            .toLowerCase()
-            .includes(q),
-      )
-      .slice()
-      .sort((a, b) => b.time.localeCompare(a.time))
-  }, [pmSearch, state])
+  const pmReceipts = useMemo(() => pmReceiptRows(state, pmSearch), [pmSearch, state])
 
   const {
     sort: pmSort,
@@ -280,22 +258,15 @@ export function Procurement() {
   const pmSorted = sortRows(pmReceipts, pmSort, pmSortBy)
 
   /** Whether a packing run has already drawn on what a receipt brought in. */
-  const pmConsumed = (doc: string) => {
-    const line = state.ledger.find((l) => l.type === 'PM Receipt' && l.doc === doc)
-    if (!line) return false
-    return state.ledger.some(
-      (l) => l.doc !== doc && l.item === line.item && l.lot === line.lot && l.qtyOut > 0,
-    )
-  }
+  const pmConsumed = (doc: string) => pmReceiptConsumed(state.ledger, doc)
 
   // Suppliers this material is linked to on Products & Materials, then everyone else —
   // the link is a convenience, not a rule, because a one-off box of caps can come from
   // anywhere.
-  const pmSuppliers = useMemo(() => {
-    const linked = new Set(pmBuying?.vendorIds || [])
-    const active = state.vendors.filter((v) => v.status === 'Active' || v.id === pmForm.vendorId)
-    return [...active.filter((v) => linked.has(v.id)), ...active.filter((v) => !linked.has(v.id))]
-  }, [pmBuying, pmForm.vendorId, state.vendors])
+  const pmSuppliers = useMemo(
+    () => orderSuppliersByLink(state.vendors, pmBuying?.vendorIds || [], pmForm.vendorId),
+    [pmBuying, pmForm.vendorId, state.vendors],
+  )
 
   const pmPayload = () => ({
     date: pmForm.date,
@@ -427,13 +398,22 @@ export function Procurement() {
       ]
     : []
 
-  const chargeable = Math.max(0, num(form.total) - num(form.free))
-  const previewLanded = chargeable * num(form.rate) + num(form.transport)
-  const previewAccepted = num(form.a) + num(form.b) + num(form.c)
-  // Every piece received has to land in a grade or in rejected. Posting enforces it;
-  // without this the operator only found out after filling the whole form.
-  const graded = previewAccepted + num(form.reject)
-  const ungraded = num(form.total) - graded
+  const {
+    chargeable,
+    landed: previewLanded,
+    accepted: previewAccepted,
+    graded,
+    ungraded,
+  } = grnPreview({
+    total: num(form.total),
+    free: num(form.free),
+    rate: num(form.rate),
+    transport: num(form.transport),
+    a: num(form.a),
+    b: num(form.b),
+    c: num(form.c),
+    reject: num(form.reject),
+  })
 
   return (
     <div className="card">

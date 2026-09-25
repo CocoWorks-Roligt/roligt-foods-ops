@@ -1,19 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fetchRevision, saveDb, UnauthorizedError } from './dbApi'
+import { fetchRevision, saveDb, UnauthorizedError, ThrottledError } from './dbApi'
 import type { AppState } from '../types'
-import { setAuthTokenProvider, setUnauthorizedHandler } from './authToken'
+import { setUnauthorizedHandler } from './authEvents'
+
+// These tests pin the dev-fallback contract, which holds only while WorkOS is
+// unconfigured — a developer's .env.local (VITE_WORKOS_CLIENT_ID set for
+// localhost testing) must not decide which mode the suite exercises.
+vi.mock('./authMode', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./authMode')>()),
+  WORKOS_CONFIGURED: false,
+}))
 
 /**
- * Pins the Kinde token lifecycle dbApi implements: a current token on every
- * request, exactly one forced-refresh retry when the BFF answers 401, and a
- * dead session (401 twice) reported as UnauthorizedError — never as offline.
+ * Pins the cookie-session contract dbApi implements: the request carries no
+ * Authorization header ever (the httpOnly cookie is the credential, refreshed
+ * server-side), a single 401 is final — UnauthorizedError plus the auth event,
+ * no retry — and a 503 with Retry-After is throttling. Unconfigured (no
+ * VITE_WORKOS_CLIENT_ID), every request also carries the dev picker's role.
  */
 
-const jsonResponse = (status: number, body: unknown) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { 'content-type': 'application/json' },
-  })
+const jsonResponse = (status: number, body: unknown, headers: Record<string, string> = {}) =>
+  new Response(JSON.stringify(body), { status, headers })
 
 let unauthorizedNotified = false
 let fetchMock: ReturnType<typeof vi.fn>
@@ -25,58 +32,46 @@ beforeEach(() => {
   })
   fetchMock = vi.fn()
   vi.stubGlobal('fetch', fetchMock)
+  // getDevRole reads localStorage, which the node test environment lacks.
+  vi.stubGlobal('localStorage', { getItem: () => 'Operator', setItem: vi.fn() })
 })
 
 afterEach(() => {
   setUnauthorizedHandler(null)
-  setAuthTokenProvider(async () => null)
   vi.unstubAllGlobals()
 })
 
-describe('api token handling', () => {
-  it('sends the provider’s current token as the Bearer header', async () => {
-    setAuthTokenProvider(async () => 'token-a')
+describe('api request shape', () => {
+  it('sends the cookie credential and the dev role header — never an Authorization header', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(200, { revision: 7 }))
     await expect(fetchRevision()).resolves.toBe(7)
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(new Headers(init?.headers).get('authorization')).toBe('Bearer token-a')
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('/api/revision')
+    expect(init.credentials).toBe('same-origin')
+    expect(new Headers(init.headers).get('authorization')).toBeNull()
+    expect(new Headers(init.headers).get('x-dev-role')).toBe('Operator') // the picker's choice
   })
+})
 
-  it('refreshes once and retries when the first token is refused', async () => {
-    const tokens = ['stale-token', 'fresh-token']
-    setAuthTokenProvider(async (force) => (force ? tokens[1] : tokens[0]))
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse(401, { error: 'expired' }))
-      .mockResolvedValueOnce(jsonResponse(200, { revision: 9 }))
-    await expect(fetchRevision()).resolves.toBe(9)
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-    const [, retryInit] = fetchMock.mock.calls[1] as [string, RequestInit]
-    expect(new Headers(retryInit?.headers).get('authorization')).toBe('Bearer fresh-token')
-    expect(unauthorizedNotified).toBe(false)
-  })
-
-  it('reports UnauthorizedError and notifies auth when the refresh does not help', async () => {
-    setAuthTokenProvider(async (force) => (force ? 'still-dead' : 'dead'))
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse(401, { error: 'Sign in first.' }))
-      .mockResolvedValueOnce(jsonResponse(401, { error: 'Sign in first.' }))
-    await expect(fetchRevision()).rejects.toBeInstanceOf(UnauthorizedError)
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-    expect(unauthorizedNotified).toBe(true)
-  })
-
-  it('does not retry when no fresh token can be minted', async () => {
-    setAuthTokenProvider(async () => null)
-    fetchMock.mockResolvedValue(jsonResponse(401, { error: 'Sign in first.' }))
+describe('api session handling', () => {
+  it('reports UnauthorizedError and notifies auth on a single 401 — no retry exists', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(401, { error: 'Sign in first.' }))
     await expect(fetchRevision()).rejects.toBeInstanceOf(UnauthorizedError)
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(unauthorizedNotified).toBe(true)
+  })
+
+  it('maps a 503 with Retry-After to ThrottledError', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(503, { error: 'busy' }, { 'retry-after': '120' }))
+    const err: unknown = await fetchRevision().catch((e) => e)
+    expect(err).toBeInstanceOf(ThrottledError)
+    expect((err as ThrottledError).retryAfterSec).toBe(120)
+    expect(unauthorizedNotified).toBe(false)
   })
 })
 
 describe('saveDb unauthorized mapping', () => {
   it('maps a dead session to the unauthorized result, not an exception', async () => {
-    setAuthTokenProvider(async () => 'dead')
     fetchMock.mockResolvedValue(jsonResponse(401, { error: 'Sign in first.' }))
     const result = await saveDb({ vendors: [] } as unknown as AppState, null)
     expect(result).toEqual({

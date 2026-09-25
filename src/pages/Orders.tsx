@@ -27,32 +27,19 @@ import {
 } from '../components/tableSort'
 import { StatusBadge } from '../components/StatusBadge'
 import { useApp } from '../context/AppContext'
-import { bulkItemOf, drinkName, formatSize } from '../lib/packs'
-import { displayExpiry, locationLabel, parseRowKey, rowKey, inHoldArea } from '../lib/stock'
+import { bulkItemOf, formatSize } from '../lib/packs'
+import { locationLabel, parseRowKey, rowKey } from '../lib/stock'
+import {
+  drinkCatalog,
+  filterOrders,
+  linesByDrink as groupLinesByDrink,
+  releasedPacksBySku,
+  resolveBlocks as resolveDraftBlocks,
+  seedAllocations,
+  type OrderDraft,
+} from '../lib/ordersView'
 import { fmtDate, fmtQty, QTY_EPSILON, toDateKey, toLocalInputValue } from '../lib/utils'
-import type { Order, OrderLine, Product } from '../types'
-
-/**
- * A customer orders by drink, not by pack SKU — "TCW" comes as 5 L BiBs, 2.5 L
- * BiBs, 250 ml bottles. The form holds that shape: the drinks picked, and a
- * quantity per pack format beneath each. It flattens to plain order lines on
- * save, so nothing downstream ever sees the difference.
- */
-interface OrderDraft {
-  customerId: string
-  date: string
-  dueDate: string
-  notes: string
-  /** Bulk-item ids in the order they were picked; `orphan:${sku}` for a line whose
-   *  product has left the master. */
-  picked: string[]
-  /** The pack formats actually chosen, per drink — a drink shows only the packs
-   *  picked for it, never its whole catalogue with blank boxes. */
-  formats: Record<string, string[]>
-  /** Quantity per chosen pack sku — '' means the box was left blank, and only a
-   *  quantified format becomes a line. */
-  qtys: Record<string, number | ''>
-}
+import type { Order, OrderLine } from '../types'
 
 const blankDraft = (): OrderDraft => ({
   customerId: '',
@@ -63,28 +50,6 @@ const blankDraft = (): OrderDraft => ({
   formats: {},
   qtys: {},
 })
-
-/** One drink's slice of the product master: every pack format filled from its bulk. */
-interface DrinkGroup {
-  bulkId: string
-  name: string
-  isMelange: boolean
-  formats: Product[]
-}
-
-/**
- * One block of the form — a picked drink with the formats chosen for it, or a
- * single sku the master no longer knows, which still has to be seen and editable
- * because the order for it may be perfectly dispatchable.
- */
-interface DraftBlock {
-  key: string
-  name: string
-  isMelange: boolean
-  formats: Product[]
-  /** Set only on an orphan block: the one sku it carries. */
-  sku?: string
-}
 
 export function Orders() {
   const { state, rows, getItemName, saveOrder, cancelOrder, deleteOrder, dispatchOrder } = useApp()
@@ -112,70 +77,20 @@ export function Orders() {
 
   /** Pack formats grouped under the drink they are filled from — the picker's
    *  offer, largest format first so a drink reads 5 L, 2.5 L, 250 ml. */
-  const drinks = useMemo(() => {
-    const byBulk = new Map<string, DrinkGroup>()
-    for (const p of state.products) {
-      const bulkId = bulkItemOf(p)
-      let g = byBulk.get(bulkId)
-      if (!g) {
-        g = {
-          bulkId,
-          name: drinkName(itemById.get(bulkId)?.name || bulkId),
-          isMelange: melangeOutputs.has(bulkId),
-          formats: [],
-        }
-        byBulk.set(bulkId, g)
-      }
-      g.formats.push(p)
-    }
-    const list = [...byBulk.values()]
-    for (const d of list)
-      d.formats.sort((a, b) => b.packVolume - a.packVolume || a.name.localeCompare(b.name))
-    return list.sort((a, b) => a.name.localeCompare(b.name))
-  }, [itemById, melangeOutputs, state.products])
+  const drinks = useMemo(
+    () => drinkCatalog(state.products, itemById, melangeOutputs),
+    [itemById, melangeOutputs, state.products],
+  )
 
   const drinkById = useMemo(() => new Map(drinks.map((d) => [d.bulkId, d])), [drinks])
 
   /** Released packs on hand, by SKU, so a line can be filled from real lots. */
-  const availableFor = useMemo(() => {
-    const by = new Map<
-      string,
-      { item: string; lot: string; location: string; qty: number; expiry?: string; shownExpiry?: string }[]
-    >()
-    for (const r of rows) {
-      if (r.itemType !== 'Finished Goods' || r.status !== 'Released' || r.qty <= QTY_EPSILON) continue
-      if (inHoldArea(state, r.location)) continue
-      const list = by.get(r.item) || []
-      list.push({
-        item: r.item,
-        lot: r.lot,
-        location: r.location,
-        qty: r.qty,
-        // `expiry` is what the ledger recorded and is part of which row this is.
-        // `shownExpiry` is only for printing, and falls back to the lot-wide lookup
-        // for rows written before lines carried their own date.
-        expiry: r.expiry,
-        shownExpiry: displayExpiry(state, r),
-      })
-      by.set(r.item, list)
-    }
-    // Oldest stock goes first, so the operator is offered it first.
-    for (const list of by.values())
-      list.sort((a, b) => (a.shownExpiry || '').localeCompare(b.shownExpiry || ''))
-    return by
-  }, [rows, state])
+  const availableFor = useMemo(() => releasedPacksBySku(state, rows), [rows, state])
 
   const onHand = (sku: string) =>
     (availableFor.get(sku) || []).reduce((a, r) => a + r.qty, 0)
 
-  const orders = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    const list = [...state.orders].sort((a, b) => b.date.localeCompare(a.date))
-    if (!q) return list
-    return list.filter((o) =>
-      [o.id, o.customerName, o.status, o.challan || ''].join(' ').toLowerCase().includes(q),
-    )
-  }, [search, state.orders])
+  const orders = useMemo(() => filterOrders(state.orders, search), [search, state.orders])
 
   const { sort, toggle, setSort } = useTableSort()
   const sortBy: SortAccessors<Order> = {
@@ -232,45 +147,9 @@ export function Orders() {
   /**
    * What the form is holding, as the blocks the operator sees — and the only
    * thing the save flattens, so what is on screen is exactly what is written.
-   *
-   * A drink whose products have all left the master still renders (empty, with a
-   * note) rather than silently unpicking itself; and a sku deleted while the form
-   * was open is promoted to an orphan block, because a quantity already entered
-   * for it is real intent. A product moved to a different drink mid-edit is the
-   * one case that quietly drops — master surgery during an open form, which the
-   * audit trail shows as the order's line count changing.
    */
-  const resolveBlocks = (draft: OrderDraft): DraftBlock[] => {
-    const blocks: DraftBlock[] = []
-    for (const key of draft.picked) {
-      if (key.startsWith('orphan:')) {
-        const sku = key.slice('orphan:'.length)
-        // Back in the master: its drink's block owns it again, so this key goes quiet.
-        if (productById.has(sku)) continue
-        blocks.push({ key, name: getItemName(sku), isMelange: false, formats: [], sku })
-        continue
-      }
-      const d = drinkById.get(key)
-      // Only the formats chosen for this drink, and only those still in the master
-      // — a chosen sku that has left it is carried by the orphan pass below.
-      const chosen = (draft.formats[key] || [])
-        .map((sku) => d?.formats.find((p) => p.id === sku))
-        .filter((p): p is Product => !!p)
-      blocks.push({
-        key,
-        name: d?.name || drinkName(itemById.get(key)?.name || key),
-        isMelange: d?.isMelange || melangeOutputs.has(key),
-        formats: chosen,
-      })
-    }
-    for (const [sku, q] of Object.entries(draft.qtys)) {
-      if (!(Number(q) > 0) || productById.has(sku)) continue
-      const key = `orphan:${sku}`
-      if (blocks.some((b) => b.key === key)) continue
-      blocks.push({ key, name: getItemName(sku), isMelange: false, formats: [], sku })
-    }
-    return blocks
-  }
+  const resolveBlocks = (draft: OrderDraft) =>
+    resolveDraftBlocks(draft, drinkById, productById, itemById, melangeOutputs, getItemName)
 
   const addDrink = (bulkId: string) => {
     if (!bulkId) return
@@ -319,53 +198,14 @@ export function Orders() {
 
   /** An order's lines as the plant reads them — by drink, with anything the master
    *  no longer knows under its own heading. Used by the list and the detail view. */
-  const linesByDrink = (lines: OrderLine[]) => {
-    const order: string[] = []
-    const byDrink = new Map<string, OrderLine[]>()
-    const off: OrderLine[] = []
-    for (const l of lines) {
-      const p = productById.get(l.sku)
-      if (!p) {
-        off.push(l)
-        continue
-      }
-      const key = bulkItemOf(p)
-      if (!byDrink.has(key)) {
-        byDrink.set(key, [])
-        order.push(key)
-      }
-      byDrink.get(key)!.push(l)
-    }
-    return {
-      drinks: order.map((key) => {
-        const item = itemById.get(key)
-        return {
-          key,
-          name: drinkName(item?.name || key),
-          isMelange: melangeOutputs.has(key),
-          lines: byDrink.get(key)!,
-        }
-      }),
-      off,
-    }
-  }
+  const linesByDrink = (lines: OrderLine[]) =>
+    groupLinesByDrink(lines, productById, itemById, melangeOutputs)
 
   const openSend = (o: Order) => {
     setSendId(o.id)
     setVehicle('')
     // Pre-fill from the oldest stock, which is what should go first anyway.
-    const seeded: Record<string, Record<string, number>> = {}
-    for (const line of o.lines) {
-      let left = line.qty
-      seeded[line.sku] = {}
-      for (const r of availableFor.get(line.sku) || []) {
-        if (left <= 0) break
-        const take = Math.min(left, r.qty)
-        seeded[line.sku][rowKey(r)] = take
-        left -= take
-      }
-    }
-    setPicks(seeded)
+    setPicks(seedAllocations(o.lines, availableFor))
   }
 
   const allocations = sending

@@ -27,6 +27,8 @@ import { useStorageLocations } from './domains/storage'
 import { seed } from '../data/seed'
 import { fetchDb, fetchRevision, saveDb, UnauthorizedError } from '../lib/dbApi'
 import { readLocal, writeLocal } from '../lib/localDb'
+import { canAny, type PermissionKey } from '../lib/permissions.ts'
+import { setSessionPermissions, useSessionPermissions } from '../lib/sessionPermissions'
 import {
   activityScore,
   type BatchInput,
@@ -210,10 +212,30 @@ const fromDb = { seedMasters: false } as const
 export function AppProvider({ children }: { children: ReactNode }) {
   // Every audit line and QC signature used to read "Admin" no matter who was signed
   // in, which makes the trail useless as evidence of who did what.
-  const { session, isAdmin } = useAuth()
+  const { session } = useAuth()
+  // Live permissions — the same store AuthContext seeds; snapshots below refresh it.
+  const permissions = useSessionPermissions()
   const showToast = useToast()
   const actor = session?.user?.email || 'Unknown user'
-  const [state, setState] = useState<AppState>(() => deepClone(seed))
+  /**
+   * The device's mirror, read once before the first render. When it exists it
+   * IS a legitimate view of the plant — the same copy the app renders
+   * wholesale whenever it starts offline — so the shell paints from it
+   * immediately and the reconcile effect below verifies it against the server
+   * in the background. Only a device with no mirror at all (a first run,
+   * cleared storage) waits on the Loading gate: there is nothing real to
+   * paint, and flashing the seed masters for a plant that has real ones would
+   * be a lie.
+   */
+  const boot = useRef<{ state: AppState; mirrored: boolean } | null>(null)
+  if (!boot.current) {
+    const local = readLocal()
+    boot.current = {
+      state: local ? migrateState(local.state, fromDb) : deepClone(seed),
+      mirrored: local !== null,
+    }
+  }
+  const [state, setState] = useState<AppState>(boot.current.state)
   const [ready, setReady] = useState(false)
   const saveErrorShown = useRef(false)
 
@@ -267,16 +289,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
    * a numbering series — real accidents, on screens they have no
    * reason to be on. It is not a security boundary: the whole plant is one JSON blob
    * and an operator must be able to write it to do their job, so the client cannot
-   * tell one kind of edit from another. The split becomes enforceable when the state
-   * is in real tables — see the adminOnly flags on each collection in lib/tables.
+   * tell one kind of edit from another. The server side of the split is real — the
+   * BFF refuses commits to tables whose writePermission the caller does not hold
+   * (lib/tables); this is the same rule applied before the fact.
    */
   const forbidden = useCallback(
-    (what: string) => {
-      if (isAdmin) return false
+    (what: string, perm: PermissionKey | readonly PermissionKey[]) => {
+      if (canAny(permissions, ...(Array.isArray(perm) ? perm : [perm]))) return false
       showToast(`${what} is an admin task — ask an administrator.`)
       return true
     },
-    [isAdmin, showToast],
+    [permissions, showToast],
   )
 
   /**
@@ -320,6 +343,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const remote = await fetchDb()
         if (cancelled) return
         revision.current = remote.revision
+        // The BFF speaks the caller's permissions with every snapshot — adopting
+        // them here means a role change lands on the next poll, no reload needed.
+        setSessionPermissions(remote.permissions)
 
         // `fromDb`: what the database holds is the plant, empty or not. Seeding
         // masters in here would quietly refill a plant somebody had just cleared.
@@ -389,6 +415,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const remote = await fetchDb()
         if (cancelled || dirty || saving.current) return
         revision.current = remote.revision
+        setSessionPermissions(remote.permissions)
         if (!remote.state) return
         const server = migrateState(remote.state, fromDb)
         synced.current = server
@@ -616,7 +643,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     ],
   )
 
-  if (!ready) {
+  // A mirrored device paints straight away (see `boot`); the reconcile effect
+  // is still running, and `ready` continues to gate the poll and the save
+  // effect below until it finishes.
+  if (!ready && !boot.current.mirrored) {
     return (
       <div className="empty" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>
         Loading…

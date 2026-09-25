@@ -79,7 +79,15 @@ export function PwaProvider({ children }: { children: ReactNode }) {
     <PwaContext.Provider
       value={{
         updateReady: needRefresh,
-        applyUpdate: () => void updateServiceWorker(true),
+        applyUpdate: () => {
+          // updateServiceWorker(true) reloads on controllerchange — which never
+          // fires when there is no waiting worker left (already activated or
+          // unregistered), leaving the button a silent no-op. Reload regardless
+          // after a grace period: if the worker took over, its own reload wins
+          // and this timer dies with the page.
+          setTimeout(() => window.location.reload(), 2000)
+          void updateServiceWorker(true)
+        },
         dismissUpdate: () => setNeedRefresh(false),
         offline,
         canInstall: !installed && (Boolean(installEvent) || needsIosInstructions),

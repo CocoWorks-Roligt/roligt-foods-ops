@@ -47,7 +47,19 @@ import { useApp } from '../context/AppContext'
 import { fmtDate, fmtQty, statusLabel, toDateKey } from '../lib/utils'
 import { bulkItemOf, bulkUomForUnit, drinkName } from '../lib/packs'
 import { stockRows } from '../lib/stock'
-import type { PlanStage, PlanStatus, Product, ProductionPlan } from '../types'
+import {
+  bulkSentence,
+  filterPlans,
+  horizonWindow,
+  orderedPlans,
+  planDemand,
+  productPicks as productPicksFor,
+  servesClosed as servesClosedOrders,
+  shortUom,
+  type DrinkRow,
+  type FormatRow,
+} from '../lib/planningView'
+import type { PlanStage, PlanStatus, ProductionPlan } from '../types'
 
 const STAGES: PlanStage[] = ['Extraction', 'Melange', 'Packing']
 /** Each stage measures its plans in its own units: packs when filling, bulk when making. */
@@ -67,64 +79,6 @@ const blankForm = () => ({
 
 const num = (v: number | '') => (v === '' ? 0 : Number(v))
 
-/** The short unit a bulk is counted in on this page: kg when weighed, L when poured. */
-const shortUom = (uom: string) => (uom === 'Kg' ? 'kg' : 'L')
-
-/** The Monday of the week `d` falls in — a ship-by day's week runs Monday to
- *  Sunday, the way the roster reads weeks. */
-const mondayOf = (d: Date) => {
-  const monday = new Date(d)
-  monday.setDate(d.getDate() - ((d.getDay() + 6) % 7))
-  return monday
-}
-
-const addDays = (key: string, n: number) => {
-  const d = new Date(`${key}T00:00:00`)
-  d.setDate(d.getDate() + n)
-  return toDateKey(d)
-}
-
-/** One pack format's slice of a drink's demand. */
-interface FormatRow {
-  sku: string
-  name: string
-  /** Undefined when the order names a sku that is no longer in the product master. */
-  product?: Product
-  due: number
-  released: number
-  /** Packs already sitting on Planned/In-progress packing plans for this product. */
-  planned: number
-  toMake: number
-  /** The open orders asking for this format — what a plan off this row serves. */
-  orders: string[]
-  /** Of those, the ones already past their ship-by day. */
-  overdue: string[]
-}
-
-/** One drink: the formats the open orders ask for, and the bulk that implies. */
-interface DrinkRow {
-  key: string
-  bulkId: string | null
-  name: string
-  isMelange: boolean
-  formats: FormatRow[]
-  /** Base units the drink's packs commit — owed by open orders, or promised by the
-   *  packing plans on the board, which draw their bulk when they run. */
-  needed: number
-  /** Released bulk waiting in the cold room. */
-  onHand: number
-  /** Bulk the extraction and melange plans on the board will make. */
-  plannedBulk: number
-  toMakeBulk: number
-  uom: string
-  /** Every open order behind any of the drink's formats. */
-  orders: string[]
-  /** How many of those orders are past their ship-by day. */
-  overdue: number
-  /** For a melange: what the blend draws, in the recipe's shares. */
-  components: { name: string; qty: number; uom: string }[]
-}
-
 /** A heavier rule above each drink row, so the groups read as groups. */
 const drinkRowTop = { borderTop: '2px solid var(--line)' } as const
 
@@ -139,198 +93,14 @@ export function ProductionPlanning() {
 
   const editing = editId ? state.productionPlans.find((p) => p.id === editId) : undefined
 
-  /** The window the horizon names — this week or next, Monday to Sunday. Null
-   *  means every open order, which is where the page starts: nothing owed is
-   *  hidden until someone asks for a week. */
-  const win = useMemo(() => {
-    if (horizon === 'all') return null
-    const monday = toDateKey(mondayOf(new Date()))
-    const from = horizon === 'next' ? addDays(monday, 7) : monday
-    return { from, to: addDays(from, 6) }
-  }, [horizon])
-
   // ── What must ship: open orders by drink, netted against released stock and
   //    the plans already on the board ────────────────────────────────────────────
-  const demand = useMemo<{ drinks: DrinkRow[]; covered: number; beyond: number }>(() => {
-    const today = toDateKey()
-    const due: Record<string, number> = {}
-    const orderIds: Record<string, string[]> = {}
-    const overdueIds: Record<string, string[]> = {}
-    let beyond = 0
-    for (const o of state.orders) {
-      if (o.status !== 'Open') continue
-      // A week window narrows what is shown, never what is owed: an order past
-      // its ship-by day, or one with none, always stays on the page.
-      if (
-        win &&
-        o.dueDate &&
-        o.dueDate >= today &&
-        !(o.dueDate >= win.from && o.dueDate <= win.to)
-      ) {
-        beyond++
-        continue
-      }
-      for (const l of o.lines) {
-        due[l.sku] = (due[l.sku] || 0) + l.qty
-        if (!orderIds[l.sku]) orderIds[l.sku] = []
-        if (!orderIds[l.sku].includes(o.id)) orderIds[l.sku].push(o.id)
-        if (o.dueDate && o.dueDate < today) {
-          if (!overdueIds[l.sku]) overdueIds[l.sku] = []
-          if (!overdueIds[l.sku].includes(o.id)) overdueIds[l.sku].push(o.id)
-        }
-      }
-    }
-    const rows = stockRows(state)
-    const releasedPacks: Record<string, number> = {}
-    for (const r of rows) {
-      if (r.itemType !== 'Finished Goods' || r.status !== 'Released') continue
-      releasedPacks[r.item] = (releasedPacks[r.item] || 0) + r.qty
-    }
-    const releasedBulk: Record<string, number> = {}
-    for (const r of rows) {
-      if (r.itemType !== 'Semi Finished' || r.status !== 'Released') continue
-      releasedBulk[r.item] = (releasedBulk[r.item] || 0) + r.qty
-    }
-    /** Packs already on Planned/In-progress packing plans, keyed by product name —
-     *  a plan on the board is work spoken for, so demand must not ask for it twice. */
-    const onBoard: Record<string, number> = {}
-    /** Bulk the extraction and melange plans on the board will make, by bulk item —
-     *  the same netting the packing plans get, one stage upstream. A Done plan is
-     *  not counted: its run is posted, so the bulk is already a stock row. */
-    const bulkIncoming: Record<string, number> = {}
-    for (const p of state.productionPlans) {
-      if (p.status !== 'Planned' && p.status !== 'In progress') continue
-      if (p.stage === 'Packing') {
-        if (p.uom !== 'Packs') continue
-        onBoard[p.product] = (onBoard[p.product] || 0) + p.qty
-      } else {
-        if (p.uom === 'Packs') continue
-        const item = state.items.find((i) => i.type === 'Semi Finished' && i.name === p.product)
-        if (item) bulkIncoming[item.id] = (bulkIncoming[item.id] || 0) + p.qty
-      }
-    }
-
-    const itemById = new Map(state.items.map((i) => [i.id, i]))
-    const melangeOutputs = new Set(state.melanges.map((m) => m.outputItem))
-    const groups = new Map<string, DrinkRow>()
-    const orphans: DrinkRow[] = []
-
-    for (const sku of new Set([...Object.keys(due), ...Object.keys(releasedPacks)])) {
-      const product = state.products.find((p) => p.id === sku)
-      const d = due[sku] || 0
-      const rel = releasedPacks[sku] || 0
-      const planned = product ? onBoard[product.name] || 0 : 0
-      const toMake = Math.max(0, d - rel - planned)
-      const fmt: FormatRow = {
-        sku,
-        name: product?.name || sku,
-        product,
-        due: d,
-        released: rel,
-        planned,
-        toMake,
-        orders: orderIds[sku] || [],
-        overdue: overdueIds[sku] || [],
-      }
-      if (d === 0 && rel === 0) continue
-      if (!product) {
-        // An order naming a sku that is gone from the master still has to be seen.
-        orphans.push({
-          key: `orphan:${sku}`,
-          bulkId: null,
-          name: fmt.name,
-          isMelange: false,
-          formats: [fmt],
-          needed: 0,
-          onHand: 0,
-          plannedBulk: 0,
-          toMakeBulk: 0,
-          uom: '',
-          orders: fmt.orders,
-          overdue: fmt.overdue.length,
-          components: [],
-        })
-        continue
-      }
-      const bulkId = bulkItemOf(product)
-      let g = groups.get(bulkId)
-      if (!g) {
-        const item = itemById.get(bulkId)
-        g = {
-          key: bulkId,
-          bulkId,
-          name: drinkName(item?.name || bulkId),
-          isMelange: melangeOutputs.has(bulkId),
-          formats: [],
-          needed: 0,
-          onHand: 0,
-          plannedBulk: 0,
-          toMakeBulk: 0,
-          uom: item?.uom || bulkUomForUnit(product.unit),
-          orders: [],
-          overdue: 0,
-          components: [],
-        }
-        groups.set(bulkId, g)
-      }
-      g.formats.push(fmt)
-      // The bulk a format commits is the larger of what is owed and what is planned:
-      // `toMake` excludes the packs a packing plan will fill, but those packs draw
-      // their bulk from the drink just the same when the plan runs.
-      const owed = Math.max(0, d - rel)
-      g.needed += Math.max(owed, planned) * (product.packVolume || 0)
-    }
-
-    const packsToMake = (g: DrinkRow) => g.formats.reduce((s, f) => s + f.toMake, 0)
-    const withWork: DrinkRow[] = []
-    let covered = 0
-    for (const g of groups.values()) {
-      g.orders = [...new Set(g.formats.flatMap((f) => f.orders))]
-      g.overdue = new Set(g.formats.flatMap((f) => f.overdue)).size
-      g.onHand = g.bulkId ? releasedBulk[g.bulkId] || 0 : 0
-      g.plannedBulk = g.bulkId ? bulkIncoming[g.bulkId] || 0 : 0
-      g.toMakeBulk = Math.max(0, g.needed - g.onHand - g.plannedBulk)
-      // A drink with bulk to make or packs to fill stays on the page; one the
-      // store and the board already cover between them steps out of the way.
-      if (g.toMakeBulk > 0 || packsToMake(g) > 0) withWork.push(g)
-      else covered++
-      if (g.isMelange && g.toMakeBulk > 0) {
-        const recipe = state.melanges.find((m) => m.outputItem === g.bulkId)
-        g.components = (recipe?.components || []).map((c) => {
-          const item = itemById.get(c.item)
-          return {
-            name: drinkName(item?.name || c.item),
-            qty: (g.toMakeBulk * c.share) / 100,
-            uom: item?.uom || 'Litre',
-          }
-        })
-      }
-    }
-    withWork.sort((a, b) => b.toMakeBulk - a.toMakeBulk || packsToMake(b) - packsToMake(a))
-
-    const orphanWork = orphans.filter((o) => packsToMake(o) > 0)
-    return { drinks: [...withWork, ...orphanWork], covered, beyond }
-  }, [state, win])
+  const win = useMemo(() => horizonWindow(horizon), [horizon])
+  const demand = useMemo(() => planDemand(state, win), [state, win])
 
   // ── The plan list ────────────────────────────────────────────────────────────
-  /** Today and onwards soonest-first, then the past newest-first. */
-  const ordered = useMemo(() => {
-    const today = toDateKey()
-    const upcoming = state.productionPlans.filter((p) => p.date >= today)
-    const past = state.productionPlans.filter((p) => p.date < today)
-    upcoming.sort((a, b) => a.date.localeCompare(b.date))
-    past.sort((a, b) => b.date.localeCompare(a.date))
-    return [...upcoming, ...past]
-  }, [state.productionPlans])
-
-  const shown = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return ordered.filter(
-      (p) =>
-        (!status || p.status === status) &&
-        (!q || [p.id, p.product, p.stage, p.note || ''].join(' ').toLowerCase().includes(q)),
-    )
-  }, [ordered, search, status])
+  const ordered = useMemo(() => orderedPlans(state.productionPlans), [state.productionPlans])
+  const shown = useMemo(() => filterPlans(ordered, search, status), [ordered, search, status])
 
   const { sort, toggle, setSort } = useTableSort()
   const sortBy: SortAccessors<ProductionPlan> = {
@@ -344,18 +114,14 @@ export function ProductionPlanning() {
   const sorted = sortRows(shown, sort, sortBy)
 
   // ── The form, and what it can say about the product it names ────────────────
-  /** What the form's product field offers, by stage: pack products to fill, and
-   *  of the bulk items, only the ones that stage can actually make — a melange's
-   *  output is blended, every other bulk is extracted. */
-  const productPicks = useMemo(() => {
-    if (form.stage === 'Packing') return state.products.map((p) => p.name)
-    const melangeOutputs = new Set(state.melanges.map((m) => m.outputItem))
-    return state.items
-      .filter(
-        (i) => i.type === 'Semi Finished' && (form.stage === 'Melange') === melangeOutputs.has(i.id),
-      )
-      .map((i) => i.name)
-  }, [form.stage, state.items, state.melanges, state.products])
+  // productPicksFor reads exactly these three collections of state (see
+  // planningView) — whole-state deps would recompute on every unrelated save.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const productPicks = useMemo(
+    () => productPicksFor(state, form.stage),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [form.stage, state.items, state.melanges, state.products],
+  )
 
   const namedProduct = state.products.find((p) => p.name === form.product.trim())
   const namedBulk = state.items.find((i) => i.type === 'Semi Finished' && i.name === form.product.trim())
@@ -447,24 +213,6 @@ export function ProductionPlanning() {
     setOpen(true)
   }
 
-  /** The drink header's bulk line — the whole upstream story in one sentence:
-   *  what the packs commit, and what is released or planned against it. */
-  const bulkSentence = (d: DrinkRow) => {
-    const u = shortUom(d.uom)
-    const supply = [
-      d.onHand ? `${fmtQty(d.onHand)} ${u} released` : '',
-      d.plannedBulk ? `${fmtQty(d.plannedBulk)} ${u} planned on the board` : '',
-    ].filter(Boolean)
-    if (d.toMakeBulk > 0)
-      return `${fmtQty(d.needed)} ${u} of bulk to fill these packs · ${
-        supply.join(' + ') || 'nothing released or planned yet'
-      }`
-    const surplus = d.onHand + d.plannedBulk - d.needed
-    return `Bulk covered — ${supply.join(' + ') || 'no bulk needed'}${
-      surplus > 0 ? ` · ${fmtQty(surplus)} ${u} beyond these packs` : ''
-    }`
-  }
-
   const openEdit = (p: ProductionPlan) => {
     setEditId(p.id)
     setForm({
@@ -498,13 +246,7 @@ export function ProductionPlanning() {
 
   const openCount = shown.filter((p) => p.status === 'Planned' || p.status === 'In progress').length
 
-  /** A plan raised for orders that have all since left Open is moot work. It
-   *  still counts on the board (the packs would exist), so the flag is a nudge:
-   *  cancel it here and demand asks for the work again. */
-  const servesClosed = (p: ProductionPlan) =>
-    !!p.serves?.length &&
-    (p.status === 'Planned' || p.status === 'In progress') &&
-    p.serves.every((id) => state.orders.find((o) => o.id === id)?.status !== 'Open')
+  const servesClosed = (p: ProductionPlan) => servesClosedOrders(state.orders, p)
 
   /** The order link a plan carries, said under its number in the list. */
   const servesNote = (p: ProductionPlan) =>

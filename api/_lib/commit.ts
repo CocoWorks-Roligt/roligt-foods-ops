@@ -7,8 +7,9 @@
  * exception is the audit trail, which is insert-only: an upsert naming an App ID that
  * already exists is skipped, so no commit (and no retry) can rewrite history. The
  * revision row is bumped last so a reader either sees the old plant whole or the new
- * plant whole. Admin-only tables are refused for operators here — this is the RLS of
- * the fork, and the client maps the 403 to the same 'forbidden' message it always had.
+ * plant whole. Tables gated behind a permission the caller lacks are refused here —
+ * this is the RLS of the fork, and the client maps the 403 to the same 'forbidden'
+ * message it always had.
  */
 import type { ZohoClient } from './zoho.ts'
 import type { TableRef } from './baseSchema.ts'
@@ -16,6 +17,9 @@ import { T, TABLE_FOR } from './baseSchema.ts'
 import { columnsFor, ledgerColumns, auditColumns, buildLinkMaps } from './mappers.ts'
 import { COLLECTIONS } from '../../src/lib/tables.ts'
 import type { StateChanges } from '../../src/lib/sync.ts'
+import { TABLE_WRITE_PERMISSION, CONFIG_KEY_WRITE_PERMISSION } from '../../src/lib/permissions.ts'
+import { pageScope } from '../../src/lib/pages.ts'
+import type { ViewId } from '../../src/types.ts'
 import type { Caller } from './auth.ts'
 
 export class Forbidden extends Error {
@@ -35,7 +39,7 @@ export class Forbidden extends Error {
  * generated schema does not know are dropped silently — the enrichment is
  * best-effort by contract; only App ID and Data JSON are load-bearing.
  */
-function columnsByFieldId(
+export function columnsByFieldId(
   table: TableRef,
   columns: Record<string, string | undefined>,
 ): Record<string, string> {
@@ -56,17 +60,63 @@ async function linkMaps(zoho: ZohoClient) {
 }
 
 export async function commitChanges(zoho: ZohoClient, caller: Caller, changes: StateChanges): Promise<number> {
-  // 1. role gate — the RLS of this fork
+  // 1. permission gate — the RLS of this fork
+  const held = new Set(caller.permissions)
+  const holdsAny = (perm: string | readonly string[]) =>
+    typeof perm === 'string' ? held.has(perm) : perm.some((p) => held.has(p))
   for (const change of changes.tables) {
     const spec = COLLECTIONS.find((c) => c.table === change.table)
-    if (spec?.adminOnly && caller.role !== 'Admin') throw new Forbidden(change.table)
+    if (spec?.writePermission && !holdsAny(spec.writePermission)) throw new Forbidden(change.table)
   }
-  // config writes and audit deletions were admin-only under Supabase RLS too: tolerances,
-  // numbering and label copy are admin business, and the trail is insert-only for operators
-  // (sync.ts only ever emits audit removals from admin-side edits)
-  if (changes.config && caller.role !== 'Admin') throw new Forbidden('app_config')
+  // Page narrowing: a caller holding any page.* slug is scoped to those pages,
+  // and the day's work stops being open — they may write only the tables whose
+  // page they hold. The default caller (no page permissions, the operator) is
+  // untouched; a full administrator is simply a caller holding every page. The
+  // BFF is what makes this real: the UI's nav hiding a page would matter little
+  // to a crafted POST without this loop.
+  const pages = pageScope(caller.permissions)
+  if (pages) {
+    const holdsPage = (page: ViewId | readonly ViewId[]) =>
+      typeof page === 'string' ? pages.has(page) : page.some((p) => pages.has(p))
+    for (const change of changes.tables) {
+      const spec = COLLECTIONS.find((c) => c.table === change.table)
+      if (spec?.page && !holdsPage(spec.page)) throw new Forbidden(change.table)
+    }
+  }
+  // config writes and audit deletions carry their own gates: the trail is
+  // insert-only for callers without the Audit page (sync.ts only ever emits
+  // audit removals from admin-side edits), and config is one stored row, so its
+  // gate diffs the incoming object against what is stored and judges only the
+  // keys that actually changed — sync sends the whole config, and a lab tester
+  // may carry the numbering series unchanged in their payload without it
+  // reading as an attempt to change it. A key listed in
+  // CONFIG_KEY_WRITE_PERMISSION passes on any one of its permissions (the
+  // report types are the lab's own); every other key needs the Settings page.
+  // No stored row means every key is new, and first-time config is the Settings
+  // page's business.
+  if (changes.config) {
+    const configTable = T['Config']
+    const rows = await zoho.fetchAll(configTable.id)
+    const storedRow = rows.find((r) => String(r.data[configTable.fields['Setting']]) === 'app_config')
+    let stored: Record<string, unknown> = {}
+    try {
+      stored = storedRow ? (JSON.parse(String(storedRow.data[configTable.fields['Value']])) as Record<string, unknown>) : {}
+    } catch {
+      stored = {}
+    }
+    // The union of keys, not just the payload's: a key the payload drops is a
+    // change too (a partial payload must not read as "leave the rest alone" —
+    // the write replaces the whole row, so it would wipe what it omits).
+    for (const key of new Set([...Object.keys(changes.config), ...Object.keys(stored)])) {
+      if (JSON.stringify(stored[key]) === JSON.stringify(changes.config[key])) continue
+      const gate =
+        (CONFIG_KEY_WRITE_PERMISSION as Record<string, readonly string[] | undefined>)[key] ??
+        [TABLE_WRITE_PERMISSION.app_config]
+      if (!gate.some((p) => held.has(p))) throw new Forbidden(`app_config ${key}`)
+    }
+  }
   const auditRemove = changes.tables.some((t) => t.table === 'audits' && t.remove?.length)
-  if (auditRemove && caller.role !== 'Admin') throw new Forbidden('audits')
+  if (auditRemove && !held.has(TABLE_WRITE_PERMISSION.audits)) throw new Forbidden('audits')
 
   // 2. link maps for column enrichment (masters are small; four reads)
   const links = await linkMaps(zoho)

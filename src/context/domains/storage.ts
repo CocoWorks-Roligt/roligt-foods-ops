@@ -22,6 +22,7 @@ import {
   storageTypeLabel,
 } from '../../lib/stock'
 import { deepClone, QTY_EPSILON, statusLabel } from '../../lib/utils'
+import { CONFIG_KEY_WRITE_PERMISSION } from '../../lib/permissions.ts'
 import type { AreaPurpose, StorageType } from '../../types'
 import { POSTED } from './deps'
 import type { CoreDeps } from './deps'
@@ -29,7 +30,7 @@ import type { CoreDeps } from './deps'
 const listed = (labels: string[]) => labels.map((l) => l.toLowerCase()).join(' and ')
 const isType = (type: string): type is StorageType => STORAGE_TYPES.some((t) => t.value === type)
 
-export function useStorageLocations({ state, setState, nextId, log, showToast }: CoreDeps) {
+export function useStorageLocations({ state, setState, nextId, log, showToast, forbidden }: CoreDeps) {
   /** What an area is holding right now. */
   const holding = useCallback(
     (name: string) => stockRows(state).filter((r) => r.location === name && r.qty > QTY_EPSILON),
@@ -171,6 +172,9 @@ export function useStorageLocations({ state, setState, nextId, log, showToast }:
   /** Makes an area the one new stock of a kind goes into unless somebody picks another. */
   const setDefaultArea = useCallback(
     (purpose: AreaPurpose, id: string): string | null => {
+      // The default areas live inside config; the key is this page's own (the
+      // BFF refuses anyone else's commit — this is the readable-message twin).
+      if (forbidden('Changing default storage areas', CONFIG_KEY_WRITE_PERMISSION.defaultAreas)) return null
       const p = AREA_PURPOSES.find((x) => x.key === purpose)
       const area = state.storageLocations.find((s) => s.id === id)
       if (!p || !area) return null
@@ -188,7 +192,7 @@ export function useStorageLocations({ state, setState, nextId, log, showToast }:
       showToast(`Default for ${p.label.toLowerCase()} is now ${area.label}.`)
       return id
     },
-    [log, setState, showToast, state.storageLocations],
+    [forbidden, log, setState, showToast, state.storageLocations],
   )
 
   const deleteStorageLocation = useCallback(

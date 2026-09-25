@@ -1,5 +1,8 @@
-import { QTY_EPSILON } from './utils'
-import type { AppState, AreaPurpose, StockRow, StorageLocation, StorageType } from '../types'
+// The `.ts` extensions are deliberate: this module is also compiled by the api
+// project's nodenext tsconfig (via src/lib/reports), where extensionless relative
+// imports do not resolve. See src/lib/permissions.ts for the convention.
+import { QTY_EPSILON } from './utils.ts'
+import type { AppState, AreaPurpose, StockRow, StorageLocation, StorageType } from '../types.ts'
 
 /**
  * Everything that makes one stock row a different row from another.

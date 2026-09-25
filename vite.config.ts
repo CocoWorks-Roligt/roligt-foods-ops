@@ -70,8 +70,12 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff,woff2}'],
-        // SPA: any navigation that misses the cache falls back to the app shell.
+        // SPA: any navigation that misses the cache falls back to the app shell —
+        // except the BFF: /api/auth/* are top-level navigations (login redirect,
+        // logout, callback) that must reach the server, or the worker serves the
+        // cached shell instead and auth silently dead-ends.
         navigateFallback: '/index.html',
+        navigateFallbackDenylist: [/^\/api\//],
         cleanupOutdatedCaches: true,
         // Every built asset is precached above, so no runtime caching rule is needed.
         // Supabase traffic deliberately has none either — an operator must never act on

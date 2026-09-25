@@ -29,6 +29,7 @@ import {
 import { SENSORY_KEY, scoreSensory } from '../../lib/sensory'
 import { itemName, stockRows, inHoldArea, locationLabel } from '../../lib/stock'
 import { deepClone, nowISO, statusLabel, uid, QTY_EPSILON } from '../../lib/utils'
+import { CONFIG_KEY_WRITE_PERMISSION } from '../../lib/permissions.ts'
 import type { AppState, LabReport, TestCategoryDef, TestParameter } from '../../types'
 import { POSTED } from './deps'
 import type { CoreDeps } from './deps'
@@ -350,7 +351,7 @@ export function useQuality({ state, setState, nextId, log, showToast, actor, ann
    */
   const saveTestCategory = useCallback(
     (input: TestCategoryInput, key?: string): string | null => {
-      if (forbidden('Changing report types')) return null
+      if (forbidden('Changing report types', CONFIG_KEY_WRITE_PERMISSION.testCategories)) return null
       const title = input.title.trim()
       if (!title) {
         showToast('Give the report type a name.')
@@ -437,7 +438,7 @@ export function useQuality({ state, setState, nextId, log, showToast, actor, ann
 
   const setTestCategoryStatus = useCallback(
     (key: string, status: string) => {
-      if (forbidden('Changing report types')) return
+      if (forbidden('Changing report types', CONFIG_KEY_WRITE_PERMISSION.testCategories)) return
       const list = testCategories(state)
       const def = list.find((c) => c.key === key)
       if (!def) return
@@ -466,7 +467,7 @@ export function useQuality({ state, setState, nextId, log, showToast, actor, ann
 
   const deleteTestCategory = useCallback(
     (key: string) => {
-      if (forbidden('Changing report types')) return
+      if (forbidden('Changing report types', CONFIG_KEY_WRITE_PERMISSION.testCategories)) return
       const list = testCategories(state)
       const def = list.find((c) => c.key === key)
       if (!def) return

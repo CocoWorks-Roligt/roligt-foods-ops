@@ -3,6 +3,7 @@ import { commitChanges, Forbidden } from './commit.ts'
 import { T } from './baseSchema.ts'
 import type { ZohoClient, ZohoRecord } from './zoho.ts'
 import type { Caller } from './auth.ts'
+import { PERMISSIONS } from '../../src/lib/permissions.ts'
 
 type Upsert = { table: string; key: string; values: Record<string, string> }
 
@@ -27,8 +28,35 @@ function fakeZoho(existing: ZohoRecord[] = []) {
   return { zoho, ops }
 }
 
-const admin: Caller = { email: 'boss@roligt.local', role: 'Admin' }
-const operator: Caller = { email: 'op@roligt.local', role: 'Operator' }
+const admin: Caller = { email: 'boss@roligt.local', permissions: [...PERMISSIONS] }
+const operator: Caller = { email: 'op@roligt.local', permissions: [] }
+/**
+ * A suppliers clerk — one masters page and nothing else. Their tick carries
+ * that page's master writes; the day's work is NOT open to them, because any
+ * page tick scopes the caller (the operator is the caller with no ticks).
+ */
+const suppliersClerk: Caller = { email: 'supplies@roligt.local', permissions: ['page.vendors'] }
+/** The lab tester: every quality page, no manage permission at all. */
+const labTester: Caller = {
+  email: 'lab@roligt.local',
+  permissions: ['page.quality', 'page.control-samples', 'page.reports', 'page.test-parameters'],
+}
+/** A procurement clerk — one page, the runtime-composed role this whole gate exists for. */
+const procurementClerk: Caller = { email: 'buy@roligt.local', permissions: ['page.procurement'] }
+
+/** The stored config row the per-key gate diffs against. */
+const STORED_CONFIG = { tolerances: { lab: 5 }, testCategories: [{ key: 'sensory', title: 'Sensory' }] }
+function configRow(stored: unknown): ZohoRecord {
+  const config = T['Config']
+  return {
+    recordID: 'z-cfg',
+    data: {
+      __table: config.id,
+      [config.fields['Setting']]: 'app_config',
+      [config.fields['Value']]: JSON.stringify(stored),
+    },
+  }
+}
 
 const CHANGES = {
   empty: false,
@@ -69,19 +97,135 @@ describe('commitChanges', () => {
     expect(counter.values[T['Counters'].fields['Next']]).toBe('1')
   })
 
-  it('refuses operator writes to admin-only tables', async () => {
+  it('refuses operator writes to permission-gated tables', async () => {
     const { zoho } = fakeZoho()
     await expect(
       commitChanges(zoho, operator, { ...CHANGES, tables: [{ table: 'vendors', upsert: [{ id: 'V-1', data: {} }], remove: [] }] }),
     ).rejects.toBeInstanceOf(Forbidden)
   })
 
+  it('a scoped masters clerk writes their page — nothing else, not even the day\'s work', async () => {
+    const { zoho } = fakeZoho()
+    // the tick carries its page's master writes
+    const rev = await commitChanges(zoho, suppliersClerk, {
+      ...CHANGES,
+      tables: [{ table: 'vendors', upsert: [{ id: 'V-1', data: {} }], remove: [] }],
+    })
+    expect(rev).toBeTypeOf('number')
+    // …but not another page's masters table, nor the staff register (the Roster page's)
+    await expect(
+      commitChanges(zoho, suppliersClerk, { ...CHANGES, tables: [{ table: 'items', upsert: [{ id: 'IT-1', data: {} }], remove: [] }] }),
+    ).rejects.toMatchObject(new Forbidden('items'))
+    await expect(
+      commitChanges(zoho, suppliersClerk, { ...CHANGES, tables: [{ table: 'staff', upsert: [{ id: 'S-1', data: {} }], remove: [] }] }),
+    ).rejects.toMatchObject(new Forbidden('staff'))
+    await expect(
+      commitChanges(zoho, suppliersClerk, { ...CHANGES, tables: [], config: { tolerances: { lab: 5 } } }),
+    ).rejects.toMatchObject(new Forbidden('app_config tolerances'))
+    // and the day's work is closed: any page tick scopes the caller
+    await expect(
+      commitChanges(zoho, suppliersClerk, { ...CHANGES, tables: [{ table: 'grns', upsert: [{ id: 'GRN-9', data: {} }], remove: [] }] }),
+    ).rejects.toMatchObject(new Forbidden('grns'))
+  })
+
   it('refuses operator writes to config', async () => {
     const { zoho, ops } = fakeZoho()
     await expect(
       commitChanges(zoho, operator, { ...CHANGES, tables: [], config: { tolerances: { lab: 5 } } }),
-    ).rejects.toMatchObject(new Forbidden('app_config'))
+    ).rejects.toMatchObject(new Forbidden('app_config tolerances'))
     expect(ops.upserts).toEqual([]) // refused before a single write landed
+  })
+
+  it('lets the lab tester write test parameters — and only those masters tables', async () => {
+    const { zoho } = fakeZoho()
+    const params = [{ table: 'test_parameters', upsert: [{ id: 'TP-1', data: { name: 'pH' } }], remove: [] }]
+    await expect(commitChanges(zoho, labTester, { ...CHANGES, tables: params })).resolves.toBeTypeOf('number')
+    await expect(commitChanges(zoho, operator, { ...CHANGES, tables: params })).rejects.toBeInstanceOf(Forbidden)
+    await expect(
+      commitChanges(zoho, labTester, { ...CHANGES, tables: [{ table: 'vendors', upsert: [{ id: 'V-9', data: {} }], remove: [] }] }),
+    ).rejects.toBeInstanceOf(Forbidden)
+  })
+
+  it('lets the lab tester change only the testCategories key of config', async () => {
+    const { zoho, ops } = fakeZoho([configRow(STORED_CONFIG)])
+    // whole-object payload, as sync sends it: tolerances identical, types edited
+    const rev = await commitChanges(zoho, labTester, {
+      ...CHANGES,
+      tables: [],
+      config: { ...STORED_CONFIG, testCategories: [{ key: 'sensory', title: 'Sensory Evaluation' }] },
+    })
+    expect(rev).toBeTypeOf('number')
+    expect(ops.upserts.some((u) => u.key === 'app_config')).toBe(true)
+  })
+
+  it('refuses the lab tester any other config key — and a payload that would drop one', async () => {
+    const { zoho, ops } = fakeZoho([configRow(STORED_CONFIG)])
+    // a tolerance change riding along in the same whole-object payload
+    await expect(
+      commitChanges(zoho, labTester, { ...CHANGES, tables: [], config: { ...STORED_CONFIG, tolerances: { lab: 9 } } }),
+    ).rejects.toMatchObject(new Forbidden('app_config tolerances'))
+    // the storage page's own config key is not the lab's
+    await expect(
+      commitChanges(zoho, labTester, { ...CHANGES, tables: [], config: { ...STORED_CONFIG, defaultAreas: { produce: 'A1' } } }),
+    ).rejects.toMatchObject(new Forbidden('app_config defaultAreas'))
+    // a crafted partial payload: the write replaces the whole row, so the keys it
+    // omits count as changes, not as "leave those alone"
+    await expect(
+      commitChanges(zoho, labTester, { ...CHANGES, tables: [], config: { testCategories: STORED_CONFIG.testCategories } }),
+    ).rejects.toMatchObject(new Forbidden('app_config tolerances'))
+    await expect(commitChanges(zoho, labTester, { ...CHANGES, tables: [], config: {} })).rejects.toMatchObject(
+      new Forbidden('app_config tolerances'),
+    )
+    expect(ops.upserts).toEqual([]) // nothing landed from any of the refused commits
+  })
+
+  it('narrows a page-scoped caller: the procurement clerk writes GRNs, nothing else', async () => {
+    const { zoho, ops } = fakeZoho()
+    // the whole day's-work shape — doc, ledger line, audit, counter — rides through
+    const rev = await commitChanges(zoho, procurementClerk, CHANGES)
+    expect(rev).toBeTypeOf('number')
+    expect(ops.upserts.some((u) => u.key === 'L1')).toBe(true) // the ledger line landed
+    await expect(
+      commitChanges(zoho, procurementClerk, { ...CHANGES, tables: [{ table: 'qcs', upsert: [{ id: 'QC-1', data: {} }], remove: [] }] }),
+    ).rejects.toMatchObject(new Forbidden('qcs'))
+    await expect(
+      commitChanges(zoho, procurementClerk, { ...CHANGES, tables: [{ table: 'lab_reports', upsert: [{ id: 'LR-1', data: {} }], remove: [] }] }),
+    ).rejects.toMatchObject(new Forbidden('lab_reports'))
+  })
+
+  it('either page of a two-page table is enough — packing runs and control samples share it', async () => {
+    const { zoho } = fakeZoho()
+    const runs = { table: 'packing_runs', upsert: [{ id: 'PR-1', data: {} }], remove: [] }
+    await expect(commitChanges(zoho, { email: 'pack@roligt.local', permissions: ['page.packing'] }, { ...CHANGES, tables: [runs] })).resolves.toBeTypeOf('number')
+    // the control samples ARE fields on the run — the lab tester writes it too
+    await expect(commitChanges(zoho, labTester, { ...CHANGES, tables: [runs] })).resolves.toBeTypeOf('number')
+    await expect(
+      commitChanges(zoho, procurementClerk, { ...CHANGES, tables: [runs] }),
+    ).rejects.toBeInstanceOf(Forbidden)
+  })
+
+  it('never applies the page gate to an unscoped caller — the day\'s work stays open', async () => {
+    const { zoho } = fakeZoho()
+    // the operator (no ticks at all) writes the whole day's work freely
+    await expect(commitChanges(zoho, operator, CHANGES)).resolves.toBeTypeOf('number')
+    await expect(
+      commitChanges(zoho, operator, { ...CHANGES, tables: [{ table: 'qcs', upsert: [{ id: 'QC-2', data: {} }], remove: [] }] }),
+    ).resolves.toBeTypeOf('number')
+  })
+
+  it('a page.storage caller edits the areas and their defaults; an operator cannot', async () => {
+    const { zoho, ops } = fakeZoho([configRow(STORED_CONFIG)])
+    const storekeeper = { email: 'store@roligt.local', permissions: ['page.storage'] } as Caller
+    const rev = await commitChanges(zoho, storekeeper, {
+      ...CHANGES,
+      tables: [{ table: 'storage_locations', upsert: [{ id: 'SL-1', data: {} }], remove: [] }],
+      config: { ...STORED_CONFIG, defaultAreas: { produce: 'Cold Room' } },
+    })
+    expect(rev).toBeTypeOf('number')
+    expect(ops.upserts.some((u) => u.key === 'app_config')).toBe(true)
+    await expect(
+      commitChanges(zoho, operator, { ...CHANGES, tables: [{ table: 'storage_locations', upsert: [{ id: 'SL-2', data: {} }], remove: [] }] }),
+    ).rejects.toBeInstanceOf(Forbidden)
   })
 
   it('refuses operator removals from the audit trail', async () => {

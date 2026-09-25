@@ -6,7 +6,7 @@
  * numbering series. The values here are the ones `public.app_user.role` is checked
  * against in the database, so the screen and the row-level policies cannot disagree.
  */
-export type Role = 'Operator' | 'Admin'
+export type Role = 'Operator' | 'QualityTester' | 'Admin'
 
 export type ViewId =
   | 'dashboard'
@@ -18,6 +18,7 @@ export type ViewId =
   | 'quality'
   | 'control-samples'
   | 'reports'
+  | 'live-reports'
   | 'dispatch'
   | 'inventory'
   | 'packing-materials'
@@ -32,6 +33,8 @@ export type ViewId =
   | 'test-parameters'
   | 'settings'
   | 'audit'
+  | 'admin-users'
+  | 'admin-roles'
 
 /** The kinds of new stock that are put away somewhere by default. */
 export type AreaPurpose = 'produce' | 'packingMaterial' | 'bulk' | 'packs'

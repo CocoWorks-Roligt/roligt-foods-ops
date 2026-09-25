@@ -9,10 +9,18 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
  * per mapped table and the real client's read budget is 26/min — a cooperative base
  * would stall the suite for sixty seconds, which is the client doing its job.
  */
-const mode = vi.hoisted(() => ({ locked: false, retryAfterSec: 120, role: 'Admin' as 'Admin' | 'Operator' }))
+const mode = vi.hoisted(() => ({
+  locked: false,
+  retryAfterSec: 120,
+  permissions: [] as string[],
+  setCookies: null as string[] | null,
+}))
 
 vi.mock('./_lib/auth.ts', () => ({
-  authenticate: vi.fn(async () => ({ email: 'who@roligt.local', role: mode.role })),
+  authenticate: vi.fn(async () => ({
+    caller: { email: 'who@roligt.local', permissions: mode.permissions },
+    ...(mode.setCookies ? { setCookies: mode.setCookies } : {}),
+  })),
   AuthError: class AuthError extends Error {},
 }))
 
@@ -51,7 +59,8 @@ const { ZohoClient } = await import('./_lib/zoho.ts')
 beforeEach(() => {
   mode.locked = false
   mode.retryAfterSec = 120
-  mode.role = 'Admin'
+  mode.permissions = ['masters.manage', 'staff.manage', 'config.manage', 'audit.manage', 'admin.manage']
+  mode.setCookies = null
 })
 
 function fakeRes() {
@@ -82,11 +91,25 @@ describe('handlers', () => {
   })
 
   it('maps Forbidden to 403 with the table named', async () => {
-    mode.role = 'Operator'
+    mode.permissions = []
     const res = fakeRes()
     await commit(fakeReq({ changes: { empty: false, tables: [{ table: 'vendors', upsert: [{ id: 'V-1', data: {} }], remove: [] }], counters: {} } }), res)
     expect(res.status).toHaveBeenCalledWith(403)
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ table: 'vendors' }))
+  })
+
+  it('forwards refreshed session cookies on every data handler and reports the caller permissions', async () => {
+    mode.setCookies = ['wos-session=re-sealed; Path=/; HttpOnly']
+    const rs = fakeRes()
+    await snapshot(fakeReq(null), rs)
+    expect(rs.setHeader).toHaveBeenCalledWith('Set-Cookie', mode.setCookies)
+    expect(rs.json).toHaveBeenCalledWith({ state: null, revision: 0, permissions: mode.permissions })
+    const rr = fakeRes()
+    await revision(fakeReq(null), rr)
+    expect(rr.setHeader).toHaveBeenCalledWith('Set-Cookie', mode.setCookies)
+    const rc = fakeRes()
+    await commit(fakeReq({ changes: { tables: [], counters: {}, empty: false } }), rc)
+    expect(rc.setHeader).toHaveBeenCalledWith('Set-Cookie', mode.setCookies)
   })
 
   it('surfaces a Zoho lock as 503 + Retry-After on every handler', async () => {
@@ -104,7 +127,7 @@ describe('handlers', () => {
     const rs = fakeRes()
     await snapshot(fakeReq(null), rs)
     expect(rs.status).toHaveBeenCalledWith(200)
-    expect(rs.json).toHaveBeenCalledWith({ state: null, revision: 0 })
+    expect(rs.json).toHaveBeenCalledWith({ state: null, revision: 0, permissions: mode.permissions })
     const rr = fakeRes()
     await revision(fakeReq(null), rr)
     expect(rr.status).toHaveBeenCalledWith(200)

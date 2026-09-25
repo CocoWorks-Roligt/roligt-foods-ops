@@ -57,10 +57,51 @@ export function QualityIcon({ className }: IconProps) {
   )
 }
 
+export function FlaskIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M10 3v6L4.6 18.2A2 2 0 0 0 6.4 21h11.2a2 2 0 0 0 1.8-2.8L14 9V3" />
+      <path d="M8.5 3h7" />
+      <path d="M7.5 15h9" />
+    </svg>
+  )
+}
+
+export function ReportIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M6 3h9l4 4v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" />
+      <path d="M15 3v4h4" />
+      <path d="M9 12h7M9 16h7" />
+    </svg>
+  )
+}
+
+export function SlidersIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M5 3v18M12 3v18M19 3v18" />
+      <circle cx="5" cy="9" r="2.2" />
+      <circle cx="12" cy="15" r="2.2" />
+      <circle cx="19" cy="7" r="2.2" />
+    </svg>
+  )
+}
+
 export function MenuIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className}>
       <path d="M4 7h16M4 12h16M4 17h16" />
+    </svg>
+  )
+}
+
+/** The bottom-nav stand-in for a page with no bespoke mark of its own. */
+export function PageIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M5 4a1 1 0 0 1 1-1h7l6 6v11a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
+      <path d="M13 3v6h6" />
     </svg>
   )
 }

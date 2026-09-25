@@ -30,7 +30,7 @@ export interface ShiftInput {
 export function useStaffRoster({ state, setState, nextId, log, showToast, forbidden }: CoreDeps) {
   const addStaff = useCallback(
     (input: StaffInput): string | null => {
-      if (forbidden('Changing the staff register')) return null
+      if (forbidden('Changing the staff register', 'page.roster')) return null
       const name = input.name.trim()
       if (!name) {
         showToast('Staff name is required.')
@@ -64,7 +64,7 @@ export function useStaffRoster({ state, setState, nextId, log, showToast, forbid
 
   const updateStaff = useCallback(
     (id: string, patch: StaffInput): string | null => {
-      if (forbidden('Changing the staff register')) return null
+      if (forbidden('Changing the staff register', 'page.roster')) return null
       const name = patch.name.trim()
       const existing = state.staff.find((s) => s.id === id)
       if (!existing) return null
@@ -96,7 +96,7 @@ export function useStaffRoster({ state, setState, nextId, log, showToast, forbid
 
   const setStaffStatus = useCallback(
     (id: string, status: 'Active' | 'Inactive') => {
-      if (forbidden('Changing the staff register')) return
+      if (forbidden('Changing the staff register', 'page.roster')) return
       setState((prev) => {
         const draft = deepClone(prev)
         const member = draft.staff.find((s) => s.id === id)

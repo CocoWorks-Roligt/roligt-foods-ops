@@ -7,7 +7,10 @@ import { toWebRequest } from './_lib/vercel.ts'
 
 export default async function (req: VercelRequest, res: VercelResponse) {
   try {
-    await authenticate(toWebRequest(req))
+    // The poll is the most common refresh trigger — its response must carry the
+    // re-sealed session cookie even though the caller itself is discarded.
+    const { setCookies } = await authenticate(toWebRequest(req))
+    if (setCookies) res.setHeader('Set-Cookie', setCookies)
     const revision = await readRevision(zoho)
     res.status(200).json({ revision })
   } catch (e) {

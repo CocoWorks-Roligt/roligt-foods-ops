@@ -19,7 +19,7 @@ import type { CoreDeps } from './deps'
 export function useAdmin({ state, setState, nextId, log, showToast, forbidden }: CoreDeps) {
   const saveConfig = useCallback(
     (config: Config) => {
-      if (forbidden('Changing plant configuration')) return
+      if (forbidden('Changing plant configuration', 'page.settings')) return
       setState((prev) => {
         const draft = deepClone(prev)
         draft.config = config
@@ -129,7 +129,7 @@ export function useAdmin({ state, setState, nextId, log, showToast, forbidden }:
    */
   const saveNumbering = useCallback(
     (key: string, rule: NumberingRule, next: number): string | null => {
-      if (forbidden('Changing document numbering')) return 'Not allowed'
+      if (forbidden('Changing document numbering', 'page.settings')) return 'Not allowed'
       const error = checkNumbering(state, key, rule, next)
       if (error) {
         showToast(error)

@@ -4,15 +4,16 @@
  * Everything the Supabase version did through its SDK now goes over three BFF
  * endpoints; the shapes are unchanged (`fetchDb` returns the same DbSnapshot,
  * `saveDb` the same SaveResult), so AppContext, the offline queue and the diff
- * engine keep working untouched. The BFF holds the Zoho credentials; the browser
- * only ever holds the caller's own session token.
+ * engine keep working untouched. The BFF holds the Zoho credentials; the
+ * browser holds no tokens at all — the httpOnly session cookie is the whole
+ * credential, refreshed server-side by the BFF on any data request.
  */
 import { diffState, type StateChanges } from './sync'
-import { COLLECTIONS } from './tables'
 import type { AppState } from '../types'
-import { currentAuthToken, notifyUnauthorized } from './authToken'
+import { notifyUnauthorized } from './authEvents'
+import { WORKOS_CONFIGURED, getDevRole } from './authMode'
 
-/** The BFF refused the token even after a forced refresh — the session is gone. */
+/** The BFF refused the session cookie — it is gone. */
 export class UnauthorizedError extends Error {
   constructor() {
     super('Your session expired — sign in again.')
@@ -20,30 +21,22 @@ export class UnauthorizedError extends Error {
 }
 
 async function api(path: string, init?: RequestInit): Promise<Response> {
-  const go = async (token: string | null) =>
-    fetch(path, {
-      ...init,
-      headers: {
-        'content-type': 'application/json',
-        ...(token ? { authorization: `Bearer ${token}` } : {}),
-        ...(init?.headers ?? {}),
-      },
-    })
-
-  const token = await currentAuthToken()
-  let res = await go(token)
+  const res = await fetch(path, {
+    ...init,
+    credentials: 'same-origin', // the session cookie is the credential
+    headers: {
+      'content-type': 'application/json',
+      // Unconfigured dev harness: the picker's role is the only signal the BFF
+      // gets about who is "signed in" (it answers with matching permissions).
+      ...(WORKOS_CONFIGURED ? {} : { 'x-dev-role': getDevRole() }),
+      ...(init?.headers ?? {}),
+    },
+  })
   if (res.status === 401) {
-    // Kinde access tokens are short-lived; the SDK can refresh them silently.
-    // One forced-refresh retry covers the routine expiry — only a session that
-    // survives that is really dead.
-    const fresh = await currentAuthToken(true)
-    if (fresh && fresh !== token) {
-      res = await go(fresh)
-    }
-    if (res.status === 401) {
-      notifyUnauthorized() // AuthContext clears the session → login screen
-      throw new UnauthorizedError()
-    }
+    // Refresh happens server-side; a 401 that survived it means the session is
+    // really dead — no client-side retry exists or is needed.
+    notifyUnauthorized() // AuthContext clears the session → login screen
+    throw new UnauthorizedError()
   }
   if (res.status === 503) {
     const retryAfter = Number(res.headers.get('retry-after')) || 60
@@ -70,6 +63,8 @@ export async function fetchRevision(): Promise<number> {
 export interface DbSnapshot {
   state: Partial<AppState> | null
   revision: number
+  /** The caller's permissions per the BFF — AppContext feeds them to the gating. */
+  permissions?: string[]
 }
 
 export async function fetchDb(): Promise<DbSnapshot> {
@@ -120,7 +115,3 @@ export async function saveDb(next: AppState, prev: AppState | null): Promise<Sav
   const j = (await res.json().catch(() => ({}))) as { error?: string }
   return { ok: false, reason: 'error', message: j.error ?? `commit failed (HTTP ${res.status})` }
 }
-
-/** Kept for the admin-only early check the domains use. */
-export const writableByOperator = (table: string) =>
-  !COLLECTIONS.find((c) => c.table === table)?.adminOnly

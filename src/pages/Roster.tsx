@@ -46,7 +46,9 @@ type Tab = 'week' | 'attendance' | 'staff'
 export function Roster() {
   const { state, addStaff, updateStaff, setStaffStatus, setShift, clearShift, setAttendance } =
     useApp()
-  const { isAdmin } = useAuth()
+  const { can } = useAuth()
+  /** The staff register itself is the Roster page's own master — its tick carries its writes. */
+  const canManageStaff = can('page.roster')
 
   const [tab, setTab] = useState<Tab>('week')
   const [weekOf, setWeekOf] = useState(() => toDateKey(mondayOf(new Date())))
@@ -281,7 +283,7 @@ export function Roster() {
           value={staffSearch}
           onChange={(e) => setStaffSearch(e.target.value)}
         />
-        {isAdmin ? (
+        {canManageStaff ? (
           <button className="btn btn-primary" type="button" onClick={() => openStaffForm()}>
             + Add Staff
           </button>
@@ -305,13 +307,13 @@ export function Roster() {
               <SortHeader label="Role" k="role" sort={sort} onToggle={toggle} />
               <SortHeader label="Phone" k="phone" sort={sort} onToggle={toggle} />
               <SortHeader label="Status" k="status" sort={sort} onToggle={toggle} />
-              {isAdmin ? <th className="cell-actions">Action</th> : null}
+              {canManageStaff ? <th className="cell-actions">Action</th> : null}
             </tr>
           </thead>
           <tbody>
             {!sortedStaff.length ? (
               <tr>
-                <td colSpan={isAdmin ? 5 : 4} className="empty">
+                <td colSpan={canManageStaff ? 5 : 4} className="empty">
                   <EmptyState
                     filtered={!!staffSearch.trim()}
                     empty="No staff yet."
@@ -333,7 +335,7 @@ export function Roster() {
                   <td data-label="Status">
                     <StatusBadge value={m.status} />
                   </td>
-                  {isAdmin ? (
+                  {canManageStaff ? (
                     <td className="cell-actions">
                       <div className="row-actions">
                         <button className="btn btn-light" type="button" onClick={() => openStaffForm(m)}>

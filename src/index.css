@@ -133,6 +133,23 @@ body.drawer-open {
   flex: 0 0 auto;
 }
 
+/* A page tick in the Roles editor — one chip per screen, visibly on or off. */
+.page-chip {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 7px 13px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.page-chip.on {
+  background: #e2ece2;
+  border-color: var(--green-2);
+  color: var(--green);
+}
+
 .link-btn {
   border: 0;
   background: none;
@@ -3490,3 +3507,134 @@ tbody tr.subrow > td {
 .kind-issue { --swatch: #a23f34; }
 .kind-customer { --swatch: #1f251f; }
 .kind-stock { --swatch: #697065; }
+
+/* ─── Live reports ─────────────────────────────────────────────────────────── */
+
+.range-picker {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.range-picker input[type='date'] {
+  width: auto;
+}
+
+.range-vs {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.report-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 10px 0 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+}
+
+.report-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.report-meta b {
+  color: var(--ink, #1f251f);
+}
+
+.method-note {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+  max-width: 70ch;
+}
+
+.sync-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sync-note::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #697065;
+}
+
+.sync-note.ok::before {
+  background: #3e7b4a;
+}
+
+.sync-note.busy::before {
+  background: #b8892f;
+}
+
+.sync-note.off::before {
+  background: #a23f34;
+}
+
+.compare-table .delta {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.compare-table .delta.good {
+  color: #2e7d43;
+}
+
+.compare-table .delta.bad {
+  color: #b3261e;
+}
+
+.report-catalog-family {
+  margin-top: 18px;
+}
+
+.report-catalog-family h4 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.report-card {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  padding: 14px;
+  background: #f7f5f0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.report-card:hover {
+  border-color: #c9bfa8;
+  background: #f1ede4;
+}
+
+.report-card b {
+  font-size: 14px;
+}
+
+.report-card span {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.report-card small {
+  font-size: 12px;
+  color: var(--muted);
+}

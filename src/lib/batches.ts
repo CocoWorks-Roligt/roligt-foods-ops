@@ -6,8 +6,10 @@
  * older shape keep reading without a rewrite.
  */
 
-import { itemName } from './stock'
-import type { AppState, Batch, BatchKind, BulkOutputLine, Item, PackingRun } from '../types'
+// `.ts` extensions — see the note in stock.ts: this module is compiled by the api
+// project's nodenext tsconfig too.
+import { itemName } from './stock.ts'
+import type { AppState, Batch, BatchKind, BulkOutputLine, Item, PackingRun } from '../types.ts'
 
 export const COCONUT_ITEM = 'RM-TCW-COCO'
 export const WATER_ITEM = 'SF-TCW-WATER'

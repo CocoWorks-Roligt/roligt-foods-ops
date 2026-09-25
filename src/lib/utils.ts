@@ -68,6 +68,10 @@ export const PAGES: Record<string, [string, string]> = {
     'The bottles kept back off each packing run — who collected them, when they expire and when they were destroyed. Never stock; kept as a record.',
   ],
   reports: ['Lab Reports', 'Generate lab test reports and sensory evaluations for a batch, then attach them to QC.'],
+  'live-reports': [
+    'Live Reports',
+    'Every operational figure derived straight off the records, over any range you point them at — nothing stored, so nothing to reconcile.',
+  ],
   orders: [
     'Orders',
     'What each customer asked for. Raised once the goods are packed and cleared, and sent out complete on one challan.',
@@ -106,6 +110,14 @@ export const PAGES: Record<string, [string, string]> = {
   ],
   settings: ['Settings', 'Operational tolerances and plant configuration.'],
   audit: ['Audit Log', 'Every posting, in order. Entries are never edited or removed.'],
+  'admin-users': [
+    'Users',
+    'Who can sign in to Operations Control, and in what state their access is. Accounts and roles live in WorkOS; every change here is audited.',
+  ],
+  'admin-roles': [
+    'Roles & Permissions',
+    'A role is a named bundle of permissions. Tick what each role may do — changes take effect on each user’s next sign-in.',
+  ],
 }
 
 export const nowISO = () => new Date().toISOString()

@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { OfflineBar } from '../components/PwaPrompts'
+import { Select } from '../components/Select'
 import { useAuth } from '../context/AuthContext'
-import { KINDE_CONFIGURED, getDevRole, setDevRole } from '../lib/authMode'
+import { WORKOS_CONFIGURED, getDevRole, setDevRole } from '../lib/authMode'
 import type { Role } from '../types'
 
 export function Login() {
@@ -11,7 +12,7 @@ export function Login() {
 
   const submit = async () => {
     setError('')
-    const message = await signIn('', '')
+    const message = await signIn()
     if (message) setError(message)
   }
 
@@ -33,15 +34,15 @@ export function Login() {
             void submit()
           }}
         >
-          {KINDE_CONFIGURED ? (
+          {WORKOS_CONFIGURED ? (
             <button className="btn primary" type="submit">
-              Sign in with Kinde
+              Sign in
             </button>
           ) : (
             <>
               <div className="field" style={{ marginBottom: 14 }}>
                 <label>Dev session — role</label>
-                <select
+                <Select
                   value={devRole}
                   onChange={(e) => {
                     const next = e.target.value as Role
@@ -51,9 +52,10 @@ export function Login() {
                 >
                   <option value="Admin">Admin</option>
                   <option value="Operator">Operator</option>
-                </select>
+                  <option value="QualityTester">Quality Tester</option>
+                </Select>
                 <span style={{ display: 'block', marginTop: 8, fontSize: 13 }}>
-                  Dev fallback active (no Kinde env). You will sign in as{' '}
+                  Dev fallback active (no WorkOS env). You will sign in as{' '}
                   {session?.user.email ?? 'dev@roligt.local'}.
                 </span>
               </div>

@@ -6,6 +6,8 @@ interface ModalProps {
   onClose: () => void
   onSave: () => void
   saveLabel?: string
+  /** The confirm button's class — `btn btn-danger` for destructive confirms. */
+  saveClass?: string
   /** Read-only view: no Save, and the only button closes the dialog. */
   readOnly?: boolean
   /** Holds Save shut until the dialog's own precondition is met — a typed
@@ -22,6 +24,7 @@ export function Modal({
   onClose,
   onSave,
   saveLabel = 'Save',
+  saveClass = 'btn btn-primary',
   readOnly = false,
   saveDisabled = false,
   footerLeft,
@@ -72,7 +75,7 @@ export function Modal({
                 Cancel
               </button>
               <button
-                className="btn btn-primary"
+                className={saveClass}
                 type="button"
                 disabled={saveDisabled}
                 onClick={onSave}

@@ -1,74 +1,50 @@
-import { Fragment, useCallback, useEffect, useRef, useState, type ComponentType } from 'react'
-import { Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { Fragment, Suspense, useCallback, useEffect, useRef, useState, type ComponentType } from 'react'
+import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useSaveStatus } from '../context/AppContext'
 import { useAuth } from '../context/AuthContext'
+import { allowedPages, pageScope, PAGE_CATALOG, type PageRow } from '../lib/pages.ts'
+import { useSessionPermissions } from '../lib/sessionPermissions'
 import { PAGES } from '../lib/utils'
 import type { ViewId } from '../types'
 import {
   CloseIcon,
   DashboardIcon,
+  FlaskIcon,
   MenuIcon,
+  PageIcon,
   ProcurementIcon,
   ProductionIcon,
   QualityIcon,
+  ReportIcon,
+  SlidersIcon,
 } from './NavIcons'
 import { InstallButton, OfflineBar } from './PwaPrompts'
 import { Toast } from './Toast'
 
-interface NavItem {
-  id: ViewId
-  path: string
-  label: string
-  /** Sub-heading printed above this item, when it starts a group inside the list. */
-  group?: string
+/**
+ * Icons for the thumb bar — the SPA-side companion to the page catalog (pages.ts
+ * is isomorphic, so the marks live here). A page with no bespoke icon takes the
+ * generic one; nobody needs twenty bespoke glyphs to tell their four pages apart.
+ */
+const PAGE_ICONS: Partial<Record<ViewId, ComponentType<{ className?: string }>>> = {
+  dashboard: DashboardIcon,
+  procurement: ProcurementIcon,
+  production: ProductionIcon,
+  quality: QualityIcon,
+  'control-samples': FlaskIcon,
+  reports: ReportIcon,
+  'test-parameters': SlidersIcon,
 }
 
-const OPS: NavItem[] = [
-  { id: 'dashboard', path: '/', label: 'Dashboard' },
-  { id: 'procurement', path: '/procurement', label: 'Procurement' },
-  // Planning sits between what arrived and what gets made: the roster says who is
-  // here, the plan says what the week will produce.
-  { id: 'roster', path: '/roster', label: 'Staff Roster', group: 'Planning' },
-  { id: 'production-planning', path: '/production-planning', label: 'Production Planning' },
-  // The order is the order the work happens in. Quality Control gates everything a
-  // batch produces, so it belongs beside the two stages that produce it — reaching it
-  // used to mean jumping back up the list mid-run.
-  { id: 'production', path: '/production', label: 'Production', group: 'Production' },
-  { id: 'quality', path: '/quality', label: 'Quality Control' },
-  { id: 'control-samples', path: '/control-samples', label: 'Control Samples' },
-  { id: 'packing', path: '/packing', label: 'Packing', group: 'After production' },
-  { id: 'orders', path: '/orders', label: 'Orders' },
-  { id: 'dispatch', path: '/dispatch', label: 'Dispatch' },
-  { id: 'inventory', path: '/inventory', label: 'Inventory', group: 'Stock' },
-  { id: 'packing-materials', path: '/packing-materials', label: 'Packing Materials' },
-  { id: 'stock-issues', path: '/stock-issues', label: 'Stock Issues' },
-  { id: 'storage', path: '/storage', label: 'Storage' },
-  { id: 'stickers', path: '/stickers', label: 'Stickers' },
-  { id: 'traceability', path: '/traceability', label: 'Traceability', group: 'Records' },
-  { id: 'reports', path: '/reports', label: 'Lab Reports' },
-  { id: 'audit', path: '/audit', label: 'Audit Log' },
-]
-
-/**
- * Admin only. These are the screens that rewrite what everything else is measured
- * against — the item masters, the report types, the tolerances and the document
- * numbering. An operator receiving a load does not need them,
- * and an accidental edit here is felt by every document posted afterwards.
- */
-const MASTERS: NavItem[] = [
-  { id: 'vendors', path: '/vendors', label: 'Suppliers' },
-  { id: 'customers', path: '/customers', label: 'Customers' },
-  { id: 'purchase-products', path: '/purchase-products', label: 'Products & Materials' },
-  { id: 'test-parameters', path: '/test-parameters', label: 'Test Parameters' },
-  { id: 'settings', path: '/settings', label: 'Settings' },
-]
+const pageIcon = (id: ViewId) => PAGE_ICONS[id] ?? PageIcon
 
 /** The four screens an operator lives in, surfaced in thumb reach on phones. */
-const BOTTOM_NAV: (NavItem & { Icon: ComponentType<{ className?: string }> })[] = [
-  { id: 'dashboard', path: '/', label: 'Dashboard', Icon: DashboardIcon },
-  { id: 'procurement', path: '/procurement', label: 'Procure', Icon: ProcurementIcon },
-  { id: 'production', path: '/production', label: 'Produce', Icon: ProductionIcon },
-  { id: 'quality', path: '/quality', label: 'Quality', Icon: QualityIcon },
+const navRow = (id: ViewId) => PAGE_CATALOG.find((p) => p.id === id)!
+const BOTTOM_NAV: (PageRow & { Icon: ComponentType<{ className?: string }> })[] = [
+  { ...navRow('dashboard'), Icon: pageIcon('dashboard') },
+  { ...navRow('procurement'), Icon: pageIcon('procurement'), label: 'Procure' },
+  { ...navRow('production'), Icon: pageIcon('production'), label: 'Produce' },
+  { ...navRow('quality'), Icon: pageIcon('quality'), label: 'Quality' },
 ]
 
 /**
@@ -87,8 +63,19 @@ function SaveIndicator() {
   return <span>All changes saved.</span>
 }
 
+const NAV_PATHS = PAGE_CATALOG.map((p) => p.path)
+
 function isActive(pathname: string, path: string) {
   if (path === '/') return pathname === '/'
+  // A deeper page that is itself a nav item (Live Reports lives under Lab
+  // Reports' URL) highlights its own item, not every prefix of its path.
+  const shadowed = NAV_PATHS.some(
+    (p) =>
+      p !== path &&
+      p.startsWith(`${path}/`) &&
+      (pathname === p || pathname.startsWith(`${p}/`)),
+  )
+  if (shadowed) return false
   return pathname === path || pathname.startsWith(`${path}/`)
 }
 
@@ -96,10 +83,20 @@ export function Layout() {
   const navigate = useNavigate()
   const location = useLocation()
   const { session, signOut, isAdmin } = useAuth()
+  const permissions = useSessionPermissions()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const drawerCloseRef = useRef<HTMLButtonElement>(null)
 
-  const view = (location.pathname.split('/').filter(Boolean)[0] || 'dashboard') as ViewId
+  // /reports/live is its own page one level under Lab Reports; resolving by the
+  // first path segment alone would hang the lab page's title on it. The admin
+  // screens live two segments deep for the same reason — their own titles, not
+  // a shared "admin" one.
+  const segments = location.pathname.split('/').filter(Boolean)
+  const view = (segments[0] === 'reports' && segments[1] === 'live'
+    ? 'live-reports'
+    : segments[0] === 'admin' && (segments[1] === 'users' || segments[1] === 'roles')
+      ? `admin-${segments[1]}`
+      : segments[0] || 'dashboard') as ViewId
   const [title, subtitle] = PAGES[view] || PAGES.dashboard
   const email = session?.user?.email || 'Admin'
 
@@ -127,7 +124,38 @@ export function Layout() {
 
   const go = (path: string) => navigate(path)
 
-  const renderNav = (items: NavItem[]) => (
+  // Page scoping, decided once by the catalog (src/lib/pages.ts): the default
+  // caller gets the whole open day's work; a caller holding any page permission
+  // gets exactly the pages they hold plus whatever their manage permissions
+  // open. The scope arrives with the live permission set, so a role change
+  // lands on the next poll and this list (and the redirect below) follow
+  // without a reload.
+  const scope = pageScope(permissions)
+  const allowed = allowedPages(permissions)
+  const openItems = allowed.filter((p) => p.tier === 'open')
+  const mastersItems = allowed.filter((p) => p.tier === 'masters' || p.tier === 'settings')
+  const adminItems = allowed.filter((p) => p.tier === 'admin')
+
+  // The gate on everything the nav did not name: a scoped caller deep-linked
+  // (or bookmarked before their role changed) into a page they no longer hold
+  // lands on their first page instead. Hiding the links is not the gate.
+  if (scope && allowed.length === 0) {
+    return (
+      <div className="page">
+        <h2>No pages assigned</h2>
+        <p className="muted">
+          Your account holds no pages. Ask an administrator to tick the pages your role should
+          open (Roles &amp; Permissions, under Administration).
+        </p>
+      </div>
+    )
+  }
+  if (scope) {
+    const onAllowed = allowed.some((p) => location.pathname === p.path || location.pathname.startsWith(`${p.path}/`))
+    if (!onAllowed) return <Navigate to={allowed[0]!.path} replace />
+  }
+
+  const renderNav = (items: readonly PageRow[]) => (
     <div className="nav">
       {items.map((item) => (
         <Fragment key={item.id}>
@@ -145,7 +173,12 @@ export function Layout() {
     </div>
   )
 
-  const bottomNavActive = BOTTOM_NAV.some((item) => isActive(location.pathname, item.path))
+  // The thumb bar mirrors what the caller lives in: an operator's four screens,
+  // or a scoped caller's own pages (never more than the catalog's four).
+  const bottomItems: (PageRow & { Icon: ComponentType<{ className?: string }> })[] = scope
+    ? allowed.slice(0, 4).map((p) => ({ ...p, Icon: pageIcon(p.id) }))
+    : BOTTOM_NAV
+  const bottomNavActive = bottomItems.some((item) => isActive(location.pathname, item.path))
 
   return (
     <div className="app">
@@ -197,12 +230,19 @@ export function Layout() {
         </div>
 
         <div className="nav-title">Operations</div>
-        {renderNav(OPS)}
+        {renderNav(openItems)}
 
-        {isAdmin ? (
+        {mastersItems.length > 0 ? (
           <>
             <div className="nav-title">Masters</div>
-            {renderNav(MASTERS)}
+            {renderNav(mastersItems)}
+          </>
+        ) : null}
+
+        {adminItems.length > 0 ? (
+          <>
+            <div className="nav-title">Administration</div>
+            {renderNav(adminItems)}
           </>
         ) : null}
 
@@ -239,12 +279,23 @@ export function Layout() {
         </header>
         <OfflineBar />
         <div className="content">
-          <Outlet />
+          {/* Route chunks load on first navigation (see App.tsx); the boundary
+              sits inside Layout so the nav, offline bar and header stay mounted
+              while one lands. Same look as the boot gate in App.tsx. */}
+          <Suspense
+            fallback={
+              <div className="empty" style={{ minHeight: '40vh', display: 'grid', placeItems: 'center' }}>
+                Loading…
+              </div>
+            }
+          >
+            <Outlet />
+          </Suspense>
         </div>
       </main>
 
       <nav className="bottom-nav" aria-label="Quick navigation">
-        {BOTTOM_NAV.map(({ id, path, label, Icon }) => {
+        {bottomItems.map(({ id, path, label, Icon }) => {
           const active = isActive(location.pathname, path)
           return (
             <button

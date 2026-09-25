@@ -70,7 +70,8 @@ if (process.argv.includes('--seed-scratch')) {
   const changes = diffState(null, migrateState(seed))
   const size = changes.tables.reduce((a, t) => a + t.upsert.length + t.remove.length, 0)
   console.log(`seed-scratch: ${size} rows + ${Object.keys(changes.counters).length} counters …`)
-  const rev = await commitChanges(zoho, { email: 'dev@roligt.local', role: 'Admin' }, changes)
+  const { devPermissions } = await import('../src/lib/permissions.ts')
+  const rev = await commitChanges(zoho, { email: 'dev@roligt.local', permissions: devPermissions('Admin') }, changes)
   const config = T['Config']
   await zoho.upsertByKey(config.id, config.fields['Setting'], 'app_revision', {
     [config.fields['Setting']]: 'app_revision',
@@ -85,6 +86,24 @@ if (process.argv.includes('--seed-scratch')) {
 const snapshotHandler = (await import('../api/snapshot.ts')).default
 const revisionHandler = (await import('../api/revision.ts')).default
 const commitHandler = (await import('../api/commit.ts')).default
+const authStart = (await import('../api/auth/start.ts')).default
+const authCallback = (await import('../api/auth/callback.ts')).default
+const authSignout = (await import('../api/auth/signout.ts')).default
+const authSession = (await import('../api/auth/session.ts')).default
+const adminUsers = (await import('../api/admin/users.ts')).default
+const adminRoles = (await import('../api/admin/roles.ts')).default
+
+const API_ROUTES = {
+  '/api/snapshot': snapshotHandler,
+  '/api/revision': revisionHandler,
+  '/api/commit': commitHandler,
+  '/api/auth/start': authStart,
+  '/api/auth/callback': authCallback,
+  '/api/auth/signout': authSignout,
+  '/api/auth/session': authSession,
+  '/api/admin/users': adminUsers,
+  '/api/admin/roles': adminRoles,
+}
 
 const DIST = join(root, 'dist')
 const MIME = {
@@ -121,6 +140,12 @@ function toVercelRes(res) {
       if (fake.statusCode >= 400) console.error(`api error body: ${JSON.stringify(body)}`)
       res.writeHead(fake.statusCode, { 'content-type': 'application/json; charset=utf-8' })
       res.end(JSON.stringify(body))
+    },
+    end(body) {
+      // The auth routes answer 302s: headers set through setHeader, then end().
+      res.statusCode = fake.statusCode
+      res.end(body)
+      return fake
     },
   }
   return fake
@@ -163,7 +188,7 @@ const server = createServer(async (req, res) => {
 
   try {
     if (path.startsWith('/api/')) {
-      const handler = path === '/api/snapshot' ? snapshotHandler : path === '/api/revision' ? revisionHandler : path === '/api/commit' ? commitHandler : null
+      const handler = API_ROUTES[path] ?? null
       if (!handler) {
         res.writeHead(404).end('no such api route')
         log(404)
@@ -194,4 +219,4 @@ const server = createServer(async (req, res) => {
   }
 })
 
-server.listen(port, () => console.log(`dev harness on http://localhost:${port} — dist/ + /api/{snapshot,revision,commit}`))
+server.listen(port, () => console.log(`dev harness on http://localhost:${port} — dist/ + /api/{snapshot,revision,commit} + /api/auth/{start,callback,signout,session}`))

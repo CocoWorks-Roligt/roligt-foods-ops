@@ -2,11 +2,12 @@
 /// <reference types="vite-plugin-pwa/react" />
 
 interface ImportMetaEnv {
-  /** Kinde SPA credentials. All optional: absent means the dev fallback session. */
-  readonly VITE_KINDE_DOMAIN?: string
-  readonly VITE_KINDE_CLIENT_ID?: string
-  readonly VITE_KINDE_REDIRECT_URI?: string
-  readonly VITE_KINDE_LOGOUT_URI?: string
+  /**
+   * WorkOS AuthKit public client id. Used only as a build-time flag telling the
+   * SPA a real auth server exists — the browser never talks to WorkOS directly.
+   * Absent means the dev fallback session (no /api/auth/* traffic at all).
+   */
+  readonly VITE_WORKOS_CLIENT_ID?: string
 }
 
 interface ImportMeta {
