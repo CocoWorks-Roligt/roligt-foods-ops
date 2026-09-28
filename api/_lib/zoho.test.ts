@@ -122,7 +122,7 @@ describe('ZohoClient', () => {
     expect(out[0]!.recordID).toBe('r1')
   })
 
-  it('reads a handful of keys as one criteria call each — the probed single-condition form', async () => {
+  it('reads a handful of keys as one criteria call each, flagging the criteria as field IDs', async () => {
     const calls: { url: string; init?: RequestInit }[] = []
     const c = new ZohoClient({ fetchImpl: fakeFetch(calls, [
       { body: { records: { fetched: [{ recordID: 'r1', data: { FAPP: 'A' } }] } } },
@@ -134,6 +134,12 @@ describe('ZohoClient', () => {
     expect(criteriaCalls).toHaveLength(2) // deduped, blanks dropped
     expect(new URL(criteriaCalls[0]!.url).searchParams.get('criteria')).toBe('"FAPP" = "A"')
     expect(new URL(criteriaCalls[1]!.url).searchParams.get('criteria')).toBe('"FAPP" = "B"')
+    // without the flag Zoho parses the criteria as field NAMES — a field-ID criteria
+    // then answers HTTP 200 wrapping INTERNAL SERVER ERROR (pinned live 2026-09-28),
+    // which is how every commit died in its pre-flight until this was sent
+    for (const x of criteriaCalls) {
+      expect(new URL(x.url).searchParams.get('is_ids_used_in_params')).toBe('true')
+    }
   })
 
   it('reads nothing at all when no keys are named', async () => {

@@ -198,9 +198,14 @@ export class ZohoClient {
    * per key instead, whatever the table weighs.
    *
    * The criteria form is the single-condition string the live probe pinned
-   * (`"FIELDID" = "value"`, check name fetch-by-criteria); a multi-value OR was
-   * never probed, so batches larger than ten keys fall back to one paged sweep
-   * of the table — at that size the sweep is the cheaper spend anyway.
+   * (check name fetch-by-criteria) — but that check used a field NAME, and a
+   * field-ID criteria without `is_ids_used_in_params: true` makes the live
+   * endpoint answer HTTP 200 wrapping `INTERNAL SERVER ERROR` (pinned against
+   * the scratch base 2026-09-28: same criteria, flag on → the row comes back).
+   * The flag is the same one upsertByKey has always sent for its criteria. A
+   * multi-value OR was never probed, so batches larger than ten keys fall back
+   * to one paged sweep of the table — at that size the sweep is the cheaper
+   * spend anyway.
    */
   async fetchByKeyIn(tableId: string, keyFieldId: string, values: string[]): Promise<ZohoRecord[]> {
     const keys = [...new Set(values.map((v) => String(v)).filter(Boolean))]
@@ -219,6 +224,7 @@ export class ZohoClient {
         table_id: tableId,
         count: this.page,
         criteria: `"${keyFieldId}" = "${v}"`,
+        is_ids_used_in_params: true,
       })) as Record<string, any>
       out.push(...recordsFrom(j))
     }
