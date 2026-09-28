@@ -4,7 +4,10 @@
  * session is sealed into the httpOnly cookie, and the user lands back on the
  * path that was sealed into the state at sign-in — re-validated site-relative
  * on the way out, since it is a redirect target. A failed exchange clears the
- * verifier cookie and answers 400 with the cause.
+ * verifier cookie, logs the cause, and lands the browser back on the login
+ * page: the only caller of this route is a redirect a human is riding, and the
+ * common refusal (the ten-minute PKCE cookie outliving a slow password reset)
+ * is cured by the sign-in click that waits there.
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { clearVerifierCookies, handleAuthCallback, workosConfigured } from '../_lib/session.ts'
@@ -39,6 +42,8 @@ export default async function (req: VercelRequest, res: VercelResponse) {
     res.status(302).end()
   } catch (e) {
     await clearVerifier()
-    res.status(400).json({ error: `Sign-in failed (${(e as Error).message}).` })
+    console.error(`auth callback refused: ${(e as Error).message}`)
+    res.setHeader('Location', '/')
+    res.status(302).end()
   }
 }

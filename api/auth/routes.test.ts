@@ -132,13 +132,19 @@ describe('GET /api/auth/callback', () => {
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.stringContaining('code') }))
   })
 
-  it('answers 400 with the cause and clears the verifier when the exchange fails', async () => {
+  it('lands on the login page, clears the verifier and logs the cause when the exchange fails', async () => {
     world.callback.error = 'invalid_grant'
-    const res = fakeRes()
-    await callback(fakeReq('/api/auth/callback?code=bad&state=s'), res)
-    expect(res.status).toHaveBeenCalledWith(400)
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.stringContaining('invalid_grant') }))
-    expect(res.setHeader).toHaveBeenCalledWith('Set-Cookie', ['wos-auth-verifier-x=; Max-Age=0'])
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const res = fakeRes()
+      await callback(fakeReq('/api/auth/callback?code=bad&state=s'), res)
+      expect(res.status).toHaveBeenCalledWith(302)
+      expect(res.setHeader).toHaveBeenCalledWith('Location', '/')
+      expect(res.setHeader).toHaveBeenCalledWith('Set-Cookie', ['wos-auth-verifier-x=; Max-Age=0'])
+      expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('invalid_grant'))
+    } finally {
+      errSpy.mockRestore()
+    }
   })
 })
 
