@@ -7,6 +7,10 @@
 **Amended 2026-09-28, after plant feedback** (verdict: *colours too dull — users can't read the states*): measured, not felt. The four status washes sat 1.12–1.16:1 off their card (tender vs the page field: 1.02 — invisible), so colour carried none of a badge's meaning; the amber and clay badge text fell below the WCAG 4.5:1 small-text floor (3.62 and 4.33 — and amber **is** Quarantine/Hold, the food-safety statuses); `--ink-mute`, which carries table sub-lines, detail labels and the bottom-nav labels, measured 2.78–3.20 everywhere. The fix stays inside every locked rule of §2 — washes are still washes, the family is still one family, husk is still ink-only: accents darkened and chromaed to ≥4.8:1 on their own wash and ≥6:1 on white, washes deepened to ≈1.25:1 off the card, badge borders went solid accent (the alpha-tinted borders composited under 2:1 and gave the chip no shape), mute/faint lifted to ≥4.7:1 / ≈3:1, zebra deepened one step, and interactive controls (inputs, selects, secondary buttons) moved to `--hair-strong` edges — an affordance needs an edge the eye can find. §3's tables carry the amended values.
 
 **Amended again 2026-09-28, same day** (verdict on the contrast pass, with the dashboard on screen: *still dull — try brighter colours or change the blend*): the contrast pass had made the states legible but left the page 95% neutral — white cards on warm-gray paper with two muted chips as the only colour. The bright edition changes the blend's character, deliberately: **the nav chrome goes grove green** (`--grove #175c35` — sidebar, mobile app bar, thumb bar; §2's no-dark-surfaces rule is amended for the nav chrome only, content surfaces stay light), **the leaf becomes the action colour** (`--leaf #1e7a45` — primary buttons, active tabs/stage cards/pick rows/trace links, focus rings, type-tab and score-button fills via the `--green` alias), and **the status family goes bright**: 700-grade inks on 100-grade washes (`#166534/#dcfce7`, `#92400e/#fef3c7`, `#b91c1c/#fee2e2`, `#1d4ed8/#dbeafe`) — every fg ≥4.5:1 on its wash and on white. The husk stays as the *reference* ink (links, doc-links, metric labels, the brand mark) and the water stays the brand wash, so the coconut identity survives the brightening; the field and hairlines took a green whisper (`--bg #f4f6f2`, green-tinted chrome and hairlines) to tie the page to its chrome. PWA `theme_color` follows the grove.
+
+**Amended a fourth time 2026-09-28** (verdict on the bright edition: *the leaf green looks too bright and outdated — it should have a glossy effect and all*): the flat mid-green was the problem — a single #1e7a45 fill reads as a stamped sticker, and stamped flat green is what "outdated" means on a plant floor. The **gloss pass** deepens the leaf into an emerald (`--leaf #0f7a4b` — richer, not brighter; white on it 5.4:1) and gives every filled surface **depth from light instead of shadow**: chrome and fills are two-stop vertical gradients (`--grove-fill #17643a→#0d4a29`, `--leaf-fill #138053→#0d6a44`, `--grove-active-fill`, `--leaf-fill-hover`), each wearing `--sheen` — a 1px inset white line at the top edge where the light catches it — and primary buttons add a 1px under-edge and a whisper of drop so they sit *on* the card. Hover now **lifts brighter**, the glossy convention, where it used to sink darker. Contrast is pinned at each gradient's *lightest* stop (leaf fill 4.9:1, active nav 5.1:1, chrome 7.3:1), since the darker stop only helps. Flat `--leaf`/`--leaf-deep` remain for text and borders; the gloss lives in the `-fill` tokens. §2's no-shadow rule still holds for resting surfaces — the sheen is an inset highlight, not a shadow — and the primary button's 1px drop is the same paper-lift family as `--shadow-card`, not a new elevation token.
+
+**Amended a fifth time 2026-09-28** (verdict on the glossed emerald: *change the colour itself — something not too dark, not too light, clear to the naked eye*): green had now been rejected twice at two different values, which is a verdict on the hue, not the lightness. The action colour moved off the leaf onto the **lagoon** — a mid-teal carrying the coconut *water's* clarity instead of the husk's leaf: `--leaf #0f766e` (flat; white on it 5.5:1), fills `#0e8175→#0a655d` (lightest stop 4.8:1), chrome `--grove-fill #118275→#0a544e` (lightest stop 4.7:1), hover lifts to `#0f8578`. Teal is unmistakable at a glance yet sits outside every status colour's territory — positive stays tender green, warning amber, danger clay, info slate — so chrome and action can never be misread as a status. The field, hairlines, zebra and mute re-whispered from green to teal to stay tied to the chrome (`--bg #f2f5f4` et al.). **Token names are deliberately unchanged**: `--leaf`/`--grove` now read as "action"/"chrome" — the names are handles, not hue promises; renaming them would churn every rule for zero visible difference. The bottom-nav active accent went light-teal `#8fe3d8`; PWA `theme_color` follows the chrome top `#118275`.
 **Author:** Naresh + Claude (adaptation session).
 **Source design:** the SmoothieBar admin's "Mineral × Botanical" blend — `admin/docs/superpowers/specs/2026-06-12-smoothiebar-blend-design.md`. This doc carries that design language over **lightly**: tokens, locked rules, and component treatments, adapted to this app's reality. It is not a port of SmoothieBar's power-user chrome.
 
@@ -37,7 +41,7 @@ The blend carries structure, not color. SmoothieBar's identity was mineral × bo
 - **No card shadows on resting surfaces.** Hairlines do the depth. Exactly three shadow tokens survive: popover, dialog, drawer. *(Amended same-day after review: resting cards carry `--shadow-card`, a whisper-soft two-stop lift — the white-on-white field read as flat. It is a paper lift, not an elevation; pop/dialog/drawer remain the only true shadows.)*
 - **No emoji as UI affordance. Never render raw enum strings.** (`statusLabel`/`statusClass` in `lib/utils` already hold this line — keep it that way as statuses evolve.)
 - **Numerals are tabular, everywhere** — `font-feature-settings:'tnum' 1` on every qty, UoM total, ₹ figure, KPI, count. This is a ledger app; ragged number columns are a defect.
-- **Buttons:** primary = ink fill (`--ink` bg, white text); secondary = white + hairline; the current terracotta `.btn-accent` fill retires (accent lives in text/ink, not chrome).
+- **Buttons:** primary = ink fill (`--ink` bg, white text); secondary = white + hairline; the current terracotta `.btn-accent` fill retires (accent lives in text/ink, not chrome). *(Superseded by the bright edition, then the gloss pass: primary is the glossy leaf fill — §3's `--leaf-fill`. Secondary and the no-accent-fill rule stand.)*
 - **No `transform: scale()` zoom hacks** (none known here; keep it that way).
 - **The thumb bar, drawer, offline bar and save indicator stay** — they are the plant-floor reality, and the blend was never tested against phones. They get reskinned, not redesigned.
 
@@ -50,33 +54,36 @@ All in `:root` of `src/index.css` — this app's single stylesheet is an advanta
 ### Surfaces
 | Token | Value | Replaces | Use |
 |---|---|---|---|
-| `--bg` | `#f4f6f2` | bright edition ← `#f6f4ee` ← `#f5f0e6` cream | content field — paper with the leaf's whisper; white cards sit on it |
-| `--chrome` | `#e9f0e8` | bright edition ← `#f1efe8` | table heads, subform heads (the sidebar itself is `--grove` now) |
-| `--grove` | `#175c35` | bright edition (new) | nav chrome: sidebar, mobile app bar, thumb bar — white text throughout |
-| `--well` | `#eef2ec` | bright edition ← `#eceae2` | recessed wells: chip tracks, KPI strips, pick lists |
+| `--bg` | `#f2f5f4` | lagoon pass ← `#f4f6f2` (bright, green whisper) ← `#f6f4ee` ← `#f5f0e6` cream | content field — paper with the lagoon's whisper; white cards sit on it |
+| `--chrome` | `#e7f0ee` | lagoon pass ← `#e9f0e8` ← `#f1efe8` | table heads, subform heads (the sidebar itself is `--grove-fill` now) |
+| `--grove` | `#0c5f5a` | lagoon pass ← `#125531` (gloss) ← `#175c35` (bright) | nav chrome family anchor; the chrome itself is the `--grove-fill` gradient |
+| `--well` | `#ecf2f0` | lagoon pass ← `#eef2ec` ← `#eceae2` | recessed wells: chip tracks, KPI strips, pick lists |
 | `--panel` | `#ffffff` | `#fffdf7` | cards — pure white on the tinted field |
 
 ### Hairlines
 | Token | Value | Replaces |
 |---|---|---|
-| `--hair` | `#e3dfd4` | `--line #d8d0c1` |
-| `--hair-soft` | `#ecebe3` | — (new) |
-| `--hair-strong` | `#d9d3c4` | — (new) — table head rule, topbar/app bar edge |
+| `--hair` | `#dee5e2` | lagoon pass ← `#dfe5dc` ← `--line #d8d0c1` |
+| `--hair-soft` | `#e8eeec` | lagoon pass ← `#e9ede6` |
+| `--hair-strong` | `#d2dcd8` | lagoon pass ← `#d4dcd2` — table head rule, topbar/app bar edge |
 
 ### Ink (warm-cool neutral)
 | Token | Value | Replaces | Use |
 |---|---|---|---|
-| `--ink` | `#15181b` | `#1f251f` | primary text, primary buttons |
+| `--ink` | `#15181b` | `#1f251f` | primary text |
 | `--ink-soft` | `#5b626a` | `--muted #697065` | secondary text |
-| `--ink-mute` | `#61676f` | `#8c9098` (pre-09-28) | labels, captions — ≥4.7:1 everywhere |
-| `--ink-faint` | `#8d939b` | `#b3b7bd` (pre-09-28) | footnotes, placeholders — ≈3:1 |
+| `--ink-mute` | `#5e6664` | lagoon pass ← `#5f6660` ← `#8c9098` (pre-09-28) | labels, captions — ≥4.7:1 everywhere |
+| `--ink-faint` | `#8a918f` | lagoon pass ← `#8b918b` ← `#b3b7bd` (pre-09-28) | footnotes, placeholders — ≈3:1 |
 
-### Brand — leaf, husk & water
-The bright edition split the coconut across two inks: the **leaf** is the action colour (primary fills, active/selected states, focus rings — `--leaf #1e7a45`, `--leaf-deep #16603a`, `--leaf-wash #e0f0e5`; white text on leaf: 5.3:1) and the nav chrome carries `--grove #175c35`. The **husk** is the reference ink and the **water** stays the brand wash — Roligt's greens came home.
+### Brand — lagoon, husk & water
+The bright edition split the coconut across two inks; the fifth amendment moved the action hue off the leaf and onto the **lagoon** — a mid-teal with the coconut *water's* clarity (`--leaf #0f766e`, white on it 5.5:1), chosen because green was twice rejected and teal sits outside every status colour's territory. Fills are gradients under a sheen (the gloss pass); flat tokens still serve text and borders. The **husk** is the reference ink and the **water** stays the brand wash. Token names (`leaf`/`grove`) are handles meaning "action"/"chrome", retained through the hue change on purpose.
 | Token | Value | Use |
 |---|---|---|
-| `--leaf` | `#1e7a45` | action colour — primary fills, active states, focus |
-| `--grove` | `#175c35` | nav chrome — sidebar, mobile app bar, thumb bar |
+| `--leaf` | `#0f766e` | action colour — text accents, focus borders, small active fills |
+| `--leaf-fill` | `#0e8175→#0a655d` gradient + `--sheen` | glossy primary fills — buttons, active tabs/chips/stage cards |
+| `--grove` | `#0c5f5a` (flat average) | nav chrome family anchor |
+| `--grove-fill` | `#118275→#0a544e` gradient + `--sheen` | nav chrome — sidebar, mobile app bar, thumb bar |
+| `--grove-active-fill` | `#0f8578→#0a655d` gradient + `--sheen` | the active nav item |
 | `--husk` | `#5a4531` | brand ink — links, active nav rail, "needs attention" highlight, brand mark |
 | `--husk-deep` | `#43331f` | inline text actions ("Edit", "Adjust") |
 | `--water` | `#f3f0e7` | tinted fill for badges and the `.mark` chip — coconut water held up to the light |
@@ -127,7 +134,7 @@ Segoe UI / Source Sans 3 are removed. No mono family by default — ledger numer
 
 - **`.status` badges** (StatusBadge + `statusClass`): wash fill + accent-family ink text (tender/amber/clay per `statusClass`), and — amended 2026-09-28 — a **solid** same-family border: the alpha-tinted borders composited under 2:1 against their own wash and the chip had no shape at arm's length. No radius beyond 8px. The kind chips (`.kind-grn`, `.kind-qc`, …) get the same wash treatment, keyed to a small fixed palette — they distinguish document kinds, not severity.
 - **Filter chips (`.chip-row`, `.page-chip`):** active = **ink fill**, neutral; inactive = white + hairline. Never husk fill.
-- **Buttons (`.btn`, `.btn-primary`, `.btn-light`, `.btn-danger`):** primary = ink fill; light/secondary = white + hairline; danger = clay **text or outline**, not a clay fill. `.btn-accent` (terracotta fill) is deleted; its call sites move to primary or an inline husk-deep text action.
+- **Buttons (`.btn`, `.btn-primary`, `.btn-light`, `.btn-danger`):** primary = the glossy leaf fill (`--leaf-fill` gradient under `--sheen`; hover lifts brighter); light/secondary = white + hairline; danger = clay **text or outline**, not a clay fill. `.btn-accent` (terracotta fill) is deleted; its call sites move to primary or an inline husk-deep text action. *(Ink-fill primaries were superseded by the bright edition's leaf, then glossed — §3's `--leaf-fill`.)*
 - **Cards (`.card`, `.stage-card`, `.qc-card`, …):** white + `--hair` border, `--radius`, the amended `--shadow-card` lift. `.metric`/`.kpi-row`: numeral 700 tabular, label in the husk Label role; a page's KPI row is one **metric strip** card with hairline dividers, not N floating cards.
 - **Tables (`.table-wrap`, `.cell-num`):** 13px Body, hairline row separators, zebra banding (`#f9f8f3`, amended in), `--chrome` head with Label role over a `--hair-strong` bottom rule, tabular numerals right-aligned. `.cell-id` (doc IDs) in 600 weight — the ID is the handle the whole app trades in; it should scan like a name.
 - **Attention rows** (dashboard exceptions, stock issues, QC holds): a 3px **lead bar** at the row's left edge (clay/amber) — not a full-row tint. `buildExceptions` already computes the severity; it drives the bar color.

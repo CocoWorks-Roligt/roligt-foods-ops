@@ -6,6 +6,16 @@ refuses production-environment mutations (`FORBIDDEN`, role hint: sandbox-only)
 until the dashboard account has MFA or the MCP connection is granted production
 access. This is the exact theme, paste-ready for the dashboard.
 
+**Re-themed 2026-09-28, lagoon pass** (matching the dashboard's fifth blend
+amendment): the action colour moved ink → **lagoon teal** — the global button
+background is the flat `#0f766e`, the rendered button is the glossy
+`#0e8175→#0a655d` gradient under a 1px inset sheen — the page field went
+`#f2f5f4` (teal-whispered paper), hairlines teal-tinted (`#dee5e2`,
+controls `#d2dcd8`), faint ink `#8a918f`. The coconut **water stage and husk
+reference ink are unchanged by design** — they survived the hue move in the app
+too (`--water`, `--husk` keep the login stage's identity); only links stay husk.
+Staging carries all of it live.
+
 **Where:** WorkOS Dashboard → project *IT's Project* → environment **Production**
 → *Appearance* (AuthKit branding). Every value below maps to one control there.
 Whoever has dashboard access applies it; the logo/favicon (an R mark + favicon)
@@ -19,8 +29,8 @@ are also dashboard-only uploads — staging never got them either.
 | Theme | Light |
 | Corner radius | Large |
 | Font | `Bricolage Grotesque` (typed/picked — WorkOS serves it from Google Fonts) |
-| Page background | `#f6f4ee` |
-| Button background | `#15181b` |
+| Page background | `#f2f5f4` |
+| Button background | `#0f766e` (flat lagoon — the rendered gloss lives in the Button element CSS below) |
 | Button foreground | `#ffffff` |
 | Link color | `#5a4531` |
 
@@ -73,20 +83,20 @@ are also dashboard-only uploads — staging never got them either.
 .rf-panel{position:relative;height:100%;min-height:520px;display:flex;flex-direction:column;justify-content:center;padding:52px 46px 84px;background:#f3f0e7;color:#15181b;text-align:left;overflow:hidden;border-left:3px solid #5a4531;font-family:'Bricolage Grotesque',system-ui,sans-serif}
 .rf-rings{position:absolute;top:-84px;right:-84px;width:260px;height:260px;fill:none;stroke:#5a4531;stroke-width:1;opacity:.09;pointer-events:none}
 .rf-brand{display:flex;align-items:center;gap:16px;position:relative}
-.rf-mark{width:64px;height:64px;flex:none;border-radius:50%;background:#ffffff;border:1px solid #e3dfd4;display:grid;place-items:center;color:#5a4531;font-weight:800;font-size:32px}
+.rf-mark{width:64px;height:64px;flex:none;border-radius:50%;background:#ffffff;border:1px solid #dee5e2;display:grid;place-items:center;color:#5a4531;font-weight:800;font-size:32px}
 .rf-eyebrow{display:block;font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:#5a4531;margin-bottom:4px}
 .rf-wordmark{font-size:34px;font-weight:600;letter-spacing:-.02em;line-height:1.02}
 .rf-lede{position:relative;margin:22px 0 0;max-width:46ch;font-size:14px;line-height:1.55;color:#5b626a}
 .rf-flow{position:relative;display:flex;flex-wrap:wrap;align-items:center;margin-top:18px;font-size:12px;font-weight:600;color:#5b626a}
-.rf-flow span{display:inline-flex;align-items:center;background:#ffffff;border:1px solid #e3dfd4;border-radius:8px;padding:5px 10px}
+.rf-flow span{display:inline-flex;align-items:center;background:#ffffff;border:1px solid #dee5e2;border-radius:8px;padding:5px 10px}
 .rf-flow span:not(:last-child)::after{content:'\203A';margin-left:10px;color:#5a4531;font-weight:700}
 .rf-flow span:not(:first-child){margin-left:8px}
 .rf-points{position:relative;list-style:none;margin:22px 0 0;padding:0;font-size:13px;line-height:1.5;color:#5b626a}
-.rf-points li{display:flex;gap:10px;padding:9px 0;border-top:1px solid #e3dfd4}
+.rf-points li{display:flex;gap:10px;padding:9px 0;border-top:1px solid #dee5e2}
 .rf-points li:last-child{padding-bottom:0}
 .rf-points b{color:#15181b;font-weight:600}
 .rf-points li::before{content:'';flex:none;width:7px;height:7px;margin-top:6px;border-radius:2px;background:#5a4531;opacity:.55}
-.rf-foot{position:absolute;left:49px;right:46px;bottom:30px;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#8c9098}
+.rf-foot{position:absolute;left:49px;right:46px;bottom:30px;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#8a918f}
 ```
 
 ## Custom CSS elements (all AuthKit pages)
@@ -99,14 +109,14 @@ The branding font/colors only reach the first screen reliably; the later steps
 | Element | CSS |
 |---|---|
 | Global | `font-family: 'Bricolage Grotesque', system-ui, sans-serif;` |
-| Background | `background: #f6f4ee;` |
-| Card | `border: 1px solid #e3dfd4; border-radius: 10px; box-shadow: 0 1px 2px rgba(31, 26, 17, 0.05), 0 2px 10px rgba(31, 26, 17, 0.04);` |
-| Button | `background: #15181b; color: #ffffff; border-radius: 8px; font-weight: 700;` |
-| Input | `border-color: #e3dfd4; border-radius: 8px;` |
+| Background | `background: #f2f5f4;` |
+| Card | `border: 1px solid #dee5e2; border-radius: 10px; box-shadow: 0 1px 2px rgba(21, 24, 27, 0.05), 0 2px 10px rgba(21, 24, 27, 0.04);` |
+| Button | `background: linear-gradient(180deg, #0e8175 0%, #0a655d 100%); color: #ffffff; border-radius: 8px; font-weight: 700; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);` (white on the lightest stop 4.8:1) |
+| Input | `border-color: #d2dcd8; border-radius: 8px;` |
 | Label | `color: #5b626a;` |
 | Callout | `border-radius: 8px;` |
-| Footer | `color: #8c9098;` |
-| SSO profile trigger | `border-color: #e3dfd4; border-radius: 8px;` |
+| Footer | `color: #8a918f;` |
+| SSO profile trigger | `border-color: #d2dcd8; border-radius: 8px;` |
 
 ## Two ways to apply
 

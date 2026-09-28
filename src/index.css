@@ -3,7 +3,15 @@
    "still dull" — the chrome itself now carries the coconut's leaf green
    (sidebar, app bar, thumb bar, primary actions), the status family went
    bright, and the husk stays as the reference ink for links and labels.
-   White cards, hairline depth and tabular numerals are unchanged. */
+   White cards, hairline depth and tabular numerals are unchanged.
+   The 2026-09-28 third pass: the flat leaf read bright and outdated, so the
+   greens deepened into an emerald family and went glossy — every filled
+   surface (chrome, primary buttons, active pills) is a vertical gradient
+   under a 1px top sheen, and hover lifts brighter rather than sinking
+   darker. Depth comes from light, not from shadow.
+   The 2026-09-28 fourth pass: green itself was twice rejected, so the hue
+   moved to the lagoon — a mid-teal, clear at a glance, neither heavy nor
+   washed out, and outside every status colour's territory. */
 @font-face {
   font-family: 'Bricolage Grotesque';
   src: url('/fonts/BricolageGrotesque-latin.woff2') format('woff2');
@@ -25,42 +33,60 @@
 }
 
 :root {
-  /* Surfaces — the field and chrome took the leaf's whisper: a green-tinted
-     paper, green-tinted chrome for table heads, white cards on top. */
-  --bg: #f4f6f2;
-  --chrome: #e9f0e8;
-  --well: #eef2ec;
+  /* Surfaces — the field and chrome carry the lagoon's whisper: a teal-tinted
+     paper, teal-tinted chrome for table heads, white cards on top. */
+  --bg: #f2f5f4;
+  --chrome: #e7f0ee;
+  --well: #ecf2f0;
   --panel: #ffffff;
 
-  /* Hairlines do the depth, green-tinted to match. -strong is the structural
+  /* Hairlines do the depth, teal-tinted to match. -strong is the structural
      edge: table head rule, control borders. */
-  --hair: #dfe5dc;
-  --hair-soft: #e9ede6;
-  --hair-strong: #d4dcd2;
+  --hair: #dee5e2;
+  --hair-soft: #e8eeec;
+  --hair-strong: #d2dcd8;
 
-  /* Ink — text only in the bright edition: the action colour moved to the
-     leaf. Mute was lifted 2026-09-28 (it carried table sub-lines, detail
+  /* Ink — text only in the bright edition: the action colour moved off the
+     ink family. Mute was lifted 2026-09-28 (it carried table sub-lines, detail
      labels and nav labels at barely 3:1); it clears 5:1 on every surface
-     now, green-tinted to sit in the field. */
+     now, teal-tinted to sit in the field. */
   --ink: #15181b;
   --ink-soft: #5b626a;
-  --ink-mute: #5f6660;
-  --ink-faint: #8b918b;
+  --ink-mute: #5e6664;
+  --ink-faint: #8a918f;
 
   /* Brand — the coconut in two inks: the LEAF is the action colour (nav
      chrome, primary buttons, active states), the HUSK is the reference ink
-     (links, doc-links, metric labels). Water stays the badge wash. */
-  --leaf: #1e7a45;
-  --leaf-deep: #16603a;
-  --leaf-wash: #e0f0e5;
+     (links, doc-links, metric labels). Water stays the badge wash.
+     Colour pass, 2026-09-28 (the hue's second move): the greens were twice
+     rejected — too bright and outdated, then too dark — so the action hue
+     left the leaf for the LAGOON, a mid-teal with the coconut water's
+     clarity: clear to the naked eye on a plant floor without shouting, and
+     distant from every status colour (green pass, amber hold, red fail,
+     blue info — none of them live in teal). Token NAMES stay — leaf/grove
+     now read as "action"/"chrome"; the values are teal. White on the flat
+     leaf: 5.5:1. Flat tokens serve text/borders, -fill tokens the gloss. */
+  --leaf: #0f766e;
+  --leaf-deep: #0b5d57;
+  --leaf-wash: #d7f0ec;
   --husk: #5a4531;
   --husk-deep: #43331f;
   --water: #f3f0e7;
 
-  /* The nav chrome green — sidebar, app bar, thumb bar. Deeper than --leaf
+  /* The nav chrome teal — sidebar, app bar, thumb bar. Deeper than --leaf
      so white text and the bright active fill both clear AA on it. */
-  --grove: #175c35;
-  --grove-active: #238151;
+  --grove: #0c5f5a;
+  --grove-active: #0e8175;
+
+  /* The gloss: vertical gradients (light from above) and the 1px sheen line
+     every filled surface wears at its top edge. Contrast is checked at each
+     gradient's lightest stop — the darker stop only helps. */
+  --leaf-fill: linear-gradient(180deg, #0e8175 0%, #0a655d 100%);
+  --leaf-fill-hover: linear-gradient(180deg, #0f8578 0%, #0b6a61 100%);
+  --grove-fill: linear-gradient(180deg, #118275 0%, #0a544e 100%);
+  --grove-active-fill: linear-gradient(180deg, #0f8578 0%, #0a655d 100%);
+  --sheen: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  --leaf-ring: 0 0 0 3px rgba(15, 118, 110, 0.24);
 
   /* Status — bright, per the plant's verdict on the quiet family. The
      700-grade inks on 100-grade washes: every fg clears 4.5:1 on its wash
@@ -86,10 +112,11 @@
   --radius-control: 8px;
 
   /* Legacy names still read across the stylesheet and by inline styles in the
-     pages: each maps to its living relative. The greens are the leaf again —
-     every selection and active state (type tabs, score buttons, stage cards,
-     pick rows, trace links, size presets) went green with the bright edition.
-     --success, --accent, --gold and --shadow had no readers left long ago. */
+     pages: each maps to its living relative. The action colour carries every
+     selection and active state (type tabs, score buttons, stage cards, pick
+     rows, trace links, size presets) — green in the bright edition, teal since
+     the lagoon pass. --success, --accent, --gold and --shadow had no readers
+     left long ago. */
   --line: var(--hair);
   --muted: var(--ink-soft);
   --warning: var(--amber);
@@ -178,11 +205,13 @@ body.drawer-open {
   overflow: hidden;
 }
 
-/* The nav chrome went grove green in the bright edition — the single biggest
+/* The nav chrome went coloured in the bright edition — the single biggest
    lever against "dull": every screen now opens on colour (§2's no-dark-surfaces
-   rule is amended for the nav chrome only; content surfaces stay light). */
+   rule is amended for the nav chrome only; content surfaces stay light).
+   The gloss pass gave it depth: the fill is a vertical gradient, lighter at
+   the top where the light hits, sinking to deep lagoon at the rail's foot. */
 .sidebar {
-  background: var(--grove);
+  background: var(--grove-fill);
   color: rgba(255, 255, 255, 0.92);
   padding: 24px 18px;
   position: sticky;
@@ -230,7 +259,7 @@ body.drawer-open {
   font-size: 11px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.55);
+  color: rgba(255, 255, 255, 0.64);
   margin: 18px 10px 8px;
 }
 
@@ -267,8 +296,9 @@ body.drawer-open {
   cursor: pointer;
 }
 .page-chip.on {
-  background: var(--leaf);
-  border-color: var(--leaf);
+  background: var(--leaf-fill);
+  border-color: var(--leaf-deep);
+  box-shadow: var(--sheen);
   color: white;
 }
 
@@ -286,7 +316,7 @@ body.drawer-open {
   font-size: 10px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.55);
+  color: rgba(255, 255, 255, 0.64);
   margin: 12px 10px 4px;
 }
 
@@ -311,12 +341,13 @@ body.drawer-open {
   color: white;
 }
 
-/* The active page: a brighter leaf fill with a white rail — colour saying
-   "you are here", not a whisper. */
+/* The active page: a glossy teal fill with a white rail — colour saying
+   "you are here", not a whisper. The sheen line along its top edge is what
+   makes the fill read as a lit surface instead of a flat sticker. */
 .nav button.active {
-  background: var(--grove-active);
+  background: var(--grove-active-fill);
   color: white;
-  box-shadow: inset 2px 0 0 rgba(255, 255, 255, 0.85);
+  box-shadow: var(--sheen), inset 2px 0 0 rgba(255, 255, 255, 0.85);
 }
 
 .sidebar-footer {
@@ -784,19 +815,24 @@ body.drawer-open {
   white-space: nowrap;
 }
 
-/* Primary is the leaf now — green says "do this" (5.3:1 white-on-leaf). The
-   husk stays a reference ink and is still never a fill. `.btn.primary` is
-   Login's unprefixed pair of the same rule. */
+/* Primary is the leaf now — teal says "do this". The gloss pass: the fill
+   is a two-stop gradient (light above, depth below) wearing the sheen line,
+   and hover LIFTS brighter — a lit button, not a stamped one. White text
+   clears 4.8:1 at the gradient's lightest stop. `.btn.primary` is Login's
+   unprefixed pair of the same rule. The husk stays a reference ink, never
+   a fill. */
 .btn-primary,
 .btn.primary {
-  background: var(--leaf);
-  border-color: var(--leaf);
+  background: var(--leaf-fill);
+  border-color: var(--leaf-deep);
   color: white;
+  box-shadow: var(--sheen), inset 0 -1px 0 rgba(0, 0, 0, 0.14),
+    0 1px 2px rgba(13, 74, 44, 0.3);
 }
 
 .btn-primary:hover,
 .btn.primary:hover {
-  background: var(--leaf-deep);
+  background: var(--leaf-fill-hover);
   border-color: var(--leaf-deep);
 }
 
@@ -810,7 +846,7 @@ body.drawer-open {
 
 .btn-light:hover {
   background: var(--chrome);
-  border-color: #c6cec4;
+  border-color: #c4cec9;
 }
 
 /* Danger is clay on a clay wash — outline treatment, never a clay fill (§5). */
@@ -889,11 +925,11 @@ tr:last-child td {
   border-bottom: 0;
 }
 
-/* Zebra striping: a faint green-tinted band on alternate rows so a wide
+/* Zebra striping: a faint teal-tinted band on alternate rows so a wide
    ledger row keeps its place while the eye runs across it. Every hover,
    focus and subrow state below out-ranks it. */
 tbody tr:nth-child(even) td {
-  background: #f2f5ef;
+  background: #f0f5f3;
 }
 
 .selectable-row:hover td {
@@ -1134,7 +1170,7 @@ th.cell-num {
 }
 
 .status.neutral {
-  background: #e8eae4;
+  background: #e6eae8;
   border-color: rgba(21, 24, 27, 0.22);
   color: var(--ink-soft);
 }
@@ -1187,7 +1223,7 @@ input:focus,
 select:focus,
 textarea:focus {
   border-color: var(--leaf);
-  box-shadow: 0 0 0 3px rgba(30, 122, 69, 0.18);
+  box-shadow: var(--leaf-ring);
 }
 
 textarea {
@@ -1397,7 +1433,7 @@ textarea:disabled {
 .bar span {
   display: block;
   height: 100%;
-  background: var(--leaf);
+  background: var(--leaf-fill);
 }
 
 /* Roomy on desktop, but never wider than the phone it is sitting on. */
@@ -2053,7 +2089,7 @@ table tbody tr.subrow > td {
 
 .ui-select-trigger[aria-expanded='true'] {
   border-color: var(--leaf);
-  box-shadow: 0 0 0 3px rgba(30, 122, 69, 0.18);
+  box-shadow: var(--leaf-ring);
 }
 
 .ui-select-trigger:disabled {
@@ -2250,7 +2286,8 @@ table tbody tr.subrow > td {
 }
 
 .type-tab.active {
-  background: var(--green);
+  background: var(--leaf-fill);
+  box-shadow: var(--sheen);
   color: white;
 }
 
@@ -2975,9 +3012,11 @@ table tbody tr.subrow > td {
     z-index: 30;
     min-width: 0;
     max-width: 100%;
-    /* Grove green, matching the sidebar: the phone shell carries colour too. */
-    background: var(--grove);
+    /* Grove green, matching the sidebar: the phone shell carries colour too —
+       same gradient, plus the sheen line so the bar reads as a lit surface. */
+    background: var(--grove-fill);
     border-bottom: 1px solid rgba(0, 0, 0, 0.18);
+    box-shadow: var(--sheen);
     color: rgba(255, 255, 255, 0.95);
     padding: 8px 12px 8px 6px;
     padding-top: calc(8px + env(safe-area-inset-top));
@@ -3079,9 +3118,11 @@ table tbody tr.subrow > td {
     bottom: 0;
     z-index: 40;
     /* Grove green to match the app bar — the thumb bar is plant chrome, not
-       content, and it earns the colour. */
-    background: var(--grove);
+       content, and it earns the colour. Gradient like the app bar, sheen on
+       its top edge where the light catches it. */
+    background: var(--grove-fill);
     border-top: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow: var(--sheen);
     padding-bottom: env(safe-area-inset-bottom);
   }
 
@@ -3115,7 +3156,7 @@ table tbody tr.subrow > td {
   }
 
   .bottom-nav button.active svg {
-    color: #9adfae;
+    color: #8fe3d8;
   }
 
   .bottom-nav button.active::before {
@@ -3126,7 +3167,7 @@ table tbody tr.subrow > td {
     right: 22%;
     height: 3px;
     border-radius: 0 0 3px 3px;
-    background: #9adfae;
+    background: #8fe3d8;
   }
 
   /* Keep the last row of content clear of the fixed bottom nav. */
@@ -3574,8 +3615,9 @@ table tbody tr.subrow > td {
 }
 
 .stage-card.active {
-  background: var(--green);
-  border-color: var(--green);
+  background: var(--leaf-fill);
+  border-color: var(--leaf-deep);
+  box-shadow: var(--sheen);
   color: #fff;
 }
 
@@ -3719,8 +3761,9 @@ table tbody tr.subrow > td {
 }
 
 .size-presets .btn.active {
-  background: var(--green);
-  border-color: var(--green);
+  background: var(--leaf-fill);
+  border-color: var(--leaf-deep);
+  box-shadow: var(--sheen);
   color: #fff;
 }
 
