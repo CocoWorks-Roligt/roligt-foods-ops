@@ -63,17 +63,16 @@ export async function listOrgUsers(): Promise<AdminUserRow[]> {
     .filter((r): r is AdminUserRow => r !== null)
 }
 
-/** Creates the user and their org membership in one action. */
+/** Creates the user and their org membership in one action. No password —
+ *  the person sets their own through a link minted right after (below). */
 export async function createUserWithRoles(input: {
   email: string
   name?: string
-  password?: string
   roleSlugs: string[]
 }): Promise<AdminUserRow['userId']> {
   const user = await workos.userManagement.createUser({
     email: input.email,
     ...(input.name ? { name: input.name } : {}),
-    ...(input.password ? { password: input.password } : {}),
   })
   await workos.userManagement.createOrganizationMembership({
     organizationId: orgId(),
@@ -120,13 +119,17 @@ export function invalidateMemberMirror(): void {
   memberMirror = null
 }
 
-/** Invites by email — WorkOS sends the mail; one role may ride along. */
-export async function inviteUser(input: { email: string; roleSlug?: string }): Promise<void> {
-  await workos.userManagement.sendInvitation({
-    email: input.email,
-    organizationId: orgId(),
-    ...(input.roleSlug ? { roleSlug: input.roleSlug } : {}),
-  })
+/**
+ * Mints a one-time password-reset link for a user. WorkOS also sends the usual
+ * reset email — which Zoho inboxes keep spam-foldering — so the URL is handed
+ * back for the admin to deliver by a channel that actually reaches the person;
+ * when the mail does arrive, it is a bonus, not the path. Completing the link
+ * sets the password and verifies the email in one step. Tokens are single-use
+ * and expire in ~15 minutes.
+ */
+export async function createPasswordResetLink(email: string): Promise<{ url: string; expiresAt: string }> {
+  const reset = await workos.userManagement.createPasswordReset({ email })
+  return { url: reset.passwordResetUrl, expiresAt: reset.expiresAt }
 }
 
 export async function setUserRoles(membershipId: string, roleSlugs: string[]): Promise<void> {

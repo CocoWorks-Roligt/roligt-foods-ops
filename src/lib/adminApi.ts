@@ -32,7 +32,10 @@ export interface RolesSnapshot {
   missing?: string[]
 }
 
-export type AdminResult = { ok: true } | { ok: false; error: string }
+/** The minted one-time password link rides the ok arm when the action made one. */
+export type AdminResult =
+  | { ok: true; resetUrl?: string; expiresAt?: string; linkError?: string }
+  | { ok: false; error: string }
 
 async function admin(path: string, init?: RequestInit): Promise<Response> {
   const res = await fetch(path, {
@@ -75,13 +78,16 @@ async function post(path: string, body: Record<string, unknown>): Promise<AdminR
     }
     throw e
   }
-  if (res.ok) return { ok: true }
+  if (res.ok) {
+    const j = (await res.json().catch(() => ({}))) as { resetUrl?: string; expiresAt?: string; linkError?: string }
+    return { ok: true as const, ...j }
+  }
   return { ok: false, error: await readError(res) }
 }
 
 export type UserAction =
-  | { action: 'create'; email: string; name?: string; password?: string; roleSlugs?: string[] }
-  | { action: 'invite'; email: string; roleSlugs?: string[] }
+  | { action: 'create'; email: string; name?: string; roleSlugs?: string[] }
+  | { action: 'reset-link'; membershipId: string }
   | { action: 'deactivate'; membershipId: string }
   | { action: 'reactivate'; membershipId: string }
   | { action: 'set-roles'; membershipId: string; roleSlugs: string[] }

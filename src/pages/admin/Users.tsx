@@ -9,6 +9,7 @@ import {
   adminUserAction,
   fetchAdminRoles,
   fetchAdminUsers,
+  type AdminResult,
   type AdminUserRow,
 } from '../../lib/adminApi'
 import { fmtDate } from '../../lib/utils'
@@ -20,12 +21,18 @@ import { fmtDate } from '../../lib/utils'
  * window onto them, so an administrator never has to send anyone to a
  * provider's dashboard to grant a colleague access. Every action here rides
  * /api/admin/users, which checks the Users page tick and files an audit row.
+ *
+ * Onboarding is one door: Add user creates the account and mints a one-time
+ * password link the admin delivers themselves — the person sets their own
+ * password (verifying their email on the way). There is deliberately no
+ * admin-set password and no mailed invitation; WorkOS mail kept dying in Zoho
+ * spam folders, and the hand-delivered link has never missed.
  */
 
 type Dialog =
   | { kind: 'none' }
   | { kind: 'create' }
-  | { kind: 'invite' }
+  | { kind: 'password-link'; email: string; url: string; expiresAt: string }
   | { kind: 'roles'; user: AdminUserRow }
   | { kind: 'delete'; user: AdminUserRow }
 
@@ -68,14 +75,22 @@ export function Users() {
     void reload()
   }, [])
 
-  const run = async (label: string, fn: () => Promise<{ ok: boolean; error?: string }>) => {
+  /** Run an action: toast + reload on success, and hand the result to `done`
+   *  when the caller wants more than the plain dialog-closed outcome — the
+   *  password-link actions open their link dialog from it. */
+  const run = async (
+    label: string,
+    fn: () => Promise<AdminResult>,
+    done?: (result: Extract<AdminResult, { ok: true }>) => void,
+  ) => {
     setBusy(true)
     const result = await fn()
     setBusy(false)
     if (result.ok) {
       showToast(label)
       await reload()
-      setDialog({ kind: 'none' })
+      if (done) done(result)
+      else setDialog({ kind: 'none' })
     } else {
       setError(result.error ?? 'The change was refused.')
     }
@@ -102,9 +117,6 @@ export function Users() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <button className="btn btn-light" type="button" onClick={() => setDialog({ kind: 'invite' })}>
-          + Invite by email
-        </button>
         <button className="btn btn-primary" type="button" onClick={() => setDialog({ kind: 'create' })}>
           + Add user
         </button>
@@ -137,7 +149,7 @@ export function Users() {
                     empty={
                       users === null
                         ? 'Reading users…'
-                        : 'No users yet. Invite a colleague by email, or add one with a password.'
+                        : 'No users yet. Add a colleague — they set their own password through a link you send them.'
                     }
                     onClear={() => setSearch('')}
                   />
@@ -166,6 +178,31 @@ export function Users() {
                         onClick={() => setDialog({ kind: 'roles', user: u })}
                       >
                         Roles
+                      </button>
+                      <button
+                        className="btn btn-light"
+                        type="button"
+                        disabled={busy || u.status !== 'active'}
+                        title={
+                          u.status !== 'active'
+                            ? 'Reactivate their access first.'
+                            : 'Mint a fresh one-time link — they set their password through it.'
+                        }
+                        onClick={() =>
+                          void run(
+                            'Password link generated.',
+                            () => adminUserAction({ action: 'reset-link', membershipId: u.membershipId }),
+                            (r) => {
+                              if (r.resetUrl && r.expiresAt) {
+                                setDialog({ kind: 'password-link', email: u.email, url: r.resetUrl, expiresAt: r.expiresAt })
+                              } else {
+                                setDialog({ kind: 'none' })
+                              }
+                            },
+                          )
+                        }
+                      >
+                        Password link…
                       </button>
                       <button
                         className="btn btn-light"
@@ -209,15 +246,28 @@ export function Users() {
           roleSlugs={roleSlugs}
           busy={busy}
           onClose={() => setDialog({ kind: 'none' })}
-          onSave={(body) => void run('User created.', () => adminUserAction(body))}
+          onSave={(body) =>
+            void run(
+              'User created.',
+              () => adminUserAction(body),
+              (r) => {
+                if (r.resetUrl && r.expiresAt) {
+                  setDialog({ kind: 'password-link', email: body.email, url: r.resetUrl, expiresAt: r.expiresAt })
+                } else {
+                  setDialog({ kind: 'none' })
+                  if (r.linkError) setError(r.linkError)
+                }
+              },
+            )
+          }
         />
       ) : null}
-      {dialog.kind === 'invite' ? (
-        <InviteDialog
-          roleSlugs={roleSlugs}
-          busy={busy}
+      {dialog.kind === 'password-link' ? (
+        <PasswordLinkDialog
+          email={dialog.email}
+          url={dialog.url}
+          expiresAt={dialog.expiresAt}
           onClose={() => setDialog({ kind: 'none' })}
-          onSave={(body) => void run('Invitation sent.', () => adminUserAction(body))}
         />
       ) : null}
       {dialog.kind === 'roles' ? (
@@ -294,13 +344,11 @@ function CreateDialog({
     action: 'create'
     email: string
     name?: string
-    password?: string
     roleSlugs: string[]
   }) => void
 }) {
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
-  const [password, setPassword] = useState('')
   const [role, setRole] = useState('')
   return (
     <Modal
@@ -313,11 +361,14 @@ function CreateDialog({
           action: 'create',
           email: email.trim(),
           ...(name.trim() ? { name: name.trim() } : {}),
-          ...(password ? { password } : {}),
           roleSlugs: role ? [role] : [],
         })
       }
     >
+      <p className="small">
+        No password here — after the account is created we generate a one-time link for you to send
+        them. They set their own password (which also verifies their email) and sign straight in.
+      </p>
       <div className="field">
         <label>Email</label>
         <input value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" />
@@ -326,50 +377,56 @@ function CreateDialog({
         <label>Name</label>
         <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" />
       </div>
-      <div className="field">
-        <label>Password (optional — they can reset by email)</label>
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          autoComplete="new-password"
-        />
-      </div>
       <RolePicker value={role} onChange={setRole} slugs={roleSlugs} />
     </Modal>
   )
 }
 
-function InviteDialog({
-  roleSlugs,
-  busy,
+/**
+ * The one-time link a person sets their password through. WorkOS also emails
+ * one, but those kept dying in Zoho spam folders — so delivery is the admin's
+ * one copy-paste (WhatsApp works), and the mailed copy is a bonus when it
+ * lands. One use, ~15 minutes; the row's Password link action mints a fresh
+ * one any time, which is also the locked-out-user and expired-link remedy.
+ */
+function PasswordLinkDialog({
+  email,
+  url,
+  expiresAt,
   onClose,
-  onSave,
 }: {
-  roleSlugs: string[]
-  busy: boolean
+  email: string
+  url: string
+  expiresAt: string
   onClose: () => void
-  onSave: (body: { action: 'invite'; email: string; roleSlugs?: string[] }) => void
 }) {
-  const [email, setEmail] = useState('')
-  const [role, setRole] = useState('')
+  const [copied, setCopied] = useState(false)
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopied(true)
+    } catch {
+      // clipboard denied — the field selects all on focus for a manual copy
+    }
+  }
+  const expiry = new Date(expiresAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
   return (
-    <Modal
-      title="Invite by email"
-      open
-      onClose={onClose}
-      saveDisabled={busy || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)}
-      onSave={() => onSave({ action: 'invite', email: email.trim(), roleSlugs: role ? [role] : [] })}
-    >
+    <Modal title={`Password link — ${email}`} open onClose={onClose} onSave={onClose} readOnly>
       <p className="small">
-        WorkOS sends the invitation; the colleague sets their own password. A role can be adjusted
-        after they accept.
+        Send this to {email} — any channel that reaches them. They set their own password, their
+        email verifies itself, and they arrive signed in.
       </p>
       <div className="field">
-        <label>Email</label>
-        <input value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" />
+        <label>{copied ? 'One-time link — copied to clipboard' : 'One-time link'}</label>
+        <input readOnly value={url} onFocus={(e) => e.target.select()} />
       </div>
-      <RolePicker value={role} onChange={setRole} slugs={roleSlugs} />
+      <button className="btn btn-light" type="button" onClick={() => void copy()}>
+        {copied ? 'Copied' : 'Copy link'}
+      </button>
+      <p className="small">
+        Works once and expires {expiry}. Anyone holding it can set this user's password — send it
+        only to them. A fresh one can be minted any time from their row.
+      </p>
     </Modal>
   )
 }

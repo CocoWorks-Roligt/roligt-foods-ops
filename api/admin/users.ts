@@ -3,10 +3,10 @@ import { authenticate, AuthError } from '../_lib/auth.ts'
 import { zoho } from '../_lib/shared.ts'
 import { writeAdminAudit } from '../_lib/adminAudit.ts'
 import {
+  createPasswordResetLink,
   createUserWithRoles,
   deactivateUser,
   deleteUserAccount,
-  inviteUser,
   listOrgUsers,
   listRoles,
   reactivateUser,
@@ -21,8 +21,12 @@ import { ADMIN_PAGE_SLUGS } from '../../src/lib/permissions.ts'
  * User administration — the Users page's surface (its tick carries this API).
  *
  * GET lists the organization's members with the roles their membership carries;
- * POST performs one action (create/invite/deactivate/reactivate/set-roles/
- * remove/delete). Every mutating action files one audit row and bumps the
+ * POST performs one action (create/reset-link/deactivate/reactivate/set-roles/
+ * remove/delete). Create and reset-link answer with the one-time password URL
+ * they minted — the person sets their own password through it (verifying their
+ * email on the way), so no admin ever types anyone's password and no onboarding
+ * step depends on WorkOS mail surviving a Zoho spam filter. Every mutating
+ * action files one audit row and bumps the
  * revision, so the change is visible on every client's Audit page without a
  * reload. Every action that takes access away (deactivate/remove/delete)
  * resolves the target from the live member list — never from the request
@@ -32,10 +36,9 @@ import { ADMIN_PAGE_SLUGS } from '../../src/lib/permissions.ts'
  */
 
 type Body = {
-  action?: 'create' | 'invite' | 'deactivate' | 'reactivate' | 'set-roles' | 'remove' | 'delete'
+  action?: 'create' | 'reset-link' | 'deactivate' | 'reactivate' | 'set-roles' | 'remove' | 'delete'
   email?: string
   name?: string
-  password?: string
   membershipId?: string
   userId?: string
   roleSlugs?: string[]
@@ -79,6 +82,8 @@ export default async function (req: VercelRequest, res: VercelResponse) {
 
     const body = (typeof req.body === 'string' ? JSON.parse(req.body) : req.body) as Body
     const action = body?.action
+    /** Fields only some actions answer with — the minted link, when one was. */
+    const extra: Record<string, string> = {}
     switch (action) {
       case 'create': {
         const email = String(body.email ?? '').trim()
@@ -87,18 +92,34 @@ export default async function (req: VercelRequest, res: VercelResponse) {
           return
         }
         const roleSlugs = asSlugs(body.roleSlugs)
-        await createUserWithRoles({ email, name: body.name, password: body.password, roleSlugs })
+        await createUserWithRoles({ email, name: body.name, roleSlugs })
         await writeAdminAudit(zoho, caller, 'user created', email, `roles: ${roleSlugs.join(', ') || 'none'}`)
+        // Audited before the mint: a WorkOS hiccup on the link must not leave
+        // an un-audited user behind — the row's reset-link action recovers it.
+        try {
+          const link = await createPasswordResetLink(email)
+          extra.resetUrl = link.url
+          extra.expiresAt = link.expiresAt
+        } catch (e) {
+          extra.linkError = `The user was created, but the password link failed: ${(e as Error).message}`
+        }
         break
       }
-      case 'invite': {
-        const email = String(body.email ?? '').trim()
-        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-          res.status(400).json({ error: 'A valid email address is required.' })
+      case 'reset-link': {
+        const membershipId = String(body.membershipId ?? '')
+        if (!membershipId) {
+          res.status(400).json({ error: 'membershipId is required.' })
           return
         }
-        await inviteUser({ email, roleSlug: asSlugs(body.roleSlugs)[0] })
-        await writeAdminAudit(zoho, caller, 'user invited', email, 'invitation sent by WorkOS')
+        const row = (await listOrgUsers()).find((u) => u.membershipId === membershipId)
+        if (!row) {
+          res.status(400).json({ error: 'That user is not in the organization — perhaps already removed.' })
+          return
+        }
+        const link = await createPasswordResetLink(row.email)
+        extra.resetUrl = link.url
+        extra.expiresAt = link.expiresAt
+        await writeAdminAudit(zoho, caller, 'password link minted', row.email, 'one-time link; the holder sets this user’s password')
         break
       }
       case 'deactivate': {
@@ -212,7 +233,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
         res.status(400).json({ error: 'Unknown action.' })
         return
     }
-    res.status(200).json({ ok: true })
+    res.status(200).json({ ok: true, ...extra })
   } catch (e) {
     if (e instanceof AuthError) {
       res.status(401).json({ error: e.message })

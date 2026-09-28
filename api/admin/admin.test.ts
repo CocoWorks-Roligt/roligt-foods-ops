@@ -51,8 +51,9 @@ vi.mock('../_lib/workosAdmin.ts', () => ({
     if (mode.refuse) throw Object.assign(new Error(mode.refuse.message), { status: mode.refuse.status })
     return 'user_1'
   }),
-  inviteUser: vi.fn(async (input: { email: string }) => {
-    mode.calls.push(`invite:${input.email}`)
+  createPasswordResetLink: vi.fn(async (email: string) => {
+    mode.calls.push(`reset-link:${email}`)
+    return { url: 'https://authkit.test/reset-password?token=t', expiresAt: '2026-09-28T08:00:00.000Z' }
   }),
   setUserRoles: vi.fn(async (membershipId: string, roleSlugs: string[]) => {
     mode.calls.push(`set-roles:${membershipId}=${roleSlugs.join('+')}`)
@@ -249,12 +250,16 @@ describe('GET', () => {
 })
 
 describe('mutations audit and bump', () => {
-  it('creates a user, files one audit row and one revision bump, invalidates the cache', async () => {
+  it('creates a user, mints their password link, files one audit row and one revision bump, invalidates the cache', async () => {
     const res = fakeRes()
     await usersHandler(fakeReq({ action: 'create', email: 'new@roligt.local', roleSlugs: ['operator'] }), res)
     expect(res.status).toHaveBeenCalledWith(200)
-    expect(res.json).toHaveBeenCalledWith({ ok: true })
-    expect(mode.calls).toEqual(['create:new@roligt.local'])
+    expect(res.json).toHaveBeenCalledWith({
+      ok: true,
+      resetUrl: 'https://authkit.test/reset-password?token=t',
+      expiresAt: '2026-09-28T08:00:00.000Z',
+    })
+    expect(mode.calls).toEqual(['create:new@roligt.local', 'reset-link:new@roligt.local'])
     expect(writes).toHaveLength(2) // exactly one audit row + one revision bump
     const criteria = criteriaOf().join(' | ')
     const tables = tableIdsOf()
@@ -314,16 +319,21 @@ describe('mutations audit and bump', () => {
     expect(wire).toContain('user deleted')
   })
 
-  it('deactivates a member and audits under their email', async () => {
-    withCallerAdmin(row('u2', 'm2', 'napping@roligt.local'))
+  it('mints a password link for a member, audits under their email, and answers with the URL', async () => {
+    mode.orgUsers = [row('u2', 'm2', 'locked@roligt.local')]
     const res = fakeRes()
-    await usersHandler(fakeReq({ action: 'deactivate', membershipId: 'm2' }), res)
+    await usersHandler(fakeReq({ action: 'reset-link', membershipId: 'm2' }), res)
     expect(res.status).toHaveBeenCalledWith(200)
-    expect(mode.calls).toEqual(['deactivate:m2'])
+    expect(res.json).toHaveBeenCalledWith({
+      ok: true,
+      resetUrl: 'https://authkit.test/reset-password?token=t',
+      expiresAt: '2026-09-28T08:00:00.000Z',
+    })
+    expect(mode.calls).toEqual(['reset-link:locked@roligt.local'])
     expect(writes).toHaveLength(2)
     const wire = writes.map((w) => decodeURIComponent(`${w.url} ${w.body}`).replace(/\+/g, ' ')).join(' ')
-    expect(wire).toContain('napping@roligt.local')
-    expect(wire).toContain('user deactivated')
+    expect(wire).toContain('locked@roligt.local')
+    expect(wire).toContain('password link minted')
   })
 })
 
@@ -348,7 +358,11 @@ describe('self-protection and last-admin', () => {
   })
 
   it('refuses ids that are not members — nothing to audit, nothing to call', async () => {
-    for (const body of [{ action: 'remove', membershipId: 'mX' }, { action: 'delete', userId: 'uX' }]) {
+    for (const body of [
+      { action: 'remove', membershipId: 'mX' },
+      { action: 'delete', userId: 'uX' },
+      { action: 'reset-link', membershipId: 'mX' },
+    ]) {
       const res = fakeRes()
       await usersHandler(fakeReq(body), res)
       expect(res.status).toHaveBeenCalledWith(400)
