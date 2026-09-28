@@ -124,8 +124,12 @@ export function invalidateMemberMirror(): void {
  * reset email — which Zoho inboxes keep spam-foldering — so the URL is handed
  * back for the admin to deliver by a channel that actually reaches the person;
  * when the mail does arrive, it is a bonus, not the path. Completing the link
- * sets the password and verifies the email in one step. Tokens are single-use
- * and expire in ~15 minutes.
+ * sets the password and verifies the email in one step. It is NOT an app
+ * sign-in: the completion redirect reaches /api/auth/callback with no live
+ * sign-in session to exchange (the state+verifier pair only exists when the
+ * Sign-in button started the flow), so it is refused and lands on the login
+ * card — the person signs in with their new password from there. Tokens are
+ * single-use and expire in ~15 minutes.
  */
 export async function createPasswordResetLink(email: string): Promise<{ url: string; expiresAt: string }> {
   const reset = await workos.userManagement.createPasswordReset({ email })

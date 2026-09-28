@@ -367,7 +367,8 @@ function CreateDialog({
     >
       <p className="small">
         No password here — after the account is created we generate a one-time link for you to send
-        them. They set their own password (which also verifies their email) and sign straight in.
+        them. They set their own password (which also verifies their email), then sign in with it from
+        the sign-in card.
       </p>
       <div className="field">
         <label>Email</label>
@@ -413,8 +414,9 @@ function PasswordLinkDialog({
   return (
     <Modal title={`Password link — ${email}`} open onClose={onClose} onSave={onClose} readOnly>
       <p className="small">
-        Send this to {email} — any channel that reaches them. They set their own password, their
-        email verifies itself, and they arrive signed in.
+        Send this to {email} — any channel that reaches them. They set their own password (which also
+        verifies their email) and land on the sign-in card — one Sign in with the new password and
+        they are in.
       </p>
       <div className="field">
         <label>{copied ? 'One-time link — copied to clipboard' : 'One-time link'}</label>
