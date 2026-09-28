@@ -9,6 +9,7 @@ import {
 import type { Role } from '../types'
 import { setUnauthorizedHandler } from '../lib/authEvents'
 import { WORKOS_CONFIGURED, getDevRole } from '../lib/authMode'
+import { setAppticsUser } from '../lib/apptics'
 import { fetchSession, type SessionLike } from '../lib/authSession'
 import { devPermissions, isAdminPermissions, type PermissionKey } from '../lib/permissions.ts'
 import { setSessionPermissions, useSessionPermissions } from '../lib/sessionPermissions'
@@ -86,6 +87,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
     return () => setUnauthorizedHandler(null)
   }, [])
+
+  // Apptics trial: attribute the session to the operator (no-op in production).
+  // One effect covers sign-in, sign-out, the dev fallback and the 401 clear —
+  // they all flow through `session`.
+  useEffect(() => {
+    setAppticsUser(session?.user.email ?? null)
+  }, [session])
 
   const signIn = useCallback(async () => {
     if (WORKOS_CONFIGURED) {

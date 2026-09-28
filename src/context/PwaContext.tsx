@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { useRegisterSW } from 'virtual:pwa-register/react'
+import { trackEvent } from '../lib/apptics'
 import { isIos, isStandalone, type BeforeInstallPromptEvent } from '../lib/pwa'
 
 interface PwaContextValue {
@@ -37,8 +38,14 @@ export function PwaProvider({ children }: { children: ReactNode }) {
   const [installed, setInstalled] = useState(isStandalone)
 
   useEffect(() => {
-    const goOnline = () => setOffline(false)
-    const goOffline = () => setOffline(true)
+    const goOnline = () => {
+      setOffline(false)
+      trackEvent('connectivity', { state: 'online' })
+    }
+    const goOffline = () => {
+      setOffline(true)
+      trackEvent('connectivity', { state: 'offline' })
+    }
     window.addEventListener('online', goOnline)
     window.addEventListener('offline', goOffline)
     return () => {

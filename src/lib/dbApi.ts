@@ -12,6 +12,7 @@ import { diffState, type StateChanges } from './sync'
 import type { AppState } from '../types'
 import { notifyUnauthorized } from './authEvents'
 import { WORKOS_CONFIGURED, getDevRole } from './authMode'
+import { trackEvent } from './apptics'
 
 /** The BFF refused the session cookie — it is gone. */
 export class UnauthorizedError extends Error {
@@ -36,10 +37,12 @@ async function api(path: string, init?: RequestInit): Promise<Response> {
     // Refresh happens server-side; a 401 that survived it means the session is
     // really dead — no client-side retry exists or is needed.
     notifyUnauthorized() // AuthContext clears the session → login screen
+    trackEvent('session_expired')
     throw new UnauthorizedError()
   }
   if (res.status === 503) {
     const retryAfter = Number(res.headers.get('retry-after')) || 60
+    trackEvent('db_throttled', { retryAfterSec: retryAfter })
     throw new ThrottledError(retryAfter)
   }
   return res
@@ -168,10 +171,19 @@ function chunkChanges(changes: StateChanges, size = WRITES_PER_COMMIT): StateCha
 
 export async function saveDb(next: AppState, prev: AppState | null): Promise<SaveResult> {
   const changes: StateChanges = diffState(prev, next)
+  // Apptics usage signal: which document kinds this save carries — every flow
+  // (GRN, QC, dispatch, packing…) funnels through this one write path, so the
+  // touched tables are the honest per-flow breakdown.
+  const tables = changes.tables.map((t) => t.table).join(',')
+  const rows = changes.tables.reduce((a, t) => a + t.upsert.length + t.remove.length, 0)
+  const finish = (result: SaveResult): SaveResult => {
+    trackEvent('db_commit', { ok: result.ok, reason: result.ok ? 'ok' : result.reason, tables, rows })
+    return result
+  }
   try {
     if (changes.empty) {
       const revision = await fetchRevision()
-      return { ok: true, revision }
+      return finish({ ok: true, revision })
     }
     let revision = ''
     for (const chunk of chunkChanges(changes)) {
@@ -186,16 +198,16 @@ export async function saveDb(next: AppState, prev: AppState | null): Promise<Sav
       }
       if (res.status === 403) {
         const j = (await res.json().catch(() => ({}))) as { error?: string; table?: string }
-        return {
+        return finish({
           ok: false,
           reason: 'forbidden',
           message: j.error ?? `You do not have permission to change ${(j.table ?? 'this data').replace(/_/g, ' ')}.`,
-        }
+        })
       }
       if (res.status === 409) {
         const j = (await res.json().catch(() => ({}))) as { error?: string; conflicts?: RowConflict[] }
         const conflicts = j.conflicts ?? []
-        return {
+        return finish({
           ok: false,
           reason: 'conflict',
           message:
@@ -204,18 +216,18 @@ export async function saveDb(next: AppState, prev: AppState | null): Promise<Sav
               ? `Another device saved ${conflicts.map((c) => c.id).join(', ')} first — their version is now shown.`
               : 'Another device saved changes to the same records first.'),
           conflicts,
-        }
+        })
       }
       const j = (await res.json().catch(() => ({}))) as { error?: string }
-      return { ok: false, reason: 'error', message: j.error ?? `commit failed (HTTP ${res.status})` }
+      return finish({ ok: false, reason: 'error', message: j.error ?? `commit failed (HTTP ${res.status})` })
     }
-    return { ok: true, revision }
+    return finish({ ok: true, revision })
   } catch (e) {
     // A dead session is not an outage: the work stays held on this device and
     // is pushed after signing in again. Reporting it as offline would promise a
     // reconnect that never comes.
     if (e instanceof UnauthorizedError) {
-      return { ok: false, reason: 'unauthorized', message: e.message }
+      return finish({ ok: false, reason: 'unauthorized', message: e.message })
     }
     throw e
   }

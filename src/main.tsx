@@ -2,6 +2,11 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
+import { initApptics } from './lib/apptics'
+
+// Staging-only Apptics trial: boots crash capture before any app code can
+// throw. A no-op unless the token env is present (src/lib/apptics.ts).
+initApptics()
 
 // App renders AuthProvider (and everything else) itself. With WorkOS the
 // browser holds no tokens, so there is no provider to mount here: the session

@@ -1,5 +1,5 @@
-import { lazy, type ReactNode } from 'react'
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { lazy, useEffect, type ReactNode } from 'react'
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { DocViewerProvider } from './components/DocViewer'
 import { Layout } from './components/Layout'
 import { UpdatePrompt } from './components/PwaPrompts'
@@ -8,6 +8,7 @@ import { AuthProvider, useAuth } from './context/AuthContext'
 import { PwaProvider } from './context/PwaContext'
 import { ToastProvider } from './context/ToastContext'
 import { canViewPage, firstAllowedPath } from './lib/pages.ts'
+import { trackPageView } from './lib/apptics'
 import { useSessionPermissions } from './lib/sessionPermissions'
 import type { ViewId } from './types'
 import { Dashboard } from './pages/Dashboard'
@@ -64,6 +65,18 @@ function RequirePage({ viewId, children }: { viewId: ViewId; children: ReactNode
   return <Navigate to={firstAllowedPath(permissions) ?? '/'} replace />
 }
 
+/**
+ * Apptics trial: one screen event per route change. Rendered inside
+ * BrowserRouter; a no-op in production (src/lib/apptics.ts).
+ */
+function AppticsPageViews() {
+  const location = useLocation()
+  useEffect(() => {
+    trackPageView(location.pathname)
+  }, [location])
+  return null
+}
+
 function AuthGate() {
   const { session, ready } = useAuth()
 
@@ -81,6 +94,7 @@ function AuthGate() {
     <AppProvider>
       <BrowserRouter>
         <DocViewerProvider>
+          <AppticsPageViews />
           <Routes>
           <Route element={<Layout />}>
             {/* Every route runs through the page rule — the day's work too: a
