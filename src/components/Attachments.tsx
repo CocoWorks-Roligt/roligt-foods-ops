@@ -23,27 +23,36 @@ import type { Attachment } from '../types'
  */
 export function AttachmentLink({ file }: { file: Attachment }) {
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
   return (
-    <button
-      type="button"
-      className="link-button"
-      disabled={busy}
-      onClick={async () => {
-        const tab = window.open('', '_blank', 'noopener')
-        setBusy(true)
-        try {
-          const url = await signedUrlFor(file)
-          if (tab) tab.location.href = url
-          else window.location.href = url
-        } catch {
-          tab?.close()
-        } finally {
-          setBusy(false)
-        }
-      }}
-    >
-      {file.fileName}
-    </button>
+    <>
+      <button
+        type="button"
+        className="link-button"
+        disabled={busy}
+        onClick={async () => {
+          const tab = window.open('', '_blank', 'noopener')
+          setBusy(true)
+          setError('')
+          try {
+            const url = await signedUrlFor(file)
+            if (tab) tab.location.href = url
+            else window.location.href = url
+          } catch (e) {
+            // A click that silently does nothing reads as "there is no file",
+            // which is not what failed — the record exists, the bytes are just
+            // not reachable from here. Say the real reason where the click was.
+            tab?.close()
+            setError(e instanceof Error ? e.message : 'The attachment could not be opened.')
+          } finally {
+            setBusy(false)
+          }
+        }}
+      >
+        {file.fileName}
+      </button>
+      {error ? <div className="small">{error}</div> : null}
+    </>
   )
 }
 

@@ -53,16 +53,29 @@ export class ThrottledError extends Error {
   }
 }
 
-export async function fetchRevision(): Promise<number> {
+/** One row another device saved first, named so the client can adopt its version. */
+export interface RowConflict {
+  table: string
+  id: string
+  kind: 'changed' | 'exists'
+}
+
+/**
+ * The database's change token. It is an opaque string (`<n>:<nonce>`), compared
+ * for equality only: every commit writes a fresh one, so two commits landing in
+ * the same instant can never leave a reader believing it is current while rows
+ * it has never seen are sitting committed above them.
+ */
+export async function fetchRevision(): Promise<string> {
   const res = await api('/api/revision')
   if (!res.ok) throw new Error(`Failed to read revision: ${await res.text()}`)
-  const j = (await res.json()) as { revision: number }
-  return Number(j.revision) || 0
+  const j = (await res.json()) as { revision: number | string }
+  return String(j.revision ?? '')
 }
 
 export interface DbSnapshot {
   state: Partial<AppState> | null
-  revision: number
+  revision: string
   /** The caller's permissions per the BFF — AppContext feeds them to the gating. */
   permissions?: string[]
 }
@@ -74,23 +87,129 @@ export async function fetchDb(): Promise<DbSnapshot> {
 }
 
 export type SaveResult =
-  | { ok: true; revision: number }
+  | { ok: true; revision: string }
   | { ok: false; reason: 'forbidden'; message: string }
   | { ok: false; reason: 'unauthorized'; message: string }
+  | {
+      ok: false
+      reason: 'conflict'
+      message: string
+      /** The rows the server refused, so the caller can adopt the versions that won. */
+      conflicts: RowConflict[]
+    }
   | { ok: false; reason: 'error'; message: string }
+
+/**
+ * Splits a diff into commits the write budget can carry. Zoho allows roughly 17
+ * writes a minute, so a first-run seed or an offline catch-up (a hundred-odd
+ * rows in one POST) can never land as a single request — the function would sit
+ * in the budget's wait and die at the platform timeout with rows half-written.
+ * Each chunk is an independent keyed-upsert commit, so a failure partway is
+ * retried as the same writes, never as duplicates.
+ */
+const WRITES_PER_COMMIT = 12
+
+function chunkChanges(changes: StateChanges, size = WRITES_PER_COMMIT): StateChanges[] {
+  const rowWrites = changes.tables.reduce((a, t) => a + t.upsert.length + t.remove.length, 0)
+  if (rowWrites <= size) return [changes]
+
+  const chunks: StateChanges[] = []
+  let current: StateChanges = { tables: [], counters: {}, empty: true }
+  let used = 0
+  const flush = () => {
+    if (used > 0) {
+      // counters and config are one write each and always travel in the final
+      // chunk, after every row they number
+      current.empty = false
+      chunks.push(current)
+      current = { tables: [], counters: {}, empty: true }
+      used = 0
+    }
+  }
+  for (const change of changes.tables) {
+    const rows = [
+      ...change.upsert.map((row) => ({ kind: 'upsert' as const, row })),
+      ...change.remove.map((id) => ({ kind: 'remove' as const, id })),
+    ]
+    let batch: typeof rows = []
+    const drain = () => {
+      if (!batch.length) return
+      const table: typeof change = { table: change.table, upsert: [], remove: [] }
+      for (const r of batch) {
+        if (r.kind === 'upsert') {
+          table.upsert.push(r.row)
+          const expected = change.expect?.[String(r.row.id)]
+          if (expected) (table.expect ??= {})[String(r.row.id)] = expected
+        } else table.remove.push(r.id)
+      }
+      current.tables.push(table)
+      used += batch.length
+      batch = []
+    }
+    for (const r of rows) {
+      batch.push(r)
+      if (batch.length >= size) {
+        drain()
+        flush()
+      }
+    }
+    drain()
+  }
+  flush()
+  if (!chunks.length) return [changes] // counters/config only — one commit
+  chunks[chunks.length - 1]!.counters = changes.counters
+  chunks[chunks.length - 1]!.config = changes.config
+  chunks[chunks.length - 1]!.empty =
+    !chunks[chunks.length - 1]!.tables.length &&
+    !Object.keys(changes.counters).length &&
+    !changes.config
+  return chunks
+}
 
 export async function saveDb(next: AppState, prev: AppState | null): Promise<SaveResult> {
   const changes: StateChanges = diffState(prev, next)
-  let res!: Response
   try {
     if (changes.empty) {
       const revision = await fetchRevision()
       return { ok: true, revision }
     }
-    res = await api('/api/commit', {
-      method: 'POST',
-      body: JSON.stringify({ changes }),
-    })
+    let revision = ''
+    for (const chunk of chunkChanges(changes)) {
+      if (chunk.empty) continue
+      const res = await api('/api/commit', {
+        method: 'POST',
+        body: JSON.stringify({ changes: chunk }),
+      })
+      if (res.ok) {
+        revision = String(((await res.json()) as { revision: number | string }).revision ?? '')
+        continue
+      }
+      if (res.status === 403) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string; table?: string }
+        return {
+          ok: false,
+          reason: 'forbidden',
+          message: j.error ?? `You do not have permission to change ${(j.table ?? 'this data').replace(/_/g, ' ')}.`,
+        }
+      }
+      if (res.status === 409) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string; conflicts?: RowConflict[] }
+        const conflicts = j.conflicts ?? []
+        return {
+          ok: false,
+          reason: 'conflict',
+          message:
+            j.error ??
+            (conflicts.length
+              ? `Another device saved ${conflicts.map((c) => c.id).join(', ')} first — their version is now shown.`
+              : 'Another device saved changes to the same records first.'),
+          conflicts,
+        }
+      }
+      const j = (await res.json().catch(() => ({}))) as { error?: string }
+      return { ok: false, reason: 'error', message: j.error ?? `commit failed (HTTP ${res.status})` }
+    }
+    return { ok: true, revision }
   } catch (e) {
     // A dead session is not an outage: the work stays held on this device and
     // is pushed after signing in again. Reporting it as offline would promise a
@@ -100,18 +219,4 @@ export async function saveDb(next: AppState, prev: AppState | null): Promise<Sav
     }
     throw e
   }
-  if (res.ok) {
-    const j = (await res.json()) as { revision: number }
-    return { ok: true, revision: Number(j.revision) || 0 }
-  }
-  if (res.status === 403) {
-    const j = (await res.json().catch(() => ({}))) as { error?: string; table?: string }
-    return {
-      ok: false,
-      reason: 'forbidden',
-      message: j.error ?? `You do not have permission to change ${(j.table ?? 'this data').replace(/_/g, ' ')}.`,
-    }
-  }
-  const j = (await res.json().catch(() => ({}))) as { error?: string }
-  return { ok: false, reason: 'error', message: j.error ?? `commit failed (HTTP ${res.status})` }
 }

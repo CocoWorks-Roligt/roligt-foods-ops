@@ -43,8 +43,8 @@ afterEach(() => {
 
 describe('api request shape', () => {
   it('sends the cookie credential and the dev role header — never an Authorization header', async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse(200, { revision: 7 }))
-    await expect(fetchRevision()).resolves.toBe(7)
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { revision: '7:abc123' }))
+    await expect(fetchRevision()).resolves.toBe('7:abc123')
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(url).toBe('/api/revision')
     expect(init.credentials).toBe('same-origin')
@@ -79,5 +79,46 @@ describe('saveDb unauthorized mapping', () => {
       reason: 'unauthorized',
       message: 'Your session expired — sign in again.',
     })
+  })
+})
+
+describe('saveDb conflict mapping', () => {
+  it('maps a 409 to the conflict result with the rows the server named', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(409, {
+        error: 'Another device saved GRN-2026-0001 first.',
+        conflicts: [{ table: 'grns', id: 'GRN-2026-0001', kind: 'changed' }],
+      }),
+    )
+    const result = await saveDb(
+      { grns: [{ id: 'GRN-2026-0001', status: 'Posted' }] } as unknown as AppState,
+      null,
+    )
+    expect(result).toEqual({
+      ok: false,
+      reason: 'conflict',
+      message: 'Another device saved GRN-2026-0001 first.',
+      conflicts: [{ table: 'grns', id: 'GRN-2026-0001', kind: 'changed' }],
+    })
+  })
+})
+
+describe('saveDb chunking', () => {
+  it('splits a large push into commits of at most 12 row-writes, counters riding the last', async () => {
+    // a fresh Response per call — one body can only be read once
+    fetchMock.mockImplementation(async () => jsonResponse(200, { revision: '9:x' }))
+    const vendors = Array.from({ length: 30 }, (_, i) => ({ id: `V-${i + 1}`, name: `Vendor ${i + 1}` }))
+    const result = await saveDb({ vendors, counters: { grn: 1 } } as unknown as AppState, null)
+    expect(result).toEqual({ ok: true, revision: '9:x' })
+    const commits = fetchMock.mock.calls.filter(([url]) => url === '/api/commit')
+    expect(commits).toHaveLength(3) // 12 + 12 + 6
+    const bodies = commits.map(([, init]) => JSON.parse(String(init!.body)).changes)
+    for (const chunk of bodies) {
+      const rows = chunk.tables.reduce((a: number, t: { upsert: unknown[]; remove: unknown[] }) => a + t.upsert.length + t.remove.length, 0)
+      expect(rows).toBeLessThanOrEqual(12)
+    }
+    // counters always travel after every row they number
+    expect(bodies[0]!.counters).toEqual({})
+    expect(bodies[2]!.counters).toEqual({ grn: 1 })
   })
 })

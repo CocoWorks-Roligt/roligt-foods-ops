@@ -11,7 +11,7 @@
 import type { ZohoClient } from './zoho.ts'
 import { T } from './baseSchema.ts'
 import { auditColumns } from './mappers.ts'
-import { columnsByFieldId } from './commit.ts'
+import { bumpRevision, columnsByFieldId } from './commit.ts'
 import { invalidateSnapshotCache } from './snapshot.ts'
 import type { Caller } from './auth.ts'
 
@@ -21,8 +21,8 @@ function auditId(): string {
 
 /**
  * Files one audit row for an admin action and bumps the revision.
- * Mirrors commitChanges' steps for audits and app_revision (steps 3 and 6 there)
- * without touching any other table.
+ * Mirrors commitChanges' steps for audits and the revision bump (there) without
+ * touching any other table.
  */
 export async function writeAdminAudit(
   zoho: ZohoClient,
@@ -41,15 +41,11 @@ export async function writeAdminAudit(
 
   const config = T['Config']
   const rows = await zoho.fetchAll(config.id)
-  let current = 0
+  const stored = new Map<string, string>()
   for (const r of rows) {
-    if (String(r.data[config.fields['Setting']]) === 'app_revision') {
-      current = Number(r.data[config.fields['Value']]) || 0
-    }
+    const setting = String(r.data[config.fields['Setting']] ?? '')
+    if (setting) stored.set(setting, String(r.data[config.fields['Value']] ?? ''))
   }
-  await zoho.upsertByKey(config.id, config.fields['Setting'], 'app_revision', {
-    [config.fields['Setting']]: 'app_revision',
-    [config.fields['Value']]: String(current + 1),
-  })
+  await bumpRevision(zoho, stored)
   invalidateSnapshotCache()
 }

@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { ZohoLockedError } from './_lib/zoho.ts'
 import { authenticate, AuthError } from './_lib/auth.ts'
-import { commitChanges, Forbidden } from './_lib/commit.ts'
+import { commitChanges, Conflict, Forbidden } from './_lib/commit.ts'
 import { invalidateSnapshotCache } from './_lib/snapshot.ts'
 import { zoho } from './_lib/shared.ts'
 import { toWebRequest } from './_lib/vercel.ts'
@@ -28,6 +28,12 @@ export default async function (req: VercelRequest, res: VercelResponse) {
     }
     if (e instanceof Forbidden) {
       res.status(403).json({ error: e.message, table: e.table })
+      return
+    }
+    if (e instanceof Conflict) {
+      // Refused whole, before any write: the rows the caller based their work
+      // on have moved. The client adopts the winning versions by these names.
+      res.status(409).json({ error: e.message, conflicts: e.conflicts })
       return
     }
     if (e instanceof ZohoLockedError) {

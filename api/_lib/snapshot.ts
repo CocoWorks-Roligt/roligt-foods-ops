@@ -12,7 +12,8 @@ import type { AppState } from '../../src/types.ts'
 
 export interface Assembled {
   state: Partial<AppState> | null
-  revision: number
+  /** Opaque change token (`<n>:<nonce>`), compared for equality only — see commit.ts. */
+  revision: string
   everWritten: boolean
 }
 
@@ -71,12 +72,12 @@ export function assembleState(schema: typeof T, rows: SnapshotRows): Assembled {
   }
   if (Object.keys(counters).length) state.counters = counters as unknown as AppState['counters']
 
-  let revision = 0
+  let revision = '0'
   const cfg = schema['Config']
   for (const r of rows.config ?? []) {
     const setting = String(r.data[cfg.fields['Setting']] ?? '')
     const value = String(r.data[cfg.fields['Value']] ?? '')
-    if (setting === 'app_revision') revision = Number(value) || 0
+    if (setting === 'app_revision') revision = value || '0'
     if (setting === 'app_config' && value) {
       try { state.config = JSON.parse(value) as AppState['config'] } catch { /* leave unset */ }
     }
@@ -88,7 +89,7 @@ export function assembleState(schema: typeof T, rows: SnapshotRows): Assembled {
 
   // Collections are checked by their STATE key — the same test the Supabase client ran.
   const everWritten =
-    revision > 0 ||
+    revision !== '' && revision !== '0' ||
     (state.ledger?.length ?? 0) > 0 ||
     COLLECTIONS.some((c) => ((state as Record<string, unknown>)[c.key] as unknown[] | undefined)?.length)
 
@@ -129,7 +130,7 @@ export async function readSnapshot(zoho: ZohoClient): Promise<Assembled> {
  * harness is one process, a warm serverless instance is one, and each gates on
  * its own revision read, so nothing needs coordinating between them.
  */
-let cached: { baseId: string; revision: number; snap: Assembled } | null = null
+let cached: { baseId: string; revision: string; snap: Assembled } | null = null
 /** The sweep in flight, shared by every caller asking while it runs. */
 let sweeping: Promise<Assembled> | null = null
 
@@ -156,12 +157,14 @@ export async function readSnapshotCached(zoho: ZohoClient): Promise<Assembled> {
   return sweeping
 }
 
-/** Reads just the revision number (one row) — the client's 20-second poll. */
-export async function readRevision(zoho: ZohoClient): Promise<number> {
+/** Reads just the revision token (one row) — the client's 20-second poll. */
+export async function readRevision(zoho: ZohoClient): Promise<string> {
   const cfg = T['Config']
   const rows = await zoho.fetchAll(cfg.id)
   for (const r of rows) {
-    if (String(r.data[cfg.fields['Setting']]) === 'app_revision') return Number(r.data[cfg.fields['Value']]) || 0
+    if (String(r.data[cfg.fields['Setting']]) === 'app_revision') {
+      return String(r.data[cfg.fields['Value']] ?? '') || '0'
+    }
   }
-  return 0
+  return '0'
 }

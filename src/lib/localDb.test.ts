@@ -41,3 +41,38 @@ describe('localDb revision envelope', () => {
     expect(readLocal()).toBeNull()
   })
 })
+
+describe('localDb base envelope', () => {
+  beforeEach(() => {
+    store.clear()
+    vi.stubGlobal('localStorage', fakeStorage)
+    return () => vi.unstubAllGlobals()
+  })
+
+  it('round-trips the recorded base a dirty copy diffs against', () => {
+    const base = { counters: { grn: 4 }, grns: [{ id: 'GRN-1' }] } as unknown as AppState
+    writeLocal({ state, dirty: true, revision: '5:ab', base })
+    expect(readLocal()).toMatchObject({ dirty: true, revision: '5:ab', base })
+  })
+
+  it('reads a copy written before bases existed as base-less', () => {
+    localStorage.setItem(APP_KEY, JSON.stringify({ state, dirty: true, revision: '5:ab', savedAt: 'x' }))
+    expect(readLocal()?.base).toBeUndefined()
+  })
+
+  it('drops the base before the work when the quota refuses the full envelope', () => {
+    const throwing = {
+      getItem: fakeStorage.getItem,
+      removeItem: fakeStorage.removeItem,
+      setItem: (k: string, v: string) => {
+        if (v.includes('"base"')) throw new DOMException('quota exceeded', 'QuotaExceededError')
+        store.set(k, v)
+      },
+    }
+    vi.stubGlobal('localStorage', throwing)
+    writeLocal({ state, dirty: true, revision: '5:ab', base: { counters: {} } as unknown as AppState })
+    const back = readLocal()
+    expect(back?.dirty).toBe(true) // the work itself survived
+    expect(back?.base).toBeUndefined() // the base is what got let go — the null-base push takes over
+  })
+})

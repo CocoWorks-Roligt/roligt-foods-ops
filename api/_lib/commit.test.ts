@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { commitChanges, Forbidden } from './commit.ts'
+import { commitChanges, Conflict, Forbidden } from './commit.ts'
 import { T } from './baseSchema.ts'
 import type { ZohoClient, ZohoRecord } from './zoho.ts'
 import type { Caller } from './auth.ts'
@@ -11,6 +11,12 @@ function fakeZoho(existing: ZohoRecord[] = []) {
   const ops: { upserts: Upsert[]; deletes: { table: string; recordId: string }[] } = { upserts: [], deletes: [] }
   const zoho = {
     fetchAll: async (tableId: string) => existing.filter((r) => r.data.__table === tableId),
+    // criteria-scoped read — the pre-flight reads exactly the touched rows, not
+    // the whole table, and must see what earlier commits in this test wrote
+    fetchByKeyIn: async (tableId: string, keyFieldId: string, values: readonly unknown[]) =>
+      existing.filter(
+        (r) => r.data.__table === tableId && values.some((v) => String(r.data[keyFieldId]) === String(v)),
+      ),
     // like the live API: a keyed upsert creates the row or replaces it in place, so a
     // later fetchAll sees what an earlier commit wrote — retries must observe that
     upsertByKey: async (tableId: string, keyFieldId: string, keyValue: string, values: Record<string, unknown>) => {
@@ -77,7 +83,7 @@ describe('commitChanges', () => {
   it('writes doc + ledger + audit + counter + revision, all keyed upserts', async () => {
     const { zoho, ops } = fakeZoho()
     const rev = await commitChanges(zoho, admin, CHANGES)
-    expect(rev).toBe(1)
+    expect(rev).toMatch(/^1:/) // a token, unique per write — never a bare number again
     const keys = ops.upserts.map((u) => u.key)
     expect(keys).toContain('GRN-2026-0001')
     expect(keys).toContain('L1')
@@ -106,12 +112,14 @@ describe('commitChanges', () => {
 
   it('a scoped masters clerk writes their page — nothing else, not even the day\'s work', async () => {
     const { zoho } = fakeZoho()
-    // the tick carries its page's master writes
+    // the tick carries its page's master writes (a masters save moves no counters —
+    // the ride-along gate below refuses one that claims to)
     const rev = await commitChanges(zoho, suppliersClerk, {
       ...CHANGES,
       tables: [{ table: 'vendors', upsert: [{ id: 'V-1', data: {} }], remove: [] }],
+      counters: {},
     })
-    expect(rev).toBeTypeOf('number')
+    expect(rev).toBeTypeOf('string')
     // …but not another page's masters table, nor the staff register (the Roster page's)
     await expect(
       commitChanges(zoho, suppliersClerk, { ...CHANGES, tables: [{ table: 'items', upsert: [{ id: 'IT-1', data: {} }], remove: [] }] }),
@@ -120,7 +128,7 @@ describe('commitChanges', () => {
       commitChanges(zoho, suppliersClerk, { ...CHANGES, tables: [{ table: 'staff', upsert: [{ id: 'S-1', data: {} }], remove: [] }] }),
     ).rejects.toMatchObject(new Forbidden('staff'))
     await expect(
-      commitChanges(zoho, suppliersClerk, { ...CHANGES, tables: [], config: { tolerances: { lab: 5 } } }),
+      commitChanges(zoho, suppliersClerk, { ...CHANGES, tables: [], counters: {}, config: { tolerances: { lab: 5 } } }),
     ).rejects.toMatchObject(new Forbidden('app_config tolerances'))
     // and the day's work is closed: any page tick scopes the caller
     await expect(
@@ -139,7 +147,9 @@ describe('commitChanges', () => {
   it('lets the lab tester write test parameters — and only those masters tables', async () => {
     const { zoho } = fakeZoho()
     const params = [{ table: 'test_parameters', upsert: [{ id: 'TP-1', data: { name: 'pH' } }], remove: [] }]
-    await expect(commitChanges(zoho, labTester, { ...CHANGES, tables: params })).resolves.toBeTypeOf('number')
+    await expect(
+      commitChanges(zoho, labTester, { ...CHANGES, tables: params, counters: {} }),
+    ).resolves.toBeTypeOf('string')
     await expect(commitChanges(zoho, operator, { ...CHANGES, tables: params })).rejects.toBeInstanceOf(Forbidden)
     await expect(
       commitChanges(zoho, labTester, { ...CHANGES, tables: [{ table: 'vendors', upsert: [{ id: 'V-9', data: {} }], remove: [] }] }),
@@ -152,9 +162,10 @@ describe('commitChanges', () => {
     const rev = await commitChanges(zoho, labTester, {
       ...CHANGES,
       tables: [],
+      counters: {},
       config: { ...STORED_CONFIG, testCategories: [{ key: 'sensory', title: 'Sensory Evaluation' }] },
     })
-    expect(rev).toBeTypeOf('number')
+    expect(rev).toBeTypeOf('string')
     expect(ops.upserts.some((u) => u.key === 'app_config')).toBe(true)
   })
 
@@ -162,18 +173,18 @@ describe('commitChanges', () => {
     const { zoho, ops } = fakeZoho([configRow(STORED_CONFIG)])
     // a tolerance change riding along in the same whole-object payload
     await expect(
-      commitChanges(zoho, labTester, { ...CHANGES, tables: [], config: { ...STORED_CONFIG, tolerances: { lab: 9 } } }),
+      commitChanges(zoho, labTester, { ...CHANGES, tables: [], counters: {}, config: { ...STORED_CONFIG, tolerances: { lab: 9 } } }),
     ).rejects.toMatchObject(new Forbidden('app_config tolerances'))
     // the storage page's own config key is not the lab's
     await expect(
-      commitChanges(zoho, labTester, { ...CHANGES, tables: [], config: { ...STORED_CONFIG, defaultAreas: { produce: 'A1' } } }),
+      commitChanges(zoho, labTester, { ...CHANGES, tables: [], counters: {}, config: { ...STORED_CONFIG, defaultAreas: { produce: 'A1' } } }),
     ).rejects.toMatchObject(new Forbidden('app_config defaultAreas'))
     // a crafted partial payload: the write replaces the whole row, so the keys it
     // omits count as changes, not as "leave those alone"
     await expect(
-      commitChanges(zoho, labTester, { ...CHANGES, tables: [], config: { testCategories: STORED_CONFIG.testCategories } }),
+      commitChanges(zoho, labTester, { ...CHANGES, tables: [], counters: {}, config: { testCategories: STORED_CONFIG.testCategories } }),
     ).rejects.toMatchObject(new Forbidden('app_config tolerances'))
-    await expect(commitChanges(zoho, labTester, { ...CHANGES, tables: [], config: {} })).rejects.toMatchObject(
+    await expect(commitChanges(zoho, labTester, { ...CHANGES, tables: [], counters: {}, config: {} })).rejects.toMatchObject(
       new Forbidden('app_config tolerances'),
     )
     expect(ops.upserts).toEqual([]) // nothing landed from any of the refused commits
@@ -183,7 +194,7 @@ describe('commitChanges', () => {
     const { zoho, ops } = fakeZoho()
     // the whole day's-work shape — doc, ledger line, audit, counter — rides through
     const rev = await commitChanges(zoho, procurementClerk, CHANGES)
-    expect(rev).toBeTypeOf('number')
+    expect(rev).toBeTypeOf('string')
     expect(ops.upserts.some((u) => u.key === 'L1')).toBe(true) // the ledger line landed
     await expect(
       commitChanges(zoho, procurementClerk, { ...CHANGES, tables: [{ table: 'qcs', upsert: [{ id: 'QC-1', data: {} }], remove: [] }] }),
@@ -196,9 +207,9 @@ describe('commitChanges', () => {
   it('either page of a two-page table is enough — packing runs and control samples share it', async () => {
     const { zoho } = fakeZoho()
     const runs = { table: 'packing_runs', upsert: [{ id: 'PR-1', data: {} }], remove: [] }
-    await expect(commitChanges(zoho, { email: 'pack@roligt.local', permissions: ['page.packing'] }, { ...CHANGES, tables: [runs] })).resolves.toBeTypeOf('number')
+    await expect(commitChanges(zoho, { email: 'pack@roligt.local', permissions: ['page.packing'] }, { ...CHANGES, tables: [runs] })).resolves.toBeTypeOf('string')
     // the control samples ARE fields on the run — the lab tester writes it too
-    await expect(commitChanges(zoho, labTester, { ...CHANGES, tables: [runs] })).resolves.toBeTypeOf('number')
+    await expect(commitChanges(zoho, labTester, { ...CHANGES, tables: [runs] })).resolves.toBeTypeOf('string')
     await expect(
       commitChanges(zoho, procurementClerk, { ...CHANGES, tables: [runs] }),
     ).rejects.toBeInstanceOf(Forbidden)
@@ -207,10 +218,10 @@ describe('commitChanges', () => {
   it('never applies the page gate to an unscoped caller — the day\'s work stays open', async () => {
     const { zoho } = fakeZoho()
     // the operator (no ticks at all) writes the whole day's work freely
-    await expect(commitChanges(zoho, operator, CHANGES)).resolves.toBeTypeOf('number')
+    await expect(commitChanges(zoho, operator, CHANGES)).resolves.toBeTypeOf('string')
     await expect(
       commitChanges(zoho, operator, { ...CHANGES, tables: [{ table: 'qcs', upsert: [{ id: 'QC-2', data: {} }], remove: [] }] }),
-    ).resolves.toBeTypeOf('number')
+    ).resolves.toBeTypeOf('string')
   })
 
   it('a page.storage caller edits the areas and their defaults; an operator cannot', async () => {
@@ -219,9 +230,10 @@ describe('commitChanges', () => {
     const rev = await commitChanges(zoho, storekeeper, {
       ...CHANGES,
       tables: [{ table: 'storage_locations', upsert: [{ id: 'SL-1', data: {} }], remove: [] }],
+      counters: {},
       config: { ...STORED_CONFIG, defaultAreas: { produce: 'Cold Room' } },
     })
-    expect(rev).toBeTypeOf('number')
+    expect(rev).toBeTypeOf('string')
     expect(ops.upserts.some((u) => u.key === 'app_config')).toBe(true)
     await expect(
       commitChanges(zoho, operator, { ...CHANGES, tables: [{ table: 'storage_locations', upsert: [{ id: 'SL-2', data: {} }], remove: [] }] }),
@@ -264,19 +276,23 @@ describe('commitChanges', () => {
       counters: {},
       config: { tolerances: { lab: 5 } },
     })
-    expect(rev).toBeTypeOf('number') // no throw
+    expect(rev).toBeTypeOf('string') // no throw
     expect(ops.deletes).toEqual([{ table: T['Audit Log'].id, recordId: 'z-a1' }])
     expect(ops.upserts.some((u) => u.key === 'app_config')).toBe(true)
   })
 
-  it('retries never duplicate and never error — the ledger re-upserts by key, existing audits are skipped', async () => {
+  it('retries never duplicate and never error — landed rows are skipped outright, existing audits are skipped', async () => {
     const { zoho, ops } = fakeZoho()
     await commitChanges(zoho, admin, CHANGES)
+    const firstLedgerWrites = ops.upserts.filter((u) => u.key === 'L1').length
     ops.upserts.length = 0
     ops.deletes.length = 0
     await commitChanges(zoho, admin, CHANGES) // must not throw: a retry after a partial failure is the normal case
+    expect(firstLedgerWrites).toBe(1)
     expect(ops.deletes).toEqual([])
-    expect(ops.upserts.filter((u) => u.key === 'L1')).toHaveLength(1) // one ledger line, not two — keyed re-upsert
+    // a row that landed identically is skipped, not re-written — and a row whose
+    // write was lost does not exist, so it writes; either way exactly one line
+    expect(ops.upserts.filter((u) => u.key === 'L1')).toHaveLength(0)
     expect(ops.upserts.some((u) => u.key === 'A1')).toBe(false) // the audit row exists now → skipped, history stays as first written
   })
 
@@ -326,7 +342,8 @@ describe('commitChanges', () => {
     expect(ledger.values[T['Ledger'].fields['Qty In']]).toBe('90')
     expect('Qty In' in ledger.values).toBe(false)
     const audit = ops.upserts.find((u) => u.key === 'A1')!
-    expect(audit.values[T['Audit Log'].fields['Actor']]).toBe('Admin')
+    // stamped from the authenticated caller, not from the payload's claim
+    expect(audit.values[T['Audit Log'].fields['Actor']]).toBe('boss@roligt.local')
     expect('Actor' in audit.values).toBe(false)
   })
 
@@ -362,5 +379,145 @@ describe('commitChanges', () => {
       counters: {},
     })
     expect(ops.deletes).toEqual([{ table: T['GRNs'].id, recordId: 'z-9' }])
+  })
+
+  // ---- the concurrency protocol: pre-flight refusal, monotonic counters, tokens ----
+
+  /** A stored GRN row the way the live base holds it: App ID + Data JSON. */
+  function storedGrn(id: string, doc: Record<string, unknown>): ZohoRecord {
+    const t = T['GRNs']
+    return {
+      recordID: `z-${id}`,
+      data: { __table: t.id, [t.appId]: id, ...(t.dataJson ? { [t.dataJson]: JSON.stringify(doc) } : {}) },
+    }
+  }
+
+  it('refuses the whole commit when a row moved under the caller — and nothing lands', async () => {
+    const base = { id: 'GRN-1', lot: 'LOT-1', total: 100, status: 'Posted' }
+    // the stored row says 90: a colleague saved between this caller's read and write
+    const { zoho, ops } = fakeZoho([storedGrn('GRN-1', { ...base, total: 90 })])
+    await expect(
+      commitChanges(zoho, admin, {
+        ...CHANGES,
+        tables: [
+          {
+            table: 'grns',
+            upsert: [{ id: 'GRN-1', data: { ...base, total: 80 } }],
+            remove: [],
+            expect: { 'GRN-1': { id: 'GRN-1', data: base } },
+          },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(Conflict)
+    expect(ops.upserts).toEqual([]) // refused before a single write, ledger included
+  })
+
+  it('lets the write through when the stored row still matches the expect base', async () => {
+    const base = { id: 'GRN-1', lot: 'LOT-1', total: 100, status: 'Posted' }
+    const { zoho, ops } = fakeZoho([storedGrn('GRN-1', base)])
+    await commitChanges(zoho, admin, {
+      ...CHANGES,
+      tables: [
+        {
+          table: 'grns',
+          upsert: [{ id: 'GRN-1', data: { ...base, status: 'Edited' } }],
+          remove: [],
+          expect: { 'GRN-1': { id: 'GRN-1', data: base } },
+        },
+      ],
+    })
+    expect(ops.upserts.some((u) => u.key === 'GRN-1')).toBe(true)
+  })
+
+  it("refuses an insert whose minted code already exists — two devices can't post one number", async () => {
+    // device B minted GRN-2026-0001 from the same stale counter and saved first;
+    // its row is up there now, with B's farmer on it
+    const theirs = { id: 'GRN-2026-0001', lot: 'LOT-B', farmerId: 'V-B', total: 50, accepted: 50, status: 'Posted' }
+    const { zoho, ops } = fakeZoho([storedGrn('GRN-2026-0001', theirs)])
+    await expect(commitChanges(zoho, admin, CHANGES)).rejects.toMatchObject({
+      conflicts: [{ table: 'grns', id: 'GRN-2026-0001', kind: 'exists' }],
+    })
+    expect(ops.upserts).toEqual([]) // B's receipt is not replaced while both ledger lines would survive
+  })
+
+  it('never writes a counter backwards — stale mirrors heal instead of re-issuing numbers', async () => {
+    const existing: ZohoRecord[] = [
+      {
+        recordID: 'z-c1',
+        data: {
+          __table: T['Counters'].id,
+          [T['Counters'].fields['Series']]: 'grn',
+          [T['Counters'].fields['Next']]: 5,
+        },
+      },
+    ]
+    const { zoho, ops } = fakeZoho(existing)
+    await commitChanges(zoho, admin, { ...CHANGES, tables: [], counters: { grn: 3 } })
+    expect(ops.upserts.filter((u) => u.table === T['Counters'].id)).toEqual([])
+    ops.upserts.length = 0
+    await commitChanges(zoho, admin, { ...CHANGES, tables: [], counters: { grn: 5 } }) // equal is not a write
+    expect(ops.upserts.filter((u) => u.table === T['Counters'].id)).toEqual([])
+    ops.upserts.length = 0
+    await commitChanges(zoho, admin, { ...CHANGES, tables: [], counters: { grn: 6 } }) // forward still lands
+    expect(ops.upserts.some((u) => u.key === 'grn')).toBe(true)
+  })
+
+  it('lets a genuine period reset move the counter backwards', async () => {
+    const existing: ZohoRecord[] = [
+      {
+        recordID: 'z-c1',
+        data: {
+          __table: T['Counters'].id,
+          [T['Counters'].fields['Series']]: 'challan',
+          [T['Counters'].fields['Next']]: 87,
+        },
+      },
+      // last year's period, still recorded
+      {
+        recordID: 'z-p1',
+        data: {
+          __table: T['Config'].id,
+          [T['Config'].fields['Setting']]: 'period:challan',
+          [T['Config'].fields['Value']]: 'YYYY:2025',
+        },
+      },
+    ]
+    const { zoho, ops } = fakeZoho(existing)
+    await commitChanges(zoho, admin, { ...CHANGES, tables: [], counters: { challan: 1, 'period:challan': 'YYYY:2026' } })
+    const counter = ops.upserts.find((u) => u.key === 'challan')!
+    expect(counter).toBeDefined()
+    expect(counter.values[T['Counters'].fields['Next']]).toBe('1')
+  })
+
+  it('mints a distinct revision token on every commit — no two writes ever compare equal', async () => {
+    const { zoho } = fakeZoho()
+    const a = await commitChanges(zoho, admin, { ...CHANGES, tables: [], counters: {} })
+    const b = await commitChanges(zoho, admin, { ...CHANGES, tables: [], counters: {} })
+    expect(a).not.toBe(b)
+  })
+
+  it('refuses a page-scoped caller who moves stock or counters with no document of their own', async () => {
+    const { zoho, ops } = fakeZoho()
+    // ledger lines alone — no collection change they hold a page for
+    await expect(
+      commitChanges(zoho, procurementClerk, {
+        ...CHANGES,
+        tables: [{ table: 'ledger', upsert: CHANGES.tables[1].upsert, remove: [] }],
+      }),
+    ).rejects.toMatchObject(new Forbidden('ledger'))
+    // counters alone
+    await expect(
+      commitChanges(zoho, procurementClerk, { ...CHANGES, tables: [], counters: { grn: 2 } }),
+    ).rejects.toMatchObject(new Forbidden('ledger'))
+    // but the same writes riding a GRN they hold are exactly the day's work
+    const rev = await commitChanges(zoho, procurementClerk, CHANGES)
+    expect(rev).toBeTypeOf('string')
+    expect(ops.upserts.some((u) => u.key === 'L1')).toBe(true)
+  })
+
+  it('exempts a full administrator from the ride-along gate — housekeeping is their page', async () => {
+    const { zoho, ops } = fakeZoho()
+    await commitChanges(zoho, admin, { ...CHANGES, tables: [], counters: { grn: 4 } })
+    expect(ops.upserts.some((u) => u.key === 'grn')).toBe(true)
   })
 })

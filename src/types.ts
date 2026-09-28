@@ -529,19 +529,23 @@ export interface PackingRun {
 }
 
 /**
- * A file uploaded and kept in the private bucket — a lab report, a delivery photo.
+ * A file uploaded alongside a record — a lab report, a delivery photo.
  *
- * The file itself is never stored in the database; what travels with a record is its
- * object key, which a short-lived signed URL is minted from when somebody opens it.
+ * Interim: the file's bytes stay on the device that took them for the length of
+ * its session (`sessionOnly`), so a record can hold an attachment no other
+ * device — and no later session — can open. What travels with the record is its
+ * object key, so nothing has to be rewritten when the server-side store arrives.
  */
 export interface Attachment {
   fileName: string
   /** @deprecated the bucket is private now — read through `signedUrlFor`.
    *  Attachments saved while it was public still carry their public URL here. */
   url: string
-  /** Object key inside the private bucket. */
+  /** Object key the attachment is filed under. */
   path?: string
   uploadedAt: string
+  /** True while the bytes exist only on the device that uploaded them, this session. */
+  sessionOnly?: boolean
 }
 
 /** The same thing, under the name the QC record has always called it. */

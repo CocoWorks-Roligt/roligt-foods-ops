@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { ZohoApiError, ZohoClient, ZohoLockedError } from './zoho.ts'
 
 /**
@@ -120,5 +120,66 @@ describe('ZohoClient', () => {
     const out = await c.fetchAll('T1')
     expect(out).toHaveLength(1)
     expect(out[0]!.recordID).toBe('r1')
+  })
+
+  it('reads a handful of keys as one criteria call each — the probed single-condition form', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const c = new ZohoClient({ fetchImpl: fakeFetch(calls, [
+      { body: { records: { fetched: [{ recordID: 'r1', data: { FAPP: 'A' } }] } } },
+      { body: { records: { fetched: [] } } },
+    ]), env: ENV })
+    const out = await c.fetchByKeyIn('T1', 'FAPP', ['A', 'B', 'A', ''])
+    expect(out.map((r) => r.recordID)).toEqual(['r1'])
+    const criteriaCalls = calls.filter((x) => x.url.includes('/fetchRecordsWithCriteria'))
+    expect(criteriaCalls).toHaveLength(2) // deduped, blanks dropped
+    expect(new URL(criteriaCalls[0]!.url).searchParams.get('criteria')).toBe('"FAPP" = "A"')
+    expect(new URL(criteriaCalls[1]!.url).searchParams.get('criteria')).toBe('"FAPP" = "B"')
+  })
+
+  it('reads nothing at all when no keys are named', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const c = new ZohoClient({ fetchImpl: fakeFetch(calls, []), env: ENV })
+    expect(await c.fetchByKeyIn('T1', 'FAPP', [])).toEqual([])
+    expect(calls.filter((x) => !x.url.startsWith('https://accounts'))).toHaveLength(0)
+  })
+
+  it('falls back to one paged sweep when more than ten keys are asked', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const c = new ZohoClient({ fetchImpl: fakeFetch(calls, [
+      { body: { records: { fetched: [{ recordID: 'r1', data: {} }] } } },
+    ]), env: ENV })
+    await c.fetchByKeyIn('T1', 'F', Array.from({ length: 11 }, (_, i) => `K${i}`))
+    // the sweep, not eleven criteria reads — a multi-value OR was never probed live
+    expect(calls.filter((x) => x.url.includes('/fetchRecordsWithCriteria'))).toHaveLength(1)
+  })
+
+  it('refuses key values containing quotes — a broken criteria silently matches nothing', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const c = new ZohoClient({ fetchImpl: fakeFetch(calls, []), env: ENV })
+    await expect(c.fetchByKeyIn('T1', 'F', ['bad"key'])).rejects.toThrow(/quote/)
+    expect(calls.filter((x) => !x.url.startsWith('https://accounts'))).toHaveLength(0)
+  })
+
+  it('fails fast into ZohoLockedError when the budget wait would outlive maxWaitMs', async () => {
+    vi.useFakeTimers()
+    try {
+      const calls: { url: string; init?: RequestInit }[] = []
+      const empty = { body: { records: { fetched: [] } } }
+      const c = new ZohoClient({
+        fetchImpl: fakeFetch(calls, Array.from({ length: 26 }, () => empty)),
+        env: ENV,
+        maxWaitMs: 1_000,
+      })
+      for (let i = 0; i < 26; i++) await c.fetchAll('T1') // the read budget is spent at t0
+      // a minute nearly gone: the next read would have to wait past the cap —
+      // sleeping there used to run the function into its platform timeout with
+      // rows half-written; now it throws, and the handler answers 503 + Retry-After
+      vi.setSystemTime(Date.now() + 59_000)
+      const err: unknown = await c.fetchAll('T1').catch((e) => e)
+      expect(err).toBeInstanceOf(ZohoLockedError)
+      expect((err as ZohoLockedError).retryAfterSec).toBeGreaterThan(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

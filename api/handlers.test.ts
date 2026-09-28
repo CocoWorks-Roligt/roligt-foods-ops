@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { T } from './_lib/baseSchema.ts'
 
 /**
  * Handler-level tests: the Retry-After plumbing, the status-code mapping and the
@@ -14,6 +15,9 @@ const mode = vi.hoisted(() => ({
   retryAfterSec: 120,
   permissions: [] as string[],
   setCookies: null as string[] | null,
+  /** When set: criteria reads naming this key answer one stored row — the
+   *  pre-flight's view of a document another device already saved. */
+  existing: null as { key: string; appId: string; fields: Record<string, string> } | null,
 }))
 
 vi.mock('./_lib/auth.ts', () => ({
@@ -31,6 +35,16 @@ vi.mock('./_lib/shared.ts', async () => {
       return new Response(JSON.stringify({ access_token: 'tok', expires_in: 3600 }), { status: 200 })
     }
     if (mode.locked) throw new ZohoLockedError(mode.retryAfterSec)
+    // small POSTs carry their params on the query string (see zoho.ts call()) —
+    // the criteria naming the row appears in the URL, not the body
+    if (mode.existing && url.includes('/fetchRecordsWithCriteria') && url.includes(mode.existing.key)) {
+      return new Response(
+        JSON.stringify({
+          records: { fetched: [{ recordID: 'z-1', data: { [mode.existing.appId]: mode.existing.key, ...mode.existing.fields } }] },
+        }),
+        { status: 200 },
+      )
+    }
     return new Response(JSON.stringify({ records: { fetched: [] } }), { status: 200 })
   }
   return { zoho: new ZohoClient({ fetchImpl, env: {} as Record<string, string | undefined> }) }
@@ -61,6 +75,7 @@ beforeEach(() => {
   mode.retryAfterSec = 120
   mode.permissions = ['masters.manage', 'staff.manage', 'config.manage', 'audit.manage', 'admin.manage']
   mode.setCookies = null
+  mode.existing = null
 })
 
 function fakeRes() {
@@ -81,7 +96,32 @@ describe('handlers', () => {
     const res = fakeRes()
     await commit(fakeReq({ changes: { tables: [], counters: {}, empty: false } }), res)
     expect(res.status).toHaveBeenCalledWith(200)
-    expect(res.json).toHaveBeenCalledWith({ revision: 1 })
+    expect(res.json).toHaveBeenCalledWith({ revision: expect.stringMatching(/^1:/) })
+  })
+
+  it('maps a lost save race to 409 with the conflicting rows named', async () => {
+    const t = T['GRNs']
+    // the colleague's receipt is already up there under this device's minted code
+    mode.existing = {
+      key: 'GRN-2026-0001',
+      appId: t.appId,
+      fields: { [t.dataJson!]: JSON.stringify({ id: 'GRN-2026-0001', lot: 'LOT-B', total: 50 }) },
+    }
+    const res = fakeRes()
+    await commit(
+      fakeReq({
+        changes: {
+          empty: false,
+          tables: [{ table: 'grns', upsert: [{ id: 'GRN-2026-0001', data: { id: 'GRN-2026-0001', lot: 'LOT-1', total: 100 } }], remove: [] }],
+          counters: {},
+        },
+      }),
+      res,
+    )
+    expect(res.status).toHaveBeenCalledWith(409)
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ conflicts: [{ table: 'grns', id: 'GRN-2026-0001', kind: 'exists' }] }),
+    )
   })
 
   it('rejects a malformed commit payload with 400', async () => {

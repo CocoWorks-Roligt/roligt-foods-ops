@@ -201,7 +201,10 @@ export function Quality() {
     try {
       const uploaded = await uploadAttachment(file, `qc-${active?.id || 'report'}-${key}`)
       setTest(key, { report: uploaded })
-      showToast(`${file.name} uploaded.`)
+      // Honest about what the interim store did: the file is on this device for
+      // this session, not in a server-side bucket, and saying "uploaded" here
+      // used to promise durability nothing behind it provided.
+      showToast(`${file.name} attached — held on this device for this session.`)
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Upload failed.')
     } finally {

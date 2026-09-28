@@ -40,7 +40,7 @@ describe('assembleState', () => {
     expect((state.state?.counters as unknown as Record<string, number>)?.grn).toBe(5)
     expect(state.state?.counterPeriods?.lot).toBe('20260909')
     expect((state.state?.config as unknown as Record<string, unknown>)?.company).toBe('Roligt')
-    expect(state.revision).toBe(7)
+    expect(state.revision).toBe('7')
     expect(state.everWritten).toBe(true)
   })
 
@@ -156,7 +156,7 @@ describe('readSnapshotCached', () => {
     let rev = 7
     const { zoho, fetchAll } = fakeZoho(() => rev)
     const first = await readSnapshotCached(zoho)
-    expect(first.revision).toBe(7)
+    expect(first.revision).toBe('7')
     const afterSweep = fetchAll.mock.calls.length
     const second = await readSnapshotCached(zoho)
     expect(second).toBe(first)
@@ -169,7 +169,7 @@ describe('readSnapshotCached', () => {
     const first = await readSnapshotCached(zoho)
     rev = 8
     const second = await readSnapshotCached(zoho)
-    expect(second.revision).toBe(8)
+    expect(second.revision).toBe('8')
     expect(second).not.toBe(first)
     expect(fetchAll.mock.calls.length).toBeGreaterThan(2) // a real re-sweep happened
   })
@@ -180,6 +180,6 @@ describe('readSnapshotCached', () => {
     invalidateSnapshotCache()
     const second = await readSnapshotCached(zoho)
     expect(second).not.toBe(first)
-    expect(second.revision).toBe(7)
+    expect(second.revision).toBe('7')
   })
 })

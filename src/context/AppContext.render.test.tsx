@@ -13,6 +13,7 @@ import { AuthProvider } from './AuthContext'
 import { ToastProvider } from './ToastContext'
 import { Vendors } from '../pages/Vendors'
 import { clearLocal, writeLocal } from '../lib/localDb'
+import { diffState } from '../lib/sync'
 import { seed } from '../data/seed'
 import type { AppState, Vendor } from '../types'
 
@@ -170,5 +171,49 @@ describe('AppProvider re-render cost of a save', () => {
     expect(appRenders).toBeLessThanOrEqual(3) // once per commit, not per keystroke
     expect(statusRenders).toBeLessThanOrEqual(3)
     expect(screen.getByText('9999900000')).toBeTruthy() // the edit landed
+  })
+})
+
+describe('AppProvider offline push', () => {
+  /**
+   * The P0, end to end. A device comes back online holding a receipt it posted
+   * with no signal; while it was away a colleague saved a new vendor. The push
+   * this device makes must be diffed against the base it recorded when it went
+   * dirty — diffing against the fresh server instead made every row the device
+   * had not touched look already-present, and the push then deleted the
+   * colleague's vendor (and everybody else's work) wholesale.
+   */
+  it('pushes offline work against the recorded base, not the fresh server — no deletions', async () => {
+    const base = plant() // what this device last knew the database held
+    const local = {
+      ...plant(),
+      grns: [{ id: 'GRN-2026-0001', date: '2026-09-28', status: 'Posted' }] as unknown as AppState['grns'],
+    }
+    const colleague = { ...VENDOR, id: 'V-0002', name: 'Colleague Farms' }
+    const freshServer = { ...plant(), vendors: [...(plant().vendors ?? []), colleague] }
+    writeLocal({ state: local as AppState, dirty: true, revision: '1', base: base as AppState })
+    dbApi.fetchDb.mockResolvedValue({ state: freshServer, revision: '2', permissions: [] })
+    dbApi.saveDb.mockResolvedValue({ ok: true, revision: '3:x' })
+
+    render(
+      <Providers>
+        <Vendors />
+      </Providers>,
+    )
+    await waitFor(() => expect(dbApi.saveDb).toHaveBeenCalled())
+    const [next, prev] = dbApi.saveDb.mock.calls[0] as [AppState, AppState | null]
+
+    // the push is diffed against the recorded base — one vendor in it, the
+    // colleague's row nowhere near it
+    expect(prev && 'vendors' in prev ? prev.vendors : []).toHaveLength(1)
+
+    // and through the real engine: what this push carries is one receipt and no
+    // deletion of any kind — while the same save diffed against the fresh server
+    // (the old wiring) would have removed the colleague's vendor
+    const changes = diffState(prev, next)
+    expect(changes.tables.every((t) => !t.remove.length)).toBe(true)
+    expect(changes.tables.find((t) => t.table === 'grns')?.upsert).toHaveLength(1)
+    const oldWiring = diffState(freshServer as AppState, local as AppState)
+    expect(oldWiring.tables.find((t) => t.table === 'vendors')?.remove).toContain('V-0002')
   })
 })

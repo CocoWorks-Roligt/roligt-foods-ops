@@ -25,8 +25,9 @@ import { usePlanning, type PlanInput } from './domains/planning'
 import { useStaffRoster, type ShiftInput, type StaffInput } from './domains/roster'
 import { useStorageLocations } from './domains/storage'
 import { seed } from '../data/seed'
-import { fetchDb, fetchRevision, saveDb, UnauthorizedError } from '../lib/dbApi'
+import { fetchDb, fetchRevision, saveDb, ThrottledError, UnauthorizedError, type RowConflict } from '../lib/dbApi'
 import { readLocal, writeLocal } from '../lib/localDb'
+import { COLLECTIONS } from '../lib/tables'
 import { canAny, type PermissionKey } from '../lib/permissions.ts'
 import { setSessionPermissions, useSessionPermissions } from '../lib/sessionPermissions'
 import {
@@ -89,6 +90,10 @@ export interface SaveStatus {
   dirty: boolean
   /** The last save failed for a reason worth retrying — usually no signal. */
   offline: boolean
+  /** A save was refused because another device saved the same records first;
+   *  the winning versions are shown and this device's copy of them is kept
+   *  only until reviewed. */
+  conflict: boolean
 }
 
 interface AppContextValue {
@@ -203,11 +208,73 @@ const AppContext = createContext<AppContextValue | null>(null)
  * folding that into the main value would re-render every screen in the app twice per
  * keystroke-worth of work — for a line of text in the sidebar.
  */
-const SaveStatusContext = createContext<SaveStatus>({ dirty: false, offline: false })
+const SaveStatusContext = createContext<SaveStatus>({ dirty: false, offline: false, conflict: false })
 
 /** State read back from the database describes a real plant — do not invent masters
  *  it does not have. See `MigrateOptions.seedMasters`. */
 const fromDb = { seedMasters: false } as const
+
+/** The AppState key a table name lives under ('grns' → grns; ledger/audits are theirs). */
+function stateKeyForTable(table: string): string | null {
+  if (table === 'ledger' || table === 'audits') return table
+  return COLLECTIONS.find((c) => c.table === table)?.key ?? null
+}
+
+const idOfFor = (key: string) => {
+  if (key === 'ledger' || key === 'audits') return (r: unknown) => String((r as { id?: unknown }).id ?? '')
+  const spec = COLLECTIONS.find((c) => c.key === key)
+  return (r: unknown) =>
+    spec ? spec.id(r as Record<string, unknown>) : String((r as { id?: unknown }).id ?? '')
+}
+
+/**
+ * Adopts the server's version of documents that lost a save race.
+ *
+ * A refused row never arrives alone: a document carries its ledger lines and
+ * audit entries under its own code, and surrendering the row while still
+ * pushing our lines for it would corrupt the winner's stock. So the whole
+ * slice — the row, its lines, its entries — is taken from the server on both
+ * sides of the diff (the state and the base it is diffed against), which makes
+ * the re-save a no-op for the surrendered document and a clean push for
+ * everything else this device did. Counters come along so the next code minted
+ * here continues from the server's series instead of colliding again.
+ */
+function adoptServerRows(
+  cur: AppState,
+  server: Partial<AppState>,
+  conflicts: readonly RowConflict[],
+): AppState {
+  const touched = new Map<string, Set<string>>()
+  const mark = (key: string, id: string) => {
+    const ids = touched.get(key) ?? new Set<string>()
+    ids.add(id)
+    touched.set(key, ids)
+  }
+  for (const c of conflicts) {
+    const key = stateKeyForTable(c.table)
+    if (!key) continue
+    mark(key, c.id)
+    if (c.table !== 'ledger' && c.table !== 'audits') {
+      for (const l of cur.ledger ?? []) if (l.doc === c.id) mark('ledger', l.id)
+      for (const a of cur.audits ?? []) if (a.doc === c.id) mark('audits', String(a.id))
+      for (const l of server.ledger ?? []) if (l.doc === c.id) mark('ledger', l.id)
+      for (const a of server.audits ?? []) if (a.doc === c.id) mark('audits', String(a.id))
+    }
+  }
+  const next: Record<string, unknown> = { ...(cur as unknown as Record<string, unknown>) }
+  for (const [key, ids] of touched) {
+    const idOf = idOfFor(key)
+    const fromServer = ((server as Record<string, unknown>)[key] as unknown[] | undefined) ?? []
+    const winners = fromServer.filter((r) => ids.has(idOf(r)))
+    const ours = ((next[key] as unknown[] | undefined) ?? []).filter((r) => !ids.has(idOf(r)))
+    next[key] = [...ours, ...winners]
+  }
+  if (server.counters) next.counters = { ...(next.counters as object), ...server.counters }
+  if (server.counterPeriods) {
+    next.counterPeriods = { ...(next.counterPeriods as object), ...server.counterPeriods }
+  }
+  return next as unknown as AppState
+}
 
 export function AppProvider({ children }: { children: ReactNode }) {
   // Every audit line and QC signature used to read "Admin" no matter who was signed
@@ -277,10 +344,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
    * because every write is an upsert keyed by the document's own code.
    */
   const synced = useRef<AppState | null>(null)
-  /** The database's change counter, as of our last read or write. */
-  const revision = useRef(0)
+  /** The database's change token (`<n>:<nonce>`), as of our last read or write. */
+  const revision = useRef('0')
   /** True while a save is in flight, so the poll does not read a half-written plant. */
   const saving = useRef(false)
+
+  /** True while this device's last save was refused for losing a race. */
+  const [conflictHeld, setConflictHeld] = useState(false)
+  /** Bumped by the retry timer so a failed save is attempted again on its own. */
+  const [retryTick, setRetryTick] = useState(0)
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /**
+   * A save that failed for something time heals — no signal, or the server's
+   * write budget spent for this minute — used to never be tried again until the
+   * operator happened to change something else, so work sat on the device while
+   * its holder believed it had saved. One timer, one retry at a time.
+   */
+  const scheduleRetry = useCallback((sec: number) => {
+    const wait = Math.min(300, Math.max(5, sec))
+    if (retryTimer.current) clearTimeout(retryTimer.current)
+    retryTimer.current = setTimeout(() => {
+      retryTimer.current = null
+      setRetryTick((n) => n + 1)
+    }, wait * 1000)
+  }, [])
+  useEffect(
+    () => () => {
+      if (retryTimer.current) clearTimeout(retryTimer.current)
+    },
+    [],
+  )
 
   /**
    * Refuses an action that is not this user's to take, and says so.
@@ -311,11 +404,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
    *    and no snapshot is read at all.
    *  - This device holds work that never reached the server, and the server has not
    *    moved on since. That work is real; adopt it and let the save effect push it up.
-   *  - This device holds work that never reached the server, and the server has not
-   *    moved on since. That work is real; adopt it and let the save effect push it up.
    *  - This device holds work that never reached the server, and the server *has*
-   *    moved on. Two people have edited from one starting point and a blob cannot be
-   *    merged, so say so rather than silently picking a winner.
+   *    moved on. Both are real, and the merge is per document: writes are keyed
+   *    upserts, so this device's work lands on top of the server's without erasing
+   *    anything posted meanwhile. The diff runs against the base recorded when the
+   *    work was done, NOT against the server just read — diffing against the fresh
+   *    server made every untouched row look already-present, and the push then
+   *    deleted the colleagues' rows wholesale.
    *  - This device holds nothing unsaved. Take the server's copy, which is the record.
    */
   useEffect(() => {
@@ -357,6 +452,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         // that merges with whatever else was posted meanwhile instead of erasing it.
         const unsaved = local?.dirty && activityScore(local.state) > 0
         if (unsaved) {
+          // Diff against the recorded base — the last state this device knows the
+          // database held — never the fresh server (see the effect note above). A
+          // mirror with no base recorded predates bases or lost them to a quota
+          // squeeze; it knows nothing about the server, so everything is written
+          // and nothing removed — the safe direction to be wrong in.
+          synced.current = local.base ? migrateState(local.base, fromDb) : null
           setState(migrateState(local.state, fromDb))
           setDirty(true)
           if (server) showToast('Reconnected — saving the work done on this device.')
@@ -435,8 +536,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
    * Persist every change: to this device first, then to the server.
    *
    * The local write is synchronous and unconditional, so a tab closed mid-thought or
-   * a signal that drops keeps the work. The server write is guarded on the version
-   * this copy was built on, so it can never overwrite somebody else's postings.
+   * a signal that drops keeps the work. It also records the base the diff runs
+   * against — the last state the database is known to hold — so a reload pushes the
+   * same difference it would have, instead of re-deriving one against whatever the
+   * server holds by then. The server write refuses to land on top of a row somebody
+   * else changed first (409), and the conflict branch below adopts the winner
+   * rather than overwriting them.
    */
   useEffect(() => {
     if (!ready) return
@@ -447,7 +552,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       writeLocal({ state, dirty: false, revision: revision.current })
       return
     }
-    writeLocal({ state, dirty: true, revision: revision.current })
+    writeLocal({ state, dirty: true, revision: revision.current, base: synced.current ?? null })
 
     let live = true
     const t = setTimeout(() => {
@@ -460,6 +565,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             revision.current = result.revision
             setDirty(false)
             setOffline(false)
+            setConflictHeld(false)
             writeLocal({ state, dirty: false, revision: revision.current })
             saveErrorShown.current = false
             return
@@ -480,6 +586,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
             showToast(result.message)
             return
           }
+          if (result.reason === 'conflict') {
+            // Another device saved the same records first and the server refused
+            // the whole push before writing any of it. Their versions win for the
+            // documents named in the refusal; the whole slice of each — row,
+            // ledger lines, audit entries, counters — is adopted into both the
+            // state and the base, so what is shown is the plant and the re-save
+            // pushes only what is genuinely this device's. Work on those documents
+            // that was entered here is the operator's to re-enter; the toast names
+            // what lost.
+            setConflictHeld(true)
+            showToast(
+              `Another device saved ${result.conflicts.map((c) => c.id).join(', ')} first — ` +
+                'their version is now shown. Re-enter your changes to those documents.',
+            )
+            ;(async () => {
+              try {
+                const remote = await fetchDb()
+                if (!live || !remote.state) return
+                revision.current = remote.revision
+                setSessionPermissions(remote.permissions)
+                const serverState = migrateState(remote.state, fromDb)
+                const merged = adoptServerRows(state, serverState, result.conflicts)
+                if (synced.current) {
+                  synced.current = adoptServerRows(synced.current, serverState, result.conflicts)
+                }
+                setState(merged)
+              } catch {
+                // The read can fail offline; the flag stays up and the poll — or
+                // the next save's 409 — retries the adoption.
+              }
+            })()
+            return
+          }
           setOffline(true)
           // Said once per outage rather than once per session: the old flag latched
           // forever, so an operator working through a bad afternoon saw one toast and
@@ -488,11 +627,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
             saveErrorShown.current = true
             showToast('Offline — changes are held on this device until you reconnect.')
           }
+          scheduleRetry(30)
         })
-        .catch(() => {
-          if (live) {
-            setDirty(true)
-            setOffline(true)
+        .catch((e) => {
+          if (!live) return
+          setDirty(true)
+          setOffline(true)
+          // Throttled carries the server's own Retry-After; anything else gets a
+          // half-minute probe.
+          scheduleRetry(e instanceof ThrottledError ? e.retryAfterSec : 30)
+          if (!saveErrorShown.current) {
+            saveErrorShown.current = true
+            showToast('Offline — changes are held on this device until you reconnect.')
           }
         })
         .finally(() => {
@@ -503,9 +649,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       live = false
       clearTimeout(t)
     }
-  }, [ready, showToast, state])
+  }, [ready, retryTick, scheduleRetry, showToast, state])
 
-  const saveStatus: SaveStatus = useMemo(() => ({ dirty, offline }), [dirty, offline])
+  const saveStatus: SaveStatus = useMemo(
+    () => ({ dirty, offline, conflict: conflictHeld }),
+    [conflictHeld, dirty, offline],
+  )
 
   const rows = useMemo(() => stockRows(state), [state])
 

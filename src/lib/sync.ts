@@ -31,6 +31,15 @@ export interface TableChange {
   upsert: Record<string, unknown>[]
   /** Primary keys to delete. */
   remove: string[]
+  /**
+   * The base version of each upserted row, keyed by its id — the precondition
+   * that makes a commit safe to race. The BFF refuses an upsert whose stored row
+   * no longer matches this (another device saved first), so a document can never
+   * be silently replaced and a minted code can never land on somebody else's
+   * row. Absent for rows the client never saw (inserts) and for a null-base
+   * push, where the server applies the weaker insert rule instead.
+   */
+  expect?: Record<string, Record<string, unknown> | null>
 }
 
 export interface StateChanges {
@@ -57,11 +66,16 @@ export function diffRows<T>(
   idOf: (row: T) => string,
   toRow: (row: T) => Record<string, unknown>,
   immutable = false,
-): { upsert: Record<string, unknown>[]; remove: string[] } {
+): {
+  upsert: Record<string, unknown>[]
+  remove: string[]
+  expect: Record<string, Record<string, unknown>>
+} {
   const before = new Map<string, T>()
   for (const row of prev || []) before.set(idOf(row), row)
 
   const upsert: Record<string, unknown>[] = []
+  const expect: Record<string, Record<string, unknown>> = {}
   const seen = new Set<string>()
 
   for (const row of next || []) {
@@ -73,13 +87,18 @@ export function diffRows<T>(
       continue
     }
     if (immutable) continue
-    if (JSON.stringify(was) !== JSON.stringify(row)) upsert.push(toRow(row))
+    if (JSON.stringify(was) !== JSON.stringify(row)) {
+      upsert.push(toRow(row))
+      // the row as the client's base held it — what the server must still find
+      // in place before this write may land
+      expect[id] = toRow(was)
+    }
   }
 
   const remove: string[] = []
   for (const id of before.keys()) if (!seen.has(id)) remove.push(id)
 
-  return { upsert, remove }
+  return { upsert, remove, expect }
 }
 
 const asRow = (spec: CollectionSpec) => (row: Record<string, unknown>) => ({
@@ -87,37 +106,46 @@ const asRow = (spec: CollectionSpec) => (row: Record<string, unknown>) => ({
   data: row,
 })
 
+const hasKeys = (o: Record<string, unknown>) => Object.keys(o).length > 0
+
 /**
  * Everything that has to reach the database for `next` to be what it holds.
  *
- * A `prev` of null means this client has no idea what is up there — after working
- * offline, say — and everything is written. That is safe because every write is an
- * upsert keyed by the document's own code.
+ * `prev` must be the base this client's copy was actually built from — never a
+ * fresher server state. Rows present in `prev` but absent from `next` are the
+ * removals, so a `prev` that contains rows the client never saw (a fresh server
+ * snapshot) would delete every one of them on the next save. A `prev` of null
+ * means this client has no idea what is up there: everything is written as an
+ * upsert keyed by the document's own code and nothing is removed — the safe
+ * direction to be wrong in.
  */
 export function diffState(prev: AppState | null, next: AppState): StateChanges {
   const tables: TableChange[] = []
 
   for (const spec of COLLECTIONS) {
-    const { upsert, remove } = diffRows(
+    const { upsert, remove, expect } = diffRows(
       prev?.[spec.key] as unknown as Record<string, unknown>[] | undefined,
       next[spec.key] as unknown as Record<string, unknown>[],
       spec.id,
       asRow(spec),
       spec.immutable,
     )
-    if (upsert.length || remove.length) tables.push({ table: spec.table, upsert, remove })
+    if (upsert.length || remove.length) {
+      tables.push({ table: spec.table, upsert, remove, ...(hasKeys(expect) ? { expect } : {}) })
+    }
   }
 
   const ledger = diffRows(prev?.ledger, next.ledger, (l) => l.id, ledgerToRow, true)
   if (ledger.upsert.length || ledger.remove.length) {
-    tables.push({ table: LEDGER_TABLE, ...ledger })
+    // immutable inserts carry no expectation: a ledger line is only ever new
+    tables.push({ table: LEDGER_TABLE, upsert: ledger.upsert, remove: ledger.remove })
   }
 
   // The trail is insert-only in the database. Removals only ever arrive from an
   // administrator clearing records from a date, which has its own policy.
   const audits = diffRows(prev?.audits, next.audits, (a) => String(a.id), auditToRow, true)
   if (audits.upsert.length || audits.remove.length) {
-    tables.push({ table: AUDIT_TABLE, ...audits })
+    tables.push({ table: AUDIT_TABLE, upsert: audits.upsert, remove: audits.remove })
   }
 
   const counters: Record<string, number | string> = {}

@@ -56,6 +56,11 @@ const BOTTOM_NAV: (PageRow & { Icon: ComponentType<{ className?: string }> })[] 
  */
 function SaveIndicator() {
   const saveStatus = useSaveStatus()
+  if (saveStatus.conflict) {
+    return (
+      <span>Another device saved first — their version is shown; review your unsaved work.</span>
+    )
+  }
   if (saveStatus.offline) {
     return <span>Offline — changes are held on this device until you reconnect.</span>
   }

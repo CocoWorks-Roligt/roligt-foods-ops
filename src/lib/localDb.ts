@@ -25,7 +25,17 @@ export interface LocalCopy {
    *  written before it was recorded. Startup trusts it only on a clean copy: a
    *  dirty one is ahead of the server by definition, and its revision is the
    *  floor the unsaved work sits on, not a statement of freshness. */
-  revision?: number
+  revision?: number | string
+  /**
+   * The last state the database was known to hold when this copy went dirty —
+   * the base a reconnect diffs against. Without it the push cannot tell "this
+   * device deleted a row" from "this device never saw the row", and diffing
+   * against anything fresher deletes whatever colleagues posted in between.
+   * Present only while dirty; dropped on a quota failure before the state
+   * itself is (a copy without one falls back to the null-base push, which
+   * upserts everything and removes nothing).
+   */
+  base?: AppState | null
   savedAt: string
 }
 
@@ -42,7 +52,8 @@ export function readLocal(): LocalCopy | null {
     return {
       state: parsed.state as AppState,
       dirty: parsed.dirty !== false,
-      revision: typeof parsed.revision === 'number' ? parsed.revision : undefined,
+      revision: typeof parsed.revision === 'number' || typeof parsed.revision === 'string' ? parsed.revision : undefined,
+      base: parsed.base && typeof parsed.base === 'object' && 'counters' in parsed.base ? (parsed.base as AppState) : undefined,
       savedAt: parsed.savedAt || '',
     }
   } catch {
@@ -52,11 +63,21 @@ export function readLocal(): LocalCopy | null {
 }
 
 export function writeLocal(copy: Omit<LocalCopy, 'savedAt'>): void {
+  const savedAt = new Date().toISOString()
   try {
-    localStorage.setItem(APP_KEY, JSON.stringify({ ...copy, savedAt: new Date().toISOString() }))
+    localStorage.setItem(APP_KEY, JSON.stringify({ ...copy, savedAt }))
   } catch {
-    // Private windows and a full quota both throw here. Losing the local copy is bad
-    // but not worth taking the app down for — the server copy is still the record.
+    // The base roughly doubles the mirror's footprint while dirty. Losing it is
+    // the right thing to lose first: the copy degrades to the null-base push
+    // (everything upserted, nothing removed) instead of losing the work itself.
+    try {
+      const { base: _dropped, ...rest } = copy
+      localStorage.setItem(APP_KEY, JSON.stringify({ ...rest, savedAt }))
+    } catch {
+      // Private windows and a full quota both throw here too. Losing the local
+      // copy is bad but not worth taking the app down for — the server copy is
+      // still the record.
+    }
   }
 }
 

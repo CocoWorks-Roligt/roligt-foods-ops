@@ -36,8 +36,11 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 class Budget {
   private hits: number[] = []
   private readonly max: number
-  constructor(max: number) {
+  /** Waiting past this is somebody else's next request, not this one's turn. */
+  private readonly maxWaitMs: number
+  constructor(max: number, maxWaitMs = 60_000) {
     this.max = max
+    this.maxWaitMs = maxWaitMs
   }
   async take(): Promise<void> {
     for (;;) {
@@ -47,7 +50,16 @@ class Budget {
         this.hits.push(now)
         return
       }
-      await sleep(this.hits[0]! + 60_000 - now + 25)
+      const waitMs = this.hits[0]! + 60_000 - now + 25
+      // Sleeping to the front of the next minute is only honest inside a caller
+      // that will still be alive when the wait ends. A serverless function with
+      // a platform timeout would be killed mid-sleep, half-applied, with the
+      // client none the wiser — better to hand the caller a retryable "busy"
+      // (ZohoLockedError already maps to 503 + Retry-After) than a silent death.
+      if (waitMs > this.maxWaitMs) {
+        throw new ZohoLockedError(Math.ceil(waitMs / 1000) + 5)
+      }
+      await sleep(waitMs)
     }
   }
 }
@@ -58,6 +70,8 @@ interface ClientOpts {
   env?: Record<string, string | undefined>
   /** Page size for fetchAll; default 1000 (the documented maximum). */
   page?: number
+  /** Longest a call may sit waiting for budget before failing retryably. */
+  maxWaitMs?: number
 }
 
 export class ZohoClient {
@@ -66,8 +80,8 @@ export class ZohoClient {
   readonly baseId: string
   private readonly env: Record<string, string | undefined>
   private readonly page: number
-  private readonly reads = new Budget(26)
-  private readonly writes = new Budget(17)
+  private readonly reads: Budget
+  private readonly writes: Budget
   private token: { value: string; expiresAt: number } | null = null
   private chain: Promise<unknown> = Promise.resolve()
 
@@ -76,6 +90,8 @@ export class ZohoClient {
     this.env = opts.env ?? process.env
     this.baseId = opts.baseId ?? this.env.ZOHO_BASE_ID ?? ''
     this.page = opts.page ?? 1000
+    this.reads = new Budget(26, opts.maxWaitMs ?? 60_000)
+    this.writes = new Budget(17, opts.maxWaitMs ?? 60_000)
   }
 
   private async accessToken(): Promise<string> {
@@ -169,6 +185,44 @@ export class ZohoClient {
       if (page.length < this.page) return out
       cursor = page[page.length - 1]!.recordID
     }
+  }
+
+  /**
+   * The rows for a handful of keys — the commit path's pre-flight read.
+   *
+   * Fetching "does this row exist, and is it still what the caller based their
+   * edit on?" used to mean fetching the whole table, which is one read while the
+   * table is small and one read per thousand rows forever after — the ledger and
+   * the audit trail grow without limit, so the commit path's cost grew with them
+   * until no commit could fit its budget. Reading by criteria spends one read
+   * per key instead, whatever the table weighs.
+   *
+   * The criteria form is the single-condition string the live probe pinned
+   * (`"FIELDID" = "value"`, check name fetch-by-criteria); a multi-value OR was
+   * never probed, so batches larger than ten keys fall back to one paged sweep
+   * of the table — at that size the sweep is the cheaper spend anyway.
+   */
+  async fetchByKeyIn(tableId: string, keyFieldId: string, values: string[]): Promise<ZohoRecord[]> {
+    const keys = [...new Set(values.map((v) => String(v)).filter(Boolean))]
+    for (const v of keys) {
+      // same guard as upsertByKey: a quote would break the criteria silently
+      if (/["\\]/.test(v)) {
+        throw new ZohoApiError('fetchByKeyIn', 0, `key value must not contain quotes or backslashes: ${v.slice(0, 60)}`)
+      }
+    }
+    if (!keys.length) return []
+    if (keys.length > 10) return this.fetchAll(tableId)
+    const out: ZohoRecord[] = []
+    for (const v of keys) {
+      const j = (await this.call('read', 'POST', '/fetchRecordsWithCriteria', {
+        base_id: this.baseId,
+        table_id: tableId,
+        count: this.page,
+        criteria: `"${keyFieldId}" = "${v}"`,
+      })) as Record<string, any>
+      out.push(...recordsFrom(j))
+    }
+    return out
   }
 
   async upsertByKey(

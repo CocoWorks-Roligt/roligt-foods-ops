@@ -79,9 +79,10 @@ export function DispatchPage() {
   }
 
   /**
-   * Photographs taken at the door. They go into the same private bucket the lab
-   * reports use and travel on the dispatch as object keys, so the challan carries its
-   * own proof rather than a name somebody typed.
+   * Photographs taken at the door. They travel on the dispatch as object keys, so
+   * the challan carries its own proof rather than a name somebody typed — though
+   * the bytes themselves are interim, held on this device for the session (see
+   * lib/uploads.ts) until the BFF grows its upload endpoint.
    */
   const addPhotos = async (files: FileList | null) => {
     if (!files?.length) return
@@ -92,7 +93,7 @@ export function DispatchPage() {
         uploaded.push(await uploadAttachment(file, `pod-${deliveryId || 'delivery'}`))
       }
       setDelivery((d) => ({ ...d, photos: [...d.photos, ...uploaded] }))
-      showToast(`${uploaded.length} photo(s) attached.`)
+      showToast(`${uploaded.length} photo(s) attached — held on this device for this session.`)
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Upload failed.')
     } finally {

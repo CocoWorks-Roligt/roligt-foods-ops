@@ -35,4 +35,10 @@ export function assertBaseMatch(env: { ZOHO_BASE_ID?: string | undefined }, base
 
 assertBaseMatch(process.env)
 
-export const zoho = new ZohoClient()
+// 45s of budget wait, not 60: the platform kills a function at its maxDuration
+// (60s, vercel.json), and a call that would sleep past ~45s of waiting cannot
+// also do its work inside what remains. Failing into ZohoLockedError hands the
+// caller a 503 + Retry-After the client already knows how to retry — the honest
+// outcome, where sleeping to the minute's end was a death sentence for a
+// half-applied commit.
+export const zoho = new ZohoClient({ maxWaitMs: 45_000 })

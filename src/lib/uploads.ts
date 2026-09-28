@@ -15,6 +15,8 @@ export interface UploadedFile {
   /** Object key of the attachment. What a view link is minted from. */
   path?: string
   uploadedAt: string
+  /** True: the bytes exist only on this device, for this session. */
+  sessionOnly: boolean
 }
 
 /** This session's files, by object key. */
@@ -49,6 +51,7 @@ export async function uploadAttachment(file: File, prefix = 'qc'): Promise<Uploa
     url: '',
     path,
     uploadedAt: new Date().toISOString(),
+    sessionOnly: true,
   }
 }
 
