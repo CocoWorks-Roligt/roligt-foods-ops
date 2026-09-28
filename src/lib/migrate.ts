@@ -1,4 +1,3 @@
-import { seed } from '../data/seed'
 import type { AppState, BomLine, BulkOutputLine, StorageType, Vendor, VendorType } from '../types'
 import { batchInputQty, mainOutput, usableYield } from './batches'
 import { batchDisposition } from './posting'
@@ -11,7 +10,7 @@ import {
 } from './stickers'
 import { expiryFor } from './stock'
 import { addDays, retentionDays } from './controlSamples'
-import { deepClone, localDay } from './utils'
+import { localDay } from './utils'
 
 /** Best guess at a pack format for a product saved before the type was recorded. */
 function inferPackType(name = '', bom: BomLine[] = []) {
@@ -63,53 +62,64 @@ function asRecord(v: unknown): Record<string, unknown> {
   return v && typeof v === 'object' ? (v as Record<string, unknown>) : {}
 }
 
-export interface MigrateOptions {
-  /**
-   * Fold the seed's items, packs and rooms in when the saved data is missing them.
-   *
-   * On by default, because that is what upgrades a database written before bulk
-   * water and malai existed — without it, production would have nothing to book its
-   * output against.
-   *
-   * It has to be off for a database that is deliberately empty. The back-fill cannot
-   * tell "old, missing the new masters" from "wiped on purpose" by looking at the
-   * data — both are an absent item — so the caller, which knows why it is loading,
-   * decides. `AppContext` turns it off for anything read back from the database and
-   * leaves it on for the first-run seed.
-   */
-  seedMasters?: boolean
+/**
+ * The config a state is read back with when it saved none of its own — the
+ * operational settings (tolerances, report heading, storage lines) every plant
+ * starts from and the Settings page then edits. These are the app's own
+ * defaults, not data: nothing here shows up as a row anywhere.
+ */
+const DEFAULT_CONFIG: AppState['config'] = {
+  yieldTolerance: 12,
+  pmTolerance: 5,
+  expiryAlertDays: 2,
+  lowStockPacks: 50,
+  reportCustomerName: 'Roligt Foods Private Limited',
+  reportCustomerAddress: 'Sy No- 617, Pudur village, Medchal Mandal, Hyderabad, Telangana-501401.',
+  defaultLabTechnician: '',
+  frozenStorageLine: 'Always store in Cool (-18°C) Dry and Hygiene Place',
+  chilledStorageLine: 'Always store in Cool (4°C) Dry & Hygiene Place',
+  consumeWithinLine: 'Consume within 3 days of opening',
+  stickerWidthMm: DEFAULT_STICKER_WIDTH_MM,
+  stickerHeightMm: DEFAULT_STICKER_HEIGHT_MM,
 }
 
-/** Normalize older db.json shapes into the current AppState. */
-export function migrateState(raw: unknown, opts: MigrateOptions = {}): AppState {
-  const seedMasters = opts.seedMasters ?? true
-  const base = deepClone(seed)
+/** Normalize older db.json shapes into the current AppState. Nothing is ever
+ *  seeded here: a database that holds nothing migrates to an empty state, and
+ *  the plant's masters are entered by the plant. */
+export function migrateState(raw: unknown): AppState {
   const incoming = asRecord(raw)
+  // `as` on an AppState collection key: the key is already the array type.
+  const arr = <T extends unknown[]>(v: unknown): T => (Array.isArray(v) ? (v as T) : ([] as unknown) as T)
 
   const next: AppState = {
-    ...base,
-    ...incoming,
-    counters: { ...base.counters, ...asRecord(incoming.counters) } as AppState['counters'],
+    counters: { ...asRecord(incoming.counters) } as unknown as AppState['counters'],
     counterPeriods: { ...asRecord(incoming.counterPeriods) } as Record<string, string>,
-    config: { ...base.config, ...asRecord(incoming.config) } as AppState['config'],
+    config: { ...DEFAULT_CONFIG, ...asRecord(incoming.config) } as AppState['config'],
     vendorTypes: FIXED_VENDOR_TYPES,
     vendors: (incoming.vendors as Vendor[]) || [],
-    customers: (incoming.customers as AppState['customers']) || base.customers,
-    purchaseProducts:
-      (incoming.purchaseProducts as AppState['purchaseProducts']) || base.purchaseProducts,
-    storageLocations:
-      (incoming.storageLocations as AppState['storageLocations']) || base.storageLocations,
-    items: (incoming.items as AppState['items']) || base.items,
-    products: (incoming.products as AppState['products']) || base.products,
-    melanges: (incoming.melanges as AppState['melanges']) || base.melanges,
-    grns: (incoming.grns as AppState['grns']) || base.grns,
-    batches: (incoming.batches as AppState['batches']) || base.batches,
-    packingRuns: (incoming.packingRuns as AppState['packingRuns']) || base.packingRuns,
+    customers: (incoming.customers as AppState['customers']) || [],
+    purchaseProducts: (incoming.purchaseProducts as AppState['purchaseProducts']) || [],
+    storageLocations: (incoming.storageLocations as AppState['storageLocations']) || [],
+    items: (incoming.items as AppState['items']) || [],
+    products: (incoming.products as AppState['products']) || [],
+    melanges: (incoming.melanges as AppState['melanges']) || [],
+    grns: (incoming.grns as AppState['grns']) || [],
+    batches: (incoming.batches as AppState['batches']) || [],
+    packingRuns: (incoming.packingRuns as AppState['packingRuns']) || [],
     orders: (incoming.orders as AppState['orders']) || [],
-    qcs: (incoming.qcs as AppState['qcs']) || base.qcs,
-    dispatches: (incoming.dispatches as AppState['dispatches']) || base.dispatches,
-    ledger: (incoming.ledger as AppState['ledger']) || base.ledger,
-    audits: (incoming.audits as AppState['audits']) || base.audits,
+    qcs: (incoming.qcs as AppState['qcs']) || [],
+    dispatches: (incoming.dispatches as AppState['dispatches']) || [],
+    ledger: (incoming.ledger as AppState['ledger']) || [],
+    audits: (incoming.audits as AppState['audits']) || [],
+    testParameters: arr<AppState['testParameters']>(incoming.testParameters),
+    labReports: arr<AppState['labReports']>(incoming.labReports),
+    stickerTemplates: arr<AppState['stickerTemplates']>(incoming.stickerTemplates),
+    stickerPrints: arr<AppState['stickerPrints']>(incoming.stickerPrints),
+    stockIssues: arr<AppState['stockIssues']>(incoming.stockIssues),
+    staff: arr<AppState['staff']>(incoming.staff),
+    shifts: arr<AppState['shifts']>(incoming.shifts),
+    attendance: arr<AppState['attendance']>(incoming.attendance),
+    productionPlans: arr<AppState['productionPlans']>(incoming.productionPlans),
   }
 
   // Lab reports used to name their batch only in free text. The exact match is now the
@@ -150,24 +160,12 @@ export function migrateState(raw: unknown, opts: MigrateOptions = {}): AppState 
     next.counters.purchaseProduct = next.purchaseProducts.length || 0
   }
 
-  // Items, products and locations live inside the saved database, so a database
-  // written before bulk water/malai existed has to have the new masters folded in —
-  // otherwise production has nothing to book its output against.
-  if (seedMasters) {
-    for (const item of base.items) {
-      if (!next.items.some((i) => i.id === item.id)) next.items.push(item)
-    }
-    for (const p of base.products) {
-      if (!next.products.some((x) => x.id === p.id)) next.products.push(p)
-    }
-  }
   // Pack type, size and unit became master data the admin sets; databases written
   // before that only carry packVolume, so the size is read back out of it.
   next.products = next.products.map((p) => {
     const medium = p.medium || 'Water'
-    const seeded = base.products.find((x) => x.id === p.id)
-    let unit = p.unit || seeded?.unit
-    let size = p.size ?? seeded?.size
+    let unit = p.unit
+    let size = p.size
     if (!unit || !(size > 0)) {
       // A sub-litre water pack reads far better as ml than as 0.25 L, and a malai
       // cover with no size at all was one whose weight used to be typed per run.
@@ -190,18 +188,13 @@ export function migrateState(raw: unknown, opts: MigrateOptions = {}): AppState 
       // Everything packed before the plant made more than one juice was filled from
       // coconut water or malai, so that is the bulk those packs still draw.
       bulkItem: p.bulkItem || (medium === 'Malai' ? 'SF-TCW-MALAI' : 'SF-TCW-WATER'),
-      type: p.type || seeded?.type || inferPackType(p.name, p.bom),
+      type: p.type || inferPackType(p.name, p.bom),
       packVolume: toBase(size, unit),
     }
   })
   if (!next.counters.product) next.counters.product = next.products.length
-  if (seedMasters) {
-    for (const loc of base.storageLocations) {
-      if (!next.storageLocations.some((s) => s.name === loc.name)) next.storageLocations.push(loc)
-    }
-  }
-  // Locations saved before they had a readable name get one from the seed, so the
-  // ledger keeps its "RM Store" key while the screen finally says "Coconut Store".
+  // Locations saved before they had a readable name fall back to their key, so the
+  // ledger keeps its "RM Store" key while the screen finally says something readable.
   // Wording we have since improved. A label still matching the old default gets the
   // new one; a name the user chose themselves is left alone.
   const SUPERSEDED_LABELS: Record<string, string> = {
@@ -254,14 +247,13 @@ export function migrateState(raw: unknown, opts: MigrateOptions = {}): AppState 
   }
   const holdsBulk = new Set([...bulkBalance].filter(([, qty]) => qty > 1e-6).map(([location]) => location))
   next.storageLocations = next.storageLocations.map((s) => {
-    const seeded = base.storageLocations.find((x) => x.name === s.name)
-    const label = s.label || seeded?.label || s.name
+    const label = s.label || s.name
     const withKind = s as AppState['storageLocations'][number] & { kind?: string }
     return {
       id: s.id,
       name: s.name,
       label: SUPERSEDED_LABELS[label] || label,
-      holds: s.holds || seeded?.holds || '',
+      holds: s.holds || '',
       type: withKind.type || (holdsBulk.has(s.name) ? 'Cold Room' : typeFromKind(withKind)),
       // An area saved without a status was in use; left blank it vanished from every picker.
       status: s.status || 'Active',
@@ -637,12 +629,11 @@ export function migrateState(raw: unknown, opts: MigrateOptions = {}): AppState 
   })
 
   // Stickers arrived after the first databases were written, so a state saved before
-  // them has neither. Templates are reconciled field-by-field on read, so seeding the
-  // defaults here is enough — it never has to be repeated when a field is added.
-  if (!Array.isArray(next.stickerTemplates) || !next.stickerTemplates.length) {
+  // them has no templates. They are reconciled field-by-field on read, so the defaults
+  // here are enough — never repeated when a field is added.
+  if (!next.stickerTemplates.length) {
     next.stickerTemplates = defaultTemplates()
   }
-  if (!Array.isArray(next.stickerPrints)) next.stickerPrints = []
   next.counters.sticker = Math.max(
     Number(next.counters.sticker) || 0,
     next.stickerPrints.length,
@@ -672,18 +663,13 @@ export function migrateState(raw: unknown, opts: MigrateOptions = {}): AppState 
 
   // Stock issues arrived after the first databases were written. Nothing to rebuild —
   // an older state simply never issued any, and the counter starts where the list does.
-  if (!Array.isArray(next.stockIssues)) next.stockIssues = []
   next.counters.issue = Math.max(Number(next.counters.issue) || 0, next.stockIssues.length)
 
   // The roster arrived the same way: an older state had no staff, no shifts and no
   // attendance, and its staff counter starts where the (empty) list does.
-  if (!Array.isArray(next.staff)) next.staff = []
-  if (!Array.isArray(next.shifts)) next.shifts = []
-  if (!Array.isArray(next.attendance)) next.attendance = []
   next.counters.staff = Math.max(Number(next.counters.staff) || 0, next.staff.length)
 
   // Production plans arrived with the Planning screens; an older state made none.
-  if (!Array.isArray(next.productionPlans)) next.productionPlans = []
   next.counters.plan = Math.max(Number(next.counters.plan) || 0, next.productionPlans.length)
 
   /**

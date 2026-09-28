@@ -24,7 +24,6 @@ import { useSales } from './domains/sales'
 import { usePlanning, type PlanInput } from './domains/planning'
 import { useStaffRoster, type ShiftInput, type StaffInput } from './domains/roster'
 import { useStorageLocations } from './domains/storage'
-import { seed } from '../data/seed'
 import { fetchDb, fetchRevision, saveDb, ThrottledError, UnauthorizedError, type RowConflict } from '../lib/dbApi'
 import { readLocal, writeLocal } from '../lib/localDb'
 import { COLLECTIONS } from '../lib/tables'
@@ -53,7 +52,7 @@ import { itemName, stockRows } from '../lib/stock'
 import {
   type StickerJob,
 } from '../lib/stickers'
-import { deepClone, nowISO, uid } from '../lib/utils'
+import { nowISO, uid } from '../lib/utils'
 import type {
   AreaPurpose,
   AppState,
@@ -210,10 +209,6 @@ const AppContext = createContext<AppContextValue | null>(null)
  */
 const SaveStatusContext = createContext<SaveStatus>({ dirty: false, offline: false, conflict: false })
 
-/** State read back from the database describes a real plant — do not invent masters
- *  it does not have. See `MigrateOptions.seedMasters`. */
-const fromDb = { seedMasters: false } as const
-
 /** The AppState key a table name lives under ('grns' → grns; ledger/audits are theirs). */
 function stateKeyForTable(table: string): string | null {
   if (table === 'ledger' || table === 'audits') return table
@@ -291,14 +286,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
    * immediately and the reconcile effect below verifies it against the server
    * in the background. Only a device with no mirror at all (a first run,
    * cleared storage) waits on the Loading gate: there is nothing real to
-   * paint, and flashing the seed masters for a plant that has real ones would
-   * be a lie.
+   * paint, and flashing fabricated masters for a plant that has real ones
+   * would be a lie.
    */
   const boot = useRef<{ state: AppState; mirrored: boolean } | null>(null)
   if (!boot.current) {
     const local = readLocal()
     boot.current = {
-      state: local ? migrateState(local.state, fromDb) : deepClone(seed),
+      // Nothing is seeded, ever: a device with no mirror starts empty and the
+      // plant's own masters arrive with the first snapshot.
+      state: local ? migrateState(local.state) : migrateState({}),
       mirrored: local !== null,
     }
   }
@@ -428,7 +425,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const rev = await fetchRevision()
           if (cancelled) return
           if (rev === local.revision) {
-            const mirror = migrateState(local.state, fromDb)
+            const mirror = migrateState(local.state)
             synced.current = mirror
             revision.current = rev
             setState(mirror)
@@ -442,9 +439,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         // them here means a role change lands on the next poll, no reload needed.
         setSessionPermissions(remote.permissions)
 
-        // `fromDb`: what the database holds is the plant, empty or not. Seeding
-        // masters in here would quietly refill a plant somebody had just cleared.
-        const server = remote.state ? migrateState(remote.state, fromDb) : null
+        // What the database holds is the plant, empty or not — reading it back
+        // never invents masters, so a plant somebody cleared stays cleared.
+        const server = remote.state ? migrateState(remote.state) : null
         if (server) synced.current = server
 
         // Work this device did without a signal is real work, and the only copy of it.
@@ -457,22 +454,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
           // mirror with no base recorded predates bases or lost them to a quota
           // squeeze; it knows nothing about the server, so everything is written
           // and nothing removed — the safe direction to be wrong in.
-          synced.current = local.base ? migrateState(local.base, fromDb) : null
-          setState(migrateState(local.state, fromDb))
+          synced.current = local.base ? migrateState(local.base) : null
+          setState(migrateState(local.state))
           setDirty(true)
           if (server) showToast('Reconnected — saving the work done on this device.')
           return
         }
 
-        // No row at all means a first run, and only then does the seed apply.
-        setState(server ?? (local ? migrateState(local.state, fromDb) : migrateState(seed)))
+        // No row at all means a first run: an empty state, nothing seeded.
+        setState(server ?? (local ? migrateState(local.state) : migrateState({})))
       } catch (e) {
         if (cancelled) return
         if (e instanceof UnauthorizedError) {
           // A dead session is not an outage — dbApi has already told AuthContext,
           // which swaps in the login screen. This device's copy stays the record.
           synced.current = null
-          if (local) setState(migrateState(local.state, fromDb))
+          if (local) setState(migrateState(local.state))
           showToast(e.message)
           return
         }
@@ -480,7 +477,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         // nothing is known about the server, so nothing may be diffed against it.
         synced.current = null
         if (local) {
-          setState(migrateState(local.state, fromDb))
+          setState(migrateState(local.state))
           setOffline(true)
           showToast('Offline — working from this device. Changes save when you reconnect.')
         } else {
@@ -518,7 +515,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         revision.current = remote.revision
         setSessionPermissions(remote.permissions)
         if (!remote.state) return
-        const server = migrateState(remote.state, fromDb)
+        const server = migrateState(remote.state)
         synced.current = server
         setState(server)
       } catch {
@@ -606,7 +603,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 if (!live || !remote.state) return
                 revision.current = remote.revision
                 setSessionPermissions(remote.permissions)
-                const serverState = migrateState(remote.state, fromDb)
+                const serverState = migrateState(remote.state)
                 const merged = adoptServerRows(state, serverState, result.conflicts)
                 if (synced.current) {
                   synced.current = adoptServerRows(synced.current, serverState, result.conflicts)

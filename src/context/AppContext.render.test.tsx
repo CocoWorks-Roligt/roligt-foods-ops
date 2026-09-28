@@ -14,7 +14,7 @@ import { ToastProvider } from './ToastContext'
 import { Vendors } from '../pages/Vendors'
 import { clearLocal, writeLocal } from '../lib/localDb'
 import { diffState } from '../lib/sync'
-import { seed } from '../data/seed'
+import { migrateState } from '../lib/migrate'
 import type { AppState, Vendor } from '../types'
 
 const dbApi = vi.hoisted(() => ({
@@ -40,7 +40,7 @@ const VENDOR: Vendor = {
 
 /** A plant with exactly one vendor — enough for the register to render a row. */
 function plant(): Partial<AppState> {
-  return { ...seed, vendors: [VENDOR] }
+  return migrateState({ vendors: [VENDOR] })
 }
 
 function Providers({ children }: { children: React.ReactNode }) {

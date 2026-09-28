@@ -13,19 +13,9 @@
  * Run it with tsx (devDependency) so the .ts imports resolve:
  *
  *   npm run build && npx tsx scripts/dev-server.mjs            # serve on :3000
- *   npx tsx scripts/dev-server.mjs --seed-scratch              # see below, then exit
  *
  * .env is parsed into process.env before the api modules load, because the shared
  * ZohoClient captures ZOHO_BASE_ID at import time.
- *
- * `--seed-scratch` is setup for the e2e gate, not part of it: it performs exactly
- * the write a browser's first boot against an empty base performs (the client seeds
- * from its own masters and pushes the whole seed up — see AppContext's null-snapshot
- * path), then resets the app_revision row to 0 so the plant reads as "installed, no
- * postings yet". It refuses to touch anything but the scratch base. With the base
- * pre-seeded, a fresh browser boots read-only and the first commit a gate observes
- * is the posting under test, which is what the brief's revision arithmetic assumes.
- * Never run it against production.
  */
 import { createServer } from 'node:http'
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -51,35 +41,6 @@ function loadDotEnv() {
   }
 }
 loadDotEnv()
-
-const SCRATCH_BASE = 'dhorj90a2ded0152a4f1d94ae8ce4ece09a5c'
-
-if (process.argv.includes('--seed-scratch')) {
-  if (process.env.ZOHO_BASE_ID !== SCRATCH_BASE) {
-    console.error('--seed-scratch refuses to run against anything but the scratch base.')
-    process.exit(1)
-  }
-  const { migrateState } = await import('../src/lib/migrate.ts')
-  const { diffState } = await import('../src/lib/sync.ts')
-  const { seed } = await import('../src/data/seed.ts')
-  const { commitChanges } = await import('../api/_lib/commit.ts')
-  const { zoho } = await import('../api/_lib/shared.ts')
-  const { T } = await import('../api/_lib/baseSchema.ts')
-
-  const t0 = Date.now()
-  const changes = diffState(null, migrateState(seed))
-  const size = changes.tables.reduce((a, t) => a + t.upsert.length + t.remove.length, 0)
-  console.log(`seed-scratch: ${size} rows + ${Object.keys(changes.counters).length} counters …`)
-  const { devPermissions } = await import('../src/lib/permissions.ts')
-  const rev = await commitChanges(zoho, { email: 'dev@roligt.local', permissions: devPermissions('Admin') }, changes)
-  const config = T['Config']
-  await zoho.upsertByKey(config.id, config.fields['Setting'], 'app_revision', {
-    [config.fields['Setting']]: 'app_revision',
-    [config.fields['Value']]: '0',
-  })
-  console.log(`seed-scratch: committed at revision ${rev}, reset app_revision to 0 (${((Date.now() - t0) / 1000).toFixed(0)}s)`)
-  process.exit(0)
-}
 
 // Loaded only after .env is in process.env — the shared client snapshots ZOHO_BASE_ID
 // at construction.
