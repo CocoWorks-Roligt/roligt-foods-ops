@@ -23,6 +23,10 @@ describe('apptics facade', () => {
   beforeEach(() => {
     vi.resetModules()
     vi.clearAllMocks()
+    // DC defaults to empty for every case (tests that want one override it):
+    // vitest loads .env.local into import.meta.env, so a developer's real
+    // VITE_APPTICS_DC would otherwise leak into the cases that pin boot args.
+    vi.stubEnv('VITE_APPTICS_DC', '')
   })
 
   afterEach(() => {
@@ -54,7 +58,7 @@ describe('apptics facade', () => {
     a.initApptics() // idempotent
     await vi.waitFor(() => expect(sdk.trackScreen).toHaveBeenCalled())
     expect(sdk.boot).toHaveBeenCalledTimes(1)
-    expect(sdk.boot).toHaveBeenCalledWith('tok-1', undefined)
+    expect(sdk.boot).toHaveBeenCalledWith('tok-1', '')
     expect(sdk.trackScreen).toHaveBeenCalledWith('/procurement')
     expect(sdk.setUser).toHaveBeenCalledWith('qa@roligt.local')
 

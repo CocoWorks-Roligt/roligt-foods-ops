@@ -1,7 +1,7 @@
 # Zoho Apptics — dev/staging trial integration & MCP connection
 
 **Date:** 2026-09-28
-**Status:** Implemented, awaiting the Apptics console token
+**Status:** Token wired 2026-09-28 — trial live locally and in Vercel Preview/Development
 **Scope:** Client-side product analytics (crashes, screens, events) for the ProductionDashboard SPA; Apptics MCP server for Claude Code
 **Audience:** CocoWorks ops/dev
 
@@ -48,20 +48,22 @@ Crash capture is **opt-in** in the SDK: the adapter calls `enableGlobalErrorHand
 
 Events fired before the script finishes loading are buffered (capped at 200) and flushed on boot; if the script fails to load, the buffer is dropped and the facade stays silent for the session — observability must never become a dependency. Note the `db_commit` event also fires for offline retries (~1/30 s while offline): expected, and the `reason` field tells them apart.
 
-## 4. Console setup (the one remaining manual step)
+## 4. Console setup (done 2026-09-28)
 
-1. Sign in at **apptics.zoho.com** with the Zoho account.
-2. Create a **Project** (e.g. "Roligt Foods Ops") → **Add App** → platform **JavaScript/Web**, name it (e.g. "ProductionDashboard").
-3. Copy the **apptics snippet** it shows. From it take the `aaID` value (and the `DC` code, if one appears) — that is the token:
-   ```
-   # .env.local
-   VITE_APPTICS_APP_TOKEN=<aaID from the snippet>
-   VITE_APPTICS_DC=<DC from the snippet, if present>
-   ```
-4. Add the same value to the Vercel project's **Preview** (and Development) environments.
-5. Open a preview deployment (or `npm run dev`), click around, and check the Apptics console for sessions/screens/events.
+The console's platform tile for the web SDK is labelled **Browser** (not "JavaScript/Web"). What was created:
 
-To enable production later: set the same var in the Vercel **Production** environment and redeploy — that is the entire switch. Decide the production data posture first.
+| | |
+| --- | --- |
+| Project | Roligt Foods Ops (projectid `984000000004006` — visible to the MCP via `getUserProjects`) |
+| App | Browser, identifier tagged **Development** — trial data stays separate from any future Production identifier |
+| `aaID` | `984000000004011` → `.env.local` and Vercel Preview/Development as `VITE_APPTICS_APP_TOKEN` |
+| `DC` | `IN` — the snippet's domain is `apptics.zoho.in`; the SDK maps the two-letter code (`IN → quartz.zoho.in`) |
+
+The console's own snippet loads a per-app init script from Zoho's CDN; we serve the equivalent npm file locally as `vendor/apptics.js` so the build gate and precache stay ours (§2).
+
+**Vercel note:** `vercel env add` refuses names matching `*TOKEN` without an explicit type. This one is intentionally public — the `aaID` is a client token in the same class as `VITE_WORKOS_CLIENT_ID` — so it went in as `--type config` for **Preview and Development only** (verified: `vercel env ls production` lists no apptics vars).
+
+To enable production later: add a **Production** identifier under the same console project (it gets its own `aaID`) and set that var in the Vercel Production environment and redeploy — that is the entire switch. Decide the production data posture first.
 
 ## 5. Connecting the Apptics MCP server to Claude Code
 
@@ -87,20 +89,20 @@ What would make the trial answerable from Claude Code without opening the consol
 - **Users/sessions** — lookup by the operator email `setUser` attributes.
 - **Apps & versions** — enumeration, to correlate with deployments.
 
-## 6. Verification checklist (re-run after the token exists)
+## 6. Verification checklist (re-run 2026-09-28 with the real token)
 
-1. `npm test` — suite green (274 as of this writing; facade + adapter cases included).
-2. Tokenless build: no `aaID`/`appticssettings`/`enableGlobalErrorHandler` strings in `dist/`; `sw.js` has no `vendor/apptics.js` entry.
-3. Token build (`VITE_APPTICS_APP_TOKEN=… npm run build`): `dist/vendor/apptics.js` (56 kB) exists, precache count grows by one, `db_commit` literal present.
-4. Local end-to-end: token in `.env.local`, `npm run build && npx tsx scripts/dev-server.mjs` — Network tab shows Apptics traffic; navigate routes (screens); save a document (`db_commit`); DevTools offline toggle (`connectivity`); `Promise.reject(new Error('apptics-test'))` in the console (crash).
-5. Vercel preview deploy: data lands in the Apptics console (expect ingestion latency); production URL issues **no** Apptics requests.
-6. MCP: `claude mcp list` shows `zoho-apptics` connected with a small Apptics-only catalog; exercise one read (e.g. event counts for the preview's app version, filtered to today).
+1. ✅ `npm test` — 274 green. One fix along the way: vitest loads `.env.local` into `import.meta.env`, so the real `VITE_APPTICS_DC` leaked into the facade test that pins boot args — the suite now stubs DC empty in `beforeEach` (the test file's docblock had promised exactly that isolation).
+2. ✅ Tokenless build (`.env.local` moved aside): 77 precache entries, zero `aaID`/`appticssettings`/`enableGlobalErrorHandler`/`apptics` strings anywhere in `dist/`, no `vendor/` directory.
+3. ✅ Token build: 78 precache entries, `dist/vendor/apptics.js` (56 kB / 55,668 bytes), `db_commit` literal live in the `dbApi` chunk, `sw.js` precaches the vendor entry.
+4. ◐ Local end-to-end: the harness serves `vendor/apptics.js` (200) at `http://localhost:3000` — browser click-through pending (navigate routes → screens; save a document → `db_commit`; DevTools offline toggle → `connectivity`; `Promise.reject(new Error('apptics-test'))` → crash).
+5. ⬜ Vercel preview deploy: data lands in the Apptics console (expect ingestion latency); production URL issues **no** Apptics requests.
+6. ◐ MCP: authenticated read works (`getUserProjects` → Roligt Foods Ops, projectid `984000000004006`); data queries wait on §4's browser click-through.
 
 ## 7. Recommended next actions
 
-1. Create the console project + web app (§4) and paste the token into `.env.local` and Vercel Preview.
-2. Run the §6 checklist end-to-end on a preview deployment.
-3. After a week of staging use, decide keep/kill; if keeping, have the production data-posture conversation before ever setting the token in Production.
+1. ~~Create the console project + web app (§4) and paste the token into `.env.local` and Vercel Preview.~~ Done 2026-09-28.
+2. Browser click-through on `http://localhost:3000` (or the next preview deploy), then confirm sessions/screens/`db_commit` in the console or via the MCP.
+3. After a week of staging use, decide keep/kill; if keeping, have the production data-posture conversation before ever setting a Production token.
 4. If finer per-document properties are wanted (e.g. QC decision status on the event), add them at the domain save functions — the facade needs no changes.
 
 **References:** [Apptics glossary](https://www.zoho.com/apptics/resources/glossary.html) (event/screen/session vocabulary), `@zoho_apptics/apptics-js-sdk` v1.0.2 on npm (the vendored script's source).
