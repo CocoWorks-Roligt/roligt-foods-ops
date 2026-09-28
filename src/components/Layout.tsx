@@ -252,7 +252,9 @@ export function Layout() {
         ) : null}
 
         <div className="sidebar-footer">
-          <div className="small" style={{ color: 'var(--ink-mute)' }}>
+          {/* No inline colour here: this line sits on the grove chrome, where
+              the ink family is invisible — .sidebar-footer .small owns it. */}
+          <div className="small">
             Signed in as {email}
             {isAdmin ? ' (admin)' : ''}. <SaveIndicator />
           </div>

@@ -1,7 +1,9 @@
-/* ── The Husk × Ledger blend (docs/blend-ui-design-2026-09-25.md) ─────────────
-   White surfaces, hairline depth, one brand ink — the coconut's husk — that is
-   never a button fill, and a quiet status-accent family. Self-hosted type: the
-   app is an offline PWA, so the font comes from the precache, never the network. */
+/* ── The Husk × Ledger blend, bright edition (docs/blend-ui-design-2026-09-25.md)
+   The 2026-09-28 second pass: the plant's verdict on the quiet blend was
+   "still dull" — the chrome itself now carries the coconut's leaf green
+   (sidebar, app bar, thumb bar, primary actions), the status family went
+   bright, and the husk stays as the reference ink for links and labels.
+   White cards, hairline depth and tabular numerals are unchanged. */
 @font-face {
   font-family: 'Bricolage Grotesque';
   src: url('/fonts/BricolageGrotesque-latin.woff2') format('woff2');
@@ -23,41 +25,54 @@
 }
 
 :root {
-  /* Surfaces — a warm paper field, white cards sitting on it, chrome for the
-     shell. The field is grayer than the brand water so a badge never blends
-     into the page behind it. */
-  --bg: #f6f4ee;
-  --chrome: #f1efe8;
-  --well: #eceae2;
+  /* Surfaces — the field and chrome took the leaf's whisper: a green-tinted
+     paper, green-tinted chrome for table heads, white cards on top. */
+  --bg: #f4f6f2;
+  --chrome: #e9f0e8;
+  --well: #eef2ec;
   --panel: #ffffff;
 
-  /* Hairlines do the depth. -strong is the structural edge: table head rule,
-     topbar and app bar borders. */
-  --hair: #e3dfd4;
-  --hair-soft: #ecebe3;
-  --hair-strong: #d9d3c4;
+  /* Hairlines do the depth, green-tinted to match. -strong is the structural
+     edge: table head rule, control borders. */
+  --hair: #dfe5dc;
+  --hair-soft: #e9ede6;
+  --hair-strong: #d4dcd2;
 
-  /* Ink — text and primary fills only. */
+  /* Ink — text only in the bright edition: the action colour moved to the
+     leaf. Mute was lifted 2026-09-28 (it carried table sub-lines, detail
+     labels and nav labels at barely 3:1); it clears 5:1 on every surface
+     now, green-tinted to sit in the field. */
   --ink: #15181b;
   --ink-soft: #5b626a;
-  --ink-mute: #8c9098;
-  --ink-faint: #b3b7bd;
+  --ink-mute: #5f6660;
+  --ink-faint: #8b918b;
 
-  /* Brand — the coconut: husk gives the ink, water gives the wash. Ink only;
-     a husk fill is never a button. */
+  /* Brand — the coconut in two inks: the LEAF is the action colour (nav
+     chrome, primary buttons, active states), the HUSK is the reference ink
+     (links, doc-links, metric labels). Water stays the badge wash. */
+  --leaf: #1e7a45;
+  --leaf-deep: #16603a;
+  --leaf-wash: #e0f0e5;
   --husk: #5a4531;
   --husk-deep: #43331f;
   --water: #f3f0e7;
 
-  /* Status — a family, not a stoplight. Tender green is badges-only, never chrome. */
-  --tender: #355a44;
-  --tender-wash: #eef3f0;
-  --amber: #a4761f;
-  --amber-wash: #faf2d9;
-  --clay: #b4543a;
-  --clay-wash: #faeeea;
-  --slate: #4a6d8c;
-  --slate-wash: #e8eff5;
+  /* The nav chrome green — sidebar, app bar, thumb bar. Deeper than --leaf
+     so white text and the bright active fill both clear AA on it. */
+  --grove: #175c35;
+  --grove-active: #238151;
+
+  /* Status — bright, per the plant's verdict on the quiet family. The
+     700-grade inks on 100-grade washes: every fg clears 4.5:1 on its wash
+     and on white, and the washes are unmistakably coloured. */
+  --tender: #166534;
+  --tender-wash: #dcfce7;
+  --amber: #92400e;
+  --amber-wash: #fef3c7;
+  --clay: #b91c1c;
+  --clay-wash: #fee2e2;
+  --slate: #1d4ed8;
+  --slate-wash: #dbeafe;
 
   /* Elevation: three real shadows (popover, dialog, drawer) — plus one
      whisper-soft lift on resting cards, restored on review after the
@@ -71,15 +86,16 @@
   --radius-control: 8px;
 
   /* Legacy names still read across the stylesheet and by inline styles in the
-     pages: each maps to its living relative — the greens became ink/husk, so a
-     green fill lands on ink and a green accent lands on husk. --success,
-     --accent, --gold and --shadow had no readers left and were deleted. */
+     pages: each maps to its living relative. The greens are the leaf again —
+     every selection and active state (type tabs, score buttons, stage cards,
+     pick rows, trace links, size presets) went green with the bright edition.
+     --success, --accent, --gold and --shadow had no readers left long ago. */
   --line: var(--hair);
   --muted: var(--ink-soft);
   --warning: var(--amber);
   --danger: var(--clay);
-  --green: var(--ink);
-  --green-2: var(--husk);
+  --green: var(--leaf);
+  --green-2: var(--leaf);
 
   font-family: 'Bricolage Grotesque', system-ui, sans-serif;
   /* A ledger app: every figure a tabular one, everywhere. */
@@ -162,10 +178,12 @@ body.drawer-open {
   overflow: hidden;
 }
 
+/* The nav chrome went grove green in the bright edition — the single biggest
+   lever against "dull": every screen now opens on colour (§2's no-dark-surfaces
+   rule is amended for the nav chrome only; content surfaces stay light). */
 .sidebar {
-  background: var(--chrome);
-  color: var(--ink);
-  border-right: 1px solid var(--hair);
+  background: var(--grove);
+  color: rgba(255, 255, 255, 0.92);
   padding: 24px 18px;
   position: sticky;
   top: 0;
@@ -201,7 +219,7 @@ body.drawer-open {
 
 .brand small {
   display: block;
-  color: var(--ink-mute);
+  color: rgba(255, 255, 255, 0.66);
   margin-top: 4px;
   font-size: 11px;
   letter-spacing: 0.08em;
@@ -212,7 +230,7 @@ body.drawer-open {
   font-size: 11px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--ink-mute);
+  color: rgba(255, 255, 255, 0.55);
   margin: 18px 10px 8px;
 }
 
@@ -249,8 +267,8 @@ body.drawer-open {
   cursor: pointer;
 }
 .page-chip.on {
-  background: var(--ink);
-  border-color: var(--ink);
+  background: var(--leaf);
+  border-color: var(--leaf);
   color: white;
 }
 
@@ -268,7 +286,7 @@ body.drawer-open {
   font-size: 10px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--ink-mute);
+  color: rgba(255, 255, 255, 0.55);
   margin: 12px 10px 4px;
 }
 
@@ -281,7 +299,7 @@ body.drawer-open {
   text-align: left;
   border: 0;
   background: transparent;
-  color: var(--ink-soft);
+  color: rgba(255, 255, 255, 0.82);
   padding: 11px 12px;
   border-radius: 8px;
   cursor: pointer;
@@ -289,30 +307,36 @@ body.drawer-open {
 }
 
 .nav button:hover {
-  background: var(--hair-soft);
-  color: var(--ink);
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
 }
 
-/* The blend's clean underline, rotated vertical: the active page carries the
-   husk ink, a straight 2px husk rail on its left edge, and a white wash that
-   lifts it off the chrome — no brand fill anywhere. */
+/* The active page: a brighter leaf fill with a white rail — colour saying
+   "you are here", not a whisper. */
 .nav button.active {
-  background: white;
-  color: var(--husk);
-  box-shadow: inset 2px 0 0 var(--husk);
+  background: var(--grove-active);
+  color: white;
+  box-shadow: inset 2px 0 0 rgba(255, 255, 255, 0.85);
 }
 
 .sidebar-footer {
   margin-top: 30px;
-  border-top: 1px solid var(--hair);
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
   padding-top: 18px;
 }
 
 .sidebar-footer label {
   font-size: 11px;
-  color: var(--ink-mute);
+  color: rgba(255, 255, 255, 0.6);
   display: block;
   margin-bottom: 6px;
+}
+
+/* The signed-in line and the SaveIndicator spans that inherit it. White alpha,
+   never an ink token: the footer sits on the grove chrome, where the ink
+   family (the old inline var(--ink-mute)) composited to ~1.2:1 — invisible. */
+.sidebar-footer .small {
+  color: rgba(255, 255, 255, 0.75);
 }
 
 .sidebar-footer select {
@@ -409,7 +433,9 @@ body.drawer-open {
 }
 
 .icon-btn:active {
-  background: rgba(21, 24, 27, 0.06);
+  /* The icon buttons live on the grove-green chrome, so the press tint is a
+     white wash, not an ink one. */
+  background: rgba(255, 255, 255, 0.12);
 }
 
 /* Declared after .icon-btn so the shared display rule does not win it back. */
@@ -420,7 +446,7 @@ body.drawer-open {
 /* Two classes deep so it survives .btn, which is declared further down. */
 .btn.btn-chip {
   background: white;
-  border: 1px solid var(--hair);
+  border: 1px solid var(--hair-strong);
   color: var(--ink);
   font-size: 12px;
   min-height: 36px;
@@ -489,7 +515,9 @@ body.drawer-open {
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: var(--warning);
+  /* A brighter amber than the text token: this dot sits on the ink-dark
+     alert strip, where the badge-grade amber would sink (2.9:1). */
+  background: #c98a1f;
   animation: offline-pulse 1.8s ease-in-out infinite;
 }
 
@@ -756,35 +784,39 @@ body.drawer-open {
   white-space: nowrap;
 }
 
-/* Primary is ink-strong. The brand husk is ink for text and rails, never a
-   button fill. `.btn.primary` is Login's unprefixed pair of the same rule. */
+/* Primary is the leaf now — green says "do this" (5.3:1 white-on-leaf). The
+   husk stays a reference ink and is still never a fill. `.btn.primary` is
+   Login's unprefixed pair of the same rule. */
 .btn-primary,
 .btn.primary {
-  background: var(--ink);
-  border-color: var(--ink);
+  background: var(--leaf);
+  border-color: var(--leaf);
   color: white;
 }
 
 .btn-primary:hover,
 .btn.primary:hover {
-  background: #33383e;
+  background: var(--leaf-deep);
+  border-color: var(--leaf-deep);
 }
 
 .btn-light {
   background: white;
-  border-color: var(--hair);
+  /* hair-strong: a secondary button sitting on a white card needs an edge
+     the eye can find — the plain hairline was 1.3:1. */
+  border-color: var(--hair-strong);
   color: var(--ink);
 }
 
 .btn-light:hover {
   background: var(--chrome);
-  border-color: #d5d1c8;
+  border-color: #c6cec4;
 }
 
 /* Danger is clay on a clay wash — outline treatment, never a clay fill (§5). */
 .btn-danger {
   background: var(--clay-wash);
-  border-color: rgba(180, 84, 58, 0.45);
+  border-color: var(--clay);
   color: var(--clay);
 }
 
@@ -807,7 +839,7 @@ body.drawer-open {
 
 .toolbar input,
 .toolbar select {
-  border: 1px solid var(--line);
+  border: 1px solid var(--hair-strong);
   background: white;
   border-radius: var(--radius-control);
   padding: 9px 10px;
@@ -857,11 +889,11 @@ tr:last-child td {
   border-bottom: 0;
 }
 
-/* Zebra striping: a faint warm band on alternate rows so a wide ledger row
-   keeps its place while the eye runs across it. Every hover, focus and subrow
-   state below out-ranks it. */
+/* Zebra striping: a faint green-tinted band on alternate rows so a wide
+   ledger row keeps its place while the eye runs across it. Every hover,
+   focus and subrow state below out-ranks it. */
 tbody tr:nth-child(even) td {
-  background: #f9f8f3;
+  background: #f2f5ef;
 }
 
 .selectable-row:hover td {
@@ -904,7 +936,7 @@ tbody tr:nth-child(even) td {
 
 .th-sort:hover,
 .th-sort:focus-visible {
-  color: var(--husk);
+  color: var(--leaf);
 }
 
 .sort-mark {
@@ -913,9 +945,9 @@ tbody tr:nth-child(even) td {
 }
 
 /* The sorted column says so with more than an arrow — the whole head takes
-   the link colour, so the state reads from across the room. */
+   the action colour, so the state reads from across the room. */
 .th-sort.active {
-  color: var(--husk);
+  color: var(--leaf);
 }
 
 .th-sort.active .sort-mark {
@@ -1069,10 +1101,11 @@ th.cell-num {
   line-height: 1.35;
 }
 
-/* The status family (§5): a wash plus its accent-family ink, and — since the
-   first on-screen review found the washes alone too faint — a same-family
-   hairline border so a badge holds its shape beside text. Tender green lives
-   here and nowhere else in the chrome. */
+/* The status family (§5): a wash plus its accent-family ink, and a solid
+   same-family border. The alpha-tinted borders of the first cut composited
+   to under 2:1 against their own wash — the chip had no shape at arm's
+   length — so the border is the accent itself now, at full strength.
+   Tender green lives here and nowhere else in the chrome. */
 .status {
   display: inline-block;
   padding: 4px 9px;
@@ -1084,31 +1117,31 @@ th.cell-num {
 
 .status.success {
   background: var(--tender-wash);
-  border-color: rgba(53, 90, 68, 0.22);
+  border-color: var(--tender);
   color: var(--tender);
 }
 
 .status.warning {
   background: var(--amber-wash);
-  border-color: rgba(164, 118, 31, 0.25);
+  border-color: var(--amber);
   color: var(--amber);
 }
 
 .status.danger {
   background: var(--clay-wash);
-  border-color: rgba(180, 84, 58, 0.25);
+  border-color: var(--clay);
   color: var(--clay);
 }
 
 .status.neutral {
-  background: #ecebe6;
-  border-color: rgba(21, 24, 27, 0.08);
+  background: #e8eae4;
+  border-color: rgba(21, 24, 27, 0.22);
   color: var(--ink-soft);
 }
 
 .status.info {
   background: var(--slate-wash);
-  border-color: rgba(74, 109, 140, 0.22);
+  border-color: var(--slate);
   color: var(--slate);
 }
 
@@ -1141,7 +1174,9 @@ label {
 input,
 select,
 textarea {
-  border: 1px solid var(--line);
+  /* hair-strong, not hair: a field's edge is an affordance, and the softer
+     line vanished on white cards (1.3:1). */
+  border: 1px solid var(--hair-strong);
   background: white;
   border-radius: var(--radius-control);
   padding: 10px 11px;
@@ -1151,8 +1186,8 @@ textarea {
 input:focus,
 select:focus,
 textarea:focus {
-  border-color: var(--husk);
-  box-shadow: 0 0 0 3px rgba(90, 69, 49, 0.14);
+  border-color: var(--leaf);
+  box-shadow: 0 0 0 3px rgba(30, 122, 69, 0.18);
 }
 
 textarea {
@@ -1362,7 +1397,7 @@ textarea:disabled {
 .bar span {
   display: block;
   height: 100%;
-  background: var(--husk);
+  background: var(--leaf);
 }
 
 /* Roomy on desktop, but never wider than the phone it is sitting on. */
@@ -2001,7 +2036,8 @@ table tbody tr.subrow > td {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  border: 1px solid var(--line);
+  /* Same affordance rule as the native inputs above: hair-strong edge. */
+  border: 1px solid var(--hair-strong);
   background: white;
   border-radius: var(--radius-control);
   padding: 10px 11px;
@@ -2012,12 +2048,12 @@ table tbody tr.subrow > td {
 }
 
 .ui-select-trigger:hover {
-  border-color: #d5d1c8;
+  border-color: #c5bfae;
 }
 
 .ui-select-trigger[aria-expanded='true'] {
-  border-color: var(--husk);
-  box-shadow: 0 0 0 3px rgba(90, 69, 49, 0.14);
+  border-color: var(--leaf);
+  box-shadow: 0 0 0 3px rgba(30, 122, 69, 0.18);
 }
 
 .ui-select-trigger:disabled {
@@ -2068,22 +2104,22 @@ table tbody tr.subrow > td {
   background: var(--well);
 }
 
-/* The chosen option is an ink fill — selection is ink, never brand (§5). */
+/* The chosen option is a leaf fill — selection is the action colour (§5). */
 .ui-select-option.active {
-  background: var(--ink);
+  background: var(--leaf);
   color: white;
 }
 
 /* Where the keyboard is, which is not necessarily what is selected. Outlined rather
    than filled so it stays visible on top of the selected row. */
 .ui-select-option.focused {
-  outline: 2px solid var(--husk);
+  outline: 2px solid var(--leaf);
   outline-offset: -2px;
   background: var(--well);
 }
 
 .ui-select-option.active.focused {
-  background: var(--ink);
+  background: var(--leaf);
   outline-color: white;
 }
 
@@ -2584,13 +2620,13 @@ table tbody tr.subrow > td {
 .kind-option.active.farmer {
   border-color: var(--tender);
   background: var(--tender-wash);
-  box-shadow: 0 0 0 3px rgba(53, 90, 68, 0.12);
+  box-shadow: 0 0 0 3px rgba(45, 107, 71, 0.16);
 }
 
 .kind-option.active.vendor {
   border-color: var(--slate);
   background: var(--slate-wash);
-  box-shadow: 0 0 0 3px rgba(74, 109, 140, 0.12);
+  box-shadow: 0 0 0 3px rgba(56, 97, 138, 0.16);
 }
 
 @media (max-width: 760px) {
@@ -2939,9 +2975,10 @@ table tbody tr.subrow > td {
     z-index: 30;
     min-width: 0;
     max-width: 100%;
-    background: var(--chrome);
-    border-bottom: 1px solid var(--hair-strong);
-    color: var(--ink);
+    /* Grove green, matching the sidebar: the phone shell carries colour too. */
+    background: var(--grove);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.18);
+    color: rgba(255, 255, 255, 0.95);
     padding: 8px 12px 8px 6px;
     padding-top: calc(8px + env(safe-area-inset-top));
     padding-left: calc(6px + env(safe-area-inset-left));
@@ -2971,7 +3008,7 @@ table tbody tr.subrow > td {
   .mobile-appbar-title p {
     margin: 2px 0 0;
     font-size: 11px;
-    color: var(--ink-mute);
+    color: rgba(255, 255, 255, 0.75);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -3023,7 +3060,7 @@ table tbody tr.subrow > td {
   .icon-btn.drawer-close {
     display: grid;
     margin: -8px -6px 0 auto;
-    color: var(--ink-soft);
+    color: rgba(255, 255, 255, 0.8);
   }
 
   /* Comfortable thumb targets for the 15 drawer destinations. */
@@ -3041,9 +3078,10 @@ table tbody tr.subrow > td {
     right: 0;
     bottom: 0;
     z-index: 40;
-    background: rgba(255, 255, 255, 0.97);
-    backdrop-filter: blur(10px);
-    border-top: 1px solid var(--line);
+    /* Grove green to match the app bar — the thumb bar is plant chrome, not
+       content, and it earns the colour. */
+    background: var(--grove);
+    border-top: 1px solid rgba(255, 255, 255, 0.14);
     padding-bottom: env(safe-area-inset-bottom);
   }
 
@@ -3057,7 +3095,7 @@ table tbody tr.subrow > td {
     padding: 8px 2px;
     border: 0;
     background: none;
-    color: var(--ink-mute);
+    color: rgba(255, 255, 255, 0.78);
     font-size: 10.5px;
     font-weight: 700;
     letter-spacing: 0.01em;
@@ -3070,14 +3108,14 @@ table tbody tr.subrow > td {
     height: 22px;
   }
 
-  /* Active at thumb size needs the ink weight in the label plus the husk in
-     the icon — a rail alone is too subtle for a gloved thumb (§6). */
+  /* Active at thumb size: white label plus the bright leaf in the icon — a
+     rail alone is too subtle for a gloved thumb (§6). */
   .bottom-nav button.active {
-    color: var(--ink);
+    color: white;
   }
 
   .bottom-nav button.active svg {
-    color: var(--husk);
+    color: #9adfae;
   }
 
   .bottom-nav button.active::before {
@@ -3088,7 +3126,7 @@ table tbody tr.subrow > td {
     right: 22%;
     height: 3px;
     border-radius: 0 0 3px 3px;
-    background: var(--husk);
+    background: #9adfae;
   }
 
   /* Keep the last row of content clear of the fixed bottom nav. */
@@ -3960,18 +3998,20 @@ table tbody tr.subrow > td {
   vertical-align: -1px;
 }
 
-/* Document-kind swatches — they distinguish kinds, not severity. Only the four
-   that repeated the retired chrome greens are re-hued to their new homes. */
+/* Document-kind swatches — they distinguish kinds, not severity. The four that
+   mirror the status accents (grn/qc/dispatch/issue) follow the bright family
+   so a node never paints a different green from the badge that names the same
+   document; the rest keep their own hues. */
 .kind-source { --swatch: #b8892f; }
-.kind-grn { --swatch: #355a44; }
+.kind-grn { --swatch: #166534; }
 .kind-batch { --swatch: #5a4531; }
 .kind-melange { --swatch: #5f8a63; }
-.kind-qc { --swatch: #9b6b18; }
+.kind-qc { --swatch: #92400e; }
 .kind-material { --swatch: #8a8478; }
 .kind-packing { --swatch: #c96543; }
 .kind-order { --swatch: #6a5fa8; }
-.kind-dispatch { --swatch: #3d6c96; }
-.kind-issue { --swatch: #a23f34; }
+.kind-dispatch { --swatch: #1d4ed8; }
+.kind-issue { --swatch: #b91c1c; }
 .kind-customer { --swatch: #15181b; }
 .kind-stock { --swatch: #5b626a; }
 

@@ -3,6 +3,10 @@
 **Status:** Implemented 2026-09-25, same day as the coconut re-theme — Phases A–C landed in `src/index.css` (tokens, self-hosted Bricolage with the ₹-bearing latin-ext subset, shell reskin, per-surface pass) plus the shell chrome colors in `index.html` / `vite.config.ts`. `btn-accent` turned out to have zero call sites and was deleted outright. Report sheets are frozen on the retired literals at their rule, per §5. §8's open questions still stand for review on a device.
 
 **Amended later the same day, after the first on-screen review** (verdict: *too plain, pages sparse*): the page field left pure white for warm paper so cards visibly sit on it (`--bg #f6f4ee`), resting cards got one whisper-soft lift back (`--shadow-card` — pop/dialog/drawer stay the only real elevations), badges gained same-family hairline borders, tables got zebra rows and a stronger head rule (`--hair-strong`), KPI rows became single-card metric strips with hairline dividers (Dashboard, Vendors), metric labels took the husk, the page composes inside a 1600px measure, and the phone card-tables print their field labels in husk. §2/§3/§5 below carry the amended values.
+
+**Amended 2026-09-28, after plant feedback** (verdict: *colours too dull — users can't read the states*): measured, not felt. The four status washes sat 1.12–1.16:1 off their card (tender vs the page field: 1.02 — invisible), so colour carried none of a badge's meaning; the amber and clay badge text fell below the WCAG 4.5:1 small-text floor (3.62 and 4.33 — and amber **is** Quarantine/Hold, the food-safety statuses); `--ink-mute`, which carries table sub-lines, detail labels and the bottom-nav labels, measured 2.78–3.20 everywhere. The fix stays inside every locked rule of §2 — washes are still washes, the family is still one family, husk is still ink-only: accents darkened and chromaed to ≥4.8:1 on their own wash and ≥6:1 on white, washes deepened to ≈1.25:1 off the card, badge borders went solid accent (the alpha-tinted borders composited under 2:1 and gave the chip no shape), mute/faint lifted to ≥4.7:1 / ≈3:1, zebra deepened one step, and interactive controls (inputs, selects, secondary buttons) moved to `--hair-strong` edges — an affordance needs an edge the eye can find. §3's tables carry the amended values.
+
+**Amended again 2026-09-28, same day** (verdict on the contrast pass, with the dashboard on screen: *still dull — try brighter colours or change the blend*): the contrast pass had made the states legible but left the page 95% neutral — white cards on warm-gray paper with two muted chips as the only colour. The bright edition changes the blend's character, deliberately: **the nav chrome goes grove green** (`--grove #175c35` — sidebar, mobile app bar, thumb bar; §2's no-dark-surfaces rule is amended for the nav chrome only, content surfaces stay light), **the leaf becomes the action colour** (`--leaf #1e7a45` — primary buttons, active tabs/stage cards/pick rows/trace links, focus rings, type-tab and score-button fills via the `--green` alias), and **the status family goes bright**: 700-grade inks on 100-grade washes (`#166534/#dcfce7`, `#92400e/#fef3c7`, `#b91c1c/#fee2e2`, `#1d4ed8/#dbeafe`) — every fg ≥4.5:1 on its wash and on white. The husk stays as the *reference* ink (links, doc-links, metric labels, the brand mark) and the water stays the brand wash, so the coconut identity survives the brightening; the field and hairlines took a green whisper (`--bg #f4f6f2`, green-tinted chrome and hairlines) to tie the page to its chrome. PWA `theme_color` follows the grove.
 **Author:** Naresh + Claude (adaptation session).
 **Source design:** the SmoothieBar admin's "Mineral × Botanical" blend — `admin/docs/superpowers/specs/2026-06-12-smoothiebar-blend-design.md`. This doc carries that design language over **lightly**: tokens, locked rules, and component treatments, adapted to this app's reality. It is not a port of SmoothieBar's power-user chrome.
 
@@ -29,7 +33,7 @@ The blend carries structure, not color. SmoothieBar's identity was mineral × bo
 ## 2. Locked rules (carried from the blend — do NOT re-litigate)
 
 - **Brand husk-brown is INK ONLY** — links, active nav, the "needs attention" highlight, the brand mark. **Never a button fill.** Primary CTAs are ink-strong (`--ink`).
-- **No dark surfaces**, ever. The green sidebar becomes a light chrome surface. (The offline bar may stay ink-dark — it is an alert strip, not a surface; see §6.)
+- **No dark surfaces**, ever. The green sidebar becomes a light chrome surface. (The offline bar may stay ink-dark — it is an alert strip, not a surface; see §6.) *(Amended 2026-09-28, bright edition: the **nav chrome** — sidebar, mobile app bar, thumb bar — is grove green `#175c35`; that is navigation, not a content surface, and it is what the plant's "still dull" verdict demanded. Content surfaces stay light.)*
 - **No card shadows on resting surfaces.** Hairlines do the depth. Exactly three shadow tokens survive: popover, dialog, drawer. *(Amended same-day after review: resting cards carry `--shadow-card`, a whisper-soft two-stop lift — the white-on-white field read as flat. It is a paper lift, not an elevation; pop/dialog/drawer remain the only true shadows.)*
 - **No emoji as UI affordance. Never render raw enum strings.** (`statusLabel`/`statusClass` in `lib/utils` already hold this line — keep it that way as statuses evolve.)
 - **Numerals are tabular, everywhere** — `font-feature-settings:'tnum' 1` on every qty, UoM total, ₹ figure, KPI, count. This is a ledger app; ragged number columns are a defect.
@@ -46,9 +50,10 @@ All in `:root` of `src/index.css` — this app's single stylesheet is an advanta
 ### Surfaces
 | Token | Value | Replaces | Use |
 |---|---|---|---|
-| `--bg` | `#f6f4ee` | `#ffffff` (phase A) ← `#f5f0e6` cream | content field — warm paper; white cards sit on it |
-| `--chrome` | `#f1efe8` | — (new) | sidebar / topbar / app bar / table head |
-| `--well` | `#eceae2` | `--panel #fffdf7` | recessed wells: chip tracks, KPI strips, pick lists |
+| `--bg` | `#f4f6f2` | bright edition ← `#f6f4ee` ← `#f5f0e6` cream | content field — paper with the leaf's whisper; white cards sit on it |
+| `--chrome` | `#e9f0e8` | bright edition ← `#f1efe8` | table heads, subform heads (the sidebar itself is `--grove` now) |
+| `--grove` | `#175c35` | bright edition (new) | nav chrome: sidebar, mobile app bar, thumb bar — white text throughout |
+| `--well` | `#eef2ec` | bright edition ← `#eceae2` | recessed wells: chip tracks, KPI strips, pick lists |
 | `--panel` | `#ffffff` | `#fffdf7` | cards — pure white on the tinted field |
 
 ### Hairlines
@@ -63,13 +68,15 @@ All in `:root` of `src/index.css` — this app's single stylesheet is an advanta
 |---|---|---|---|
 | `--ink` | `#15181b` | `#1f251f` | primary text, primary buttons |
 | `--ink-soft` | `#5b626a` | `--muted #697065` | secondary text |
-| `--ink-mute` | `#8c9098` | — | labels, captions |
-| `--ink-faint` | `#b3b7bd` | — | footnotes, placeholders |
+| `--ink-mute` | `#61676f` | `#8c9098` (pre-09-28) | labels, captions — ≥4.7:1 everywhere |
+| `--ink-faint` | `#8d939b` | `#b3b7bd` (pre-09-28) | footnotes, placeholders — ≈3:1 |
 
-### Brand — husk & water (ink only)
-The coconut is the brand: the **husk** gives the ink, the **water** gives the wash. Roligt's two greens (`#253d2b`, `#3e5b45`) leave the chrome entirely — their only survivor is the tender status green below.
+### Brand — leaf, husk & water
+The bright edition split the coconut across two inks: the **leaf** is the action colour (primary fills, active/selected states, focus rings — `--leaf #1e7a45`, `--leaf-deep #16603a`, `--leaf-wash #e0f0e5`; white text on leaf: 5.3:1) and the nav chrome carries `--grove #175c35`. The **husk** is the reference ink and the **water** stays the brand wash — Roligt's greens came home.
 | Token | Value | Use |
 |---|---|---|
+| `--leaf` | `#1e7a45` | action colour — primary fills, active states, focus |
+| `--grove` | `#175c35` | nav chrome — sidebar, mobile app bar, thumb bar |
 | `--husk` | `#5a4531` | brand ink — links, active nav rail, "needs attention" highlight, brand mark |
 | `--husk-deep` | `#43331f` | inline text actions ("Edit", "Adjust") |
 | `--water` | `#f3f0e7` | tinted fill for badges and the `.mark` chip — coconut water held up to the light |
@@ -79,10 +86,10 @@ Yes, `--water` sits near the retired cream `#f5f0e6`. That is deliberate and saf
 ### Status accents (a family, not a stoplight)
 | Status | fg | wash | Replaces |
 |---|---|---|---|
-| Positive | `--tender #355a44` | `#eef3f0` | `--success #2f6b42` — badges only, never chrome; the tender coconut's green |
-| Warning | `--amber #a4761f` | `#faf2d9` | `--warning #9b6b18` + gold `#d9a847` (gold retires) |
-| Error / attention | `--clay #b4543a` | `#faeeea` | `--danger #a23f34` + accent `#c96543` (the two terracottas merge into one clay) |
-| Info | `--slate #4a6d8c` | — | — |
+| Positive | `--tender #166534` | `#dcfce7` | bright edition (09-28, pass 2) ← `#2d6b47`/`#d7e9dc` (pass 1) ← `#355a44`/`#eef3f0` (original) — badges only, never chrome; the tender coconut's green |
+| Warning | `--amber #92400e` | `#fef3c7` | bright edition ← `#8a5800`/`#f5e6ba` (pass 1) ← `#a4761f`/`#faf2d9` (original) |
+| Error / attention | `--clay #b91c1c` | `#fee2e2` | bright edition ← `#9f3d22`/`#f7dccb` (pass 1) ← `#b4543a`/`#faeeea` (original) |
+| Info | `--slate #1d4ed8` | `#dbeafe` | bright edition ← `#38618a` (pass 1) ← `#4a6d8c` (original) |
 
 The warning wash leans yellower than the water so a warning badge never reads as a brand badge beside it.
 
@@ -118,14 +125,14 @@ Segoe UI / Source Sans 3 are removed. No mono family by default — ledger numer
 
 ## 5. Component rules (mapped to this app's classes)
 
-- **`.status` badges** (StatusBadge + `statusClass`): wash fill + accent-family ink text (tender/amber/clay per `statusClass`), and — amended on review — a same-family hairline border so the chip holds its shape beside text. No radius beyond 8px. The kind chips (`.kind-grn`, `.kind-qc`, …) get the same wash treatment, keyed to a small fixed palette — they distinguish document kinds, not severity.
+- **`.status` badges** (StatusBadge + `statusClass`): wash fill + accent-family ink text (tender/amber/clay per `statusClass`), and — amended 2026-09-28 — a **solid** same-family border: the alpha-tinted borders composited under 2:1 against their own wash and the chip had no shape at arm's length. No radius beyond 8px. The kind chips (`.kind-grn`, `.kind-qc`, …) get the same wash treatment, keyed to a small fixed palette — they distinguish document kinds, not severity.
 - **Filter chips (`.chip-row`, `.page-chip`):** active = **ink fill**, neutral; inactive = white + hairline. Never husk fill.
 - **Buttons (`.btn`, `.btn-primary`, `.btn-light`, `.btn-danger`):** primary = ink fill; light/secondary = white + hairline; danger = clay **text or outline**, not a clay fill. `.btn-accent` (terracotta fill) is deleted; its call sites move to primary or an inline husk-deep text action.
 - **Cards (`.card`, `.stage-card`, `.qc-card`, …):** white + `--hair` border, `--radius`, the amended `--shadow-card` lift. `.metric`/`.kpi-row`: numeral 700 tabular, label in the husk Label role; a page's KPI row is one **metric strip** card with hairline dividers, not N floating cards.
 - **Tables (`.table-wrap`, `.cell-num`):** 13px Body, hairline row separators, zebra banding (`#f9f8f3`, amended in), `--chrome` head with Label role over a `--hair-strong` bottom rule, tabular numerals right-aligned. `.cell-id` (doc IDs) in 600 weight — the ID is the handle the whole app trades in; it should scan like a name.
 - **Attention rows** (dashboard exceptions, stock issues, QC holds): a 3px **lead bar** at the row's left edge (clay/amber) — not a full-row tint. `buildExceptions` already computes the severity; it drives the bar color.
-- **Sidebar:** `--chrome` background, hairline right edge, nav items ink; active item = husk text + a straight 2px husk underline on the left edge (the blend's clean-underline treatment, rotated to a vertical rail). Group titles (`Operations` / `Masters` / `Administration`) in the Label role. The `.mark` "R" chip: husk ink on `--water`.
-- **Topbar:** white, hairline bottom edge (no shadow). Title/subtitle in Headline/Body; the email `.pill` becomes a hairline chip. **Save indicator stays exactly as it is** — its honesty is a feature — restyled to `--ink-mute` with the offline case in clay.
+- **Sidebar** *(amended 2026-09-28, bright edition)*: `--grove` background, no right edge; nav items and every group title in white alphas (0.55–0.82); the active item is a `--grove-active` fill with an inset white rail. Text on this chrome is **white-alpha only — never an ink token**, which reads near-invisible on the green (the bright edition shipped one such orphan: an inline `var(--ink-mute)` on the footer's signed-in line, ~1.2:1; it is now `.sidebar-footer .small` at white 0.75, and inline colour styles on chrome are banned going forward). The `.mark` "R" chip keeps husk ink on `--water`.
+- **Topbar:** white, hairline bottom edge (no shadow). Title/subtitle in Headline/Body; the email `.pill` becomes a hairline chip. **Save indicator stays exactly as it is** — its honesty is a feature. It renders in the sidebar footer on the grove chrome, so it inherits the white-alpha there (state is carried by its words — "Offline — changes are held…" — not by a colour the green would sink).
 - **Offline bar:** may stay ink-dark (`--ink` bg, white text) — it is an alert, one of the few justified dark moments, matching the blend's "three shadows" style of rationing.
 - **Modal / DocViewer / drawer:** the only surfaces that earn a shadow token. DocViewer document chrome goes white + hairline; the **print report sheets** (`.report-sheet` and friends) are print CSS and are **not touched** by this design at all.
 - **Toast:** hairline + white (or ink for success), consistent with badges.
