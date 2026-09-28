@@ -1616,17 +1616,201 @@ table tbody tr.subrow > td {
   color: var(--muted);
 }
 
+/* Login — the one page a signed-out device can show, so it carries the brand:
+   a stage panel (coconut-water wash, husk rail — the sidebar's active-rail
+   gesture) telling what Operations Control is, beside the sign-in card itself.
+   Flex + margin:auto (not grid place-items) so a tall stage on a short phone
+   scrolls instead of clipping its top. */
 .login-page {
   min-height: 100vh;
   min-height: 100dvh;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 24px 16px calc(24px + env(safe-area-inset-bottom));
 }
 
+.login-shell {
+  margin: auto; /* overflow-safe vertical centering */
+  width: min(920px, 100%);
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: 18px;
+  align-items: center;
+}
+
+.login-stage {
+  position: relative;
+  overflow: hidden;
+  background: var(--water);
+  border: 1px solid var(--hair);
+  border-left: 3px solid var(--husk);
+  border-radius: var(--radius);
+  padding: 30px 28px;
+}
+
+.login-rings {
+  position: absolute;
+  top: -84px;
+  right: -84px;
+  width: 260px;
+  height: 260px;
+  fill: none;
+  stroke: var(--husk);
+  stroke-width: 1;
+  opacity: 0.09;
+  pointer-events: none;
+}
+
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  position: relative;
+}
+
+.login-mark {
+  width: 64px;
+  height: 64px;
+  font-size: 32px;
+  flex: none;
+}
+
+.login-eyebrow {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--husk);
+  margin-bottom: 4px;
+}
+
+.login-wordmark {
+  margin: 0;
+  font-size: clamp(26px, 4vw, 34px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.02;
+}
+
+.login-lede {
+  position: relative;
+  margin: 20px 0 0;
+  max-width: 46ch;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+.login-flow {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 18px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.login-flow span {
+  display: inline-flex;
+  align-items: center;
+  background: white;
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-control);
+  padding: 5px 10px;
+}
+
+/* U+203A ships in the precached latin subset (U+2000-206F); U+2192 does not,
+   so the separator is this single-glyph chevron, never a drawn arrow. */
+.login-flow span:not(:last-child)::after {
+  content: '\203A';
+  margin-left: 10px;
+  color: var(--husk);
+  font-weight: 700;
+}
+
+.login-flow span:not(:first-child) {
+  margin-left: 8px;
+}
+
+.login-points {
+  position: relative;
+  list-style: none;
+  margin: 20px 0 0;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.login-points li {
+  display: flex;
+  gap: 10px;
+  padding: 9px 0;
+  border-top: 1px solid var(--hair);
+}
+
+.login-points li:last-child {
+  padding-bottom: 0;
+}
+
+.login-points b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* A small husk tick, drawn in CSS (no glyph — the subset fonts carry no
+   checkmark), one per point. */
+.login-points li::before {
+  content: '';
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-top: 6px;
+  border-radius: 2px;
+  background: var(--husk);
+  opacity: 0.55;
+}
+
+.login-panel {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+}
+
 .login-card {
-  width: 360px;
-  max-width: 100%;
+  width: 100%;
+  max-width: 400px;
+}
+
+.login-submit {
+  width: 100%;
+  padding-block: 12px;
+  font-size: 15px;
+}
+
+.login-card .btn:focus-visible {
+  outline: 2px solid var(--leaf);
+  outline-offset: 2px;
+}
+
+.login-help {
+  margin: 12px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-mute);
+  text-align: center;
+}
+
+.login-foot {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
 }
 
 .login-offline {
@@ -3232,8 +3416,31 @@ table tbody tr.subrow > td {
     margin: 0;
   }
 
-  .login-card {
-    width: 100%;
+  /* The stage folds into a compact header: one column, stage first, tighter
+     padding; the rings shrink with the panel instead of crowding the type. */
+  .login-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .login-stage {
+    padding: 22px 18px;
+  }
+
+  .login-brand {
+    gap: 12px;
+  }
+
+  .login-mark {
+    width: 52px;
+    height: 52px;
+    font-size: 26px;
+  }
+
+  .login-rings {
+    width: 180px;
+    height: 180px;
+    top: -60px;
+    right: -60px;
   }
 }
 
