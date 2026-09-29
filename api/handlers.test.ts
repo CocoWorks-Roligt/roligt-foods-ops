@@ -57,10 +57,14 @@ vi.mock('./_lib/snapshot.ts', async () => {
     return v
   }
   return {
-    readSnapshot: vi.fn(async () => guard({ state: null, revision: 0, everWritten: false })),
-    readSnapshotCached: vi.fn(async () => guard({ state: null, revision: 0, everWritten: false })),
-    readRevision: vi.fn(async () => guard(0)),
+    readSnapshot: vi.fn(async () => guard({ state: null, revision: '0', everWritten: false })),
+    readSnapshotCached: vi.fn(async () => guard({ state: null, revision: '0', everWritten: false })),
+    readRevision: vi.fn(async () => guard('0')),
+    readRevisionMemoized: vi.fn(async () => guard('0')),
     invalidateSnapshotCache: vi.fn(),
+    // the real commit lib imports these off the same mocked module
+    noteRevision: vi.fn(),
+    cachedRevision: vi.fn(() => null),
   }
 })
 
@@ -143,7 +147,7 @@ describe('handlers', () => {
     const rs = fakeRes()
     await snapshot(fakeReq(null), rs)
     expect(rs.setHeader).toHaveBeenCalledWith('Set-Cookie', mode.setCookies)
-    expect(rs.json).toHaveBeenCalledWith({ state: null, revision: 0, permissions: mode.permissions })
+    expect(rs.json).toHaveBeenCalledWith({ state: null, revision: '0', permissions: mode.permissions })
     const rr = fakeRes()
     await revision(fakeReq(null), rr)
     expect(rr.setHeader).toHaveBeenCalledWith('Set-Cookie', mode.setCookies)
@@ -167,11 +171,11 @@ describe('handlers', () => {
     const rs = fakeRes()
     await snapshot(fakeReq(null), rs)
     expect(rs.status).toHaveBeenCalledWith(200)
-    expect(rs.json).toHaveBeenCalledWith({ state: null, revision: 0, permissions: mode.permissions })
+    expect(rs.json).toHaveBeenCalledWith({ state: null, revision: '0', permissions: mode.permissions })
     const rr = fakeRes()
     await revision(fakeReq(null), rr)
     expect(rr.status).toHaveBeenCalledWith(200)
-    expect(rr.json).toHaveBeenCalledWith({ revision: 0 })
+    expect(rr.json).toHaveBeenCalledWith({ revision: '0' })
     // one client for the whole BFF — the budget is global per API key, not per request
     expect(zoho).toBeInstanceOf(ZohoClient)
   })

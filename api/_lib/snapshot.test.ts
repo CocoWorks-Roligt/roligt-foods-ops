@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { assembleState, invalidateSnapshotCache, readSnapshotCached } from './snapshot.js'
+import { assembleState, invalidateSnapshotCache, readRevisionMemoized, readSnapshotCached } from './snapshot.js'
 import { T as LIVE_T } from './baseSchema.js'
 import type { ZohoClient, ZohoRecord } from './zoho.js'
 
@@ -131,36 +131,43 @@ describe('assembleState', () => {
 
 describe('readSnapshotCached', () => {
   /** Answers the live schema's Config table with the given revision, [] for every
-   *  other table — a full sweep against this fake is a fetchAll per mapped table. */
+   *  other table — a full sweep against this fake is a fetchAll per mapped table,
+   *  and the revision gate is one criteria read of the app_revision row. */
   const fakeZoho = (rev: () => number) => {
     const config = LIVE_T['Config']
+    const revisionRow = (): ZohoRecord => ({
+      recordID: 'k1',
+      data: {
+        [config.fields['Setting']]: 'app_revision',
+        [config.fields['Value']]: String(rev()),
+      },
+    })
     const fetchAll = vi.fn(async (tableId: string): Promise<ZohoRecord[]> =>
-      tableId === config.id
-        ? [
-            {
-              recordID: 'k1',
-              data: {
-                [config.fields['Setting']]: 'app_revision',
-                [config.fields['Value']]: String(rev()),
-              },
-            },
-          ]
-        : [],
+      tableId === config.id ? [revisionRow()] : [],
     )
-    return { zoho: { baseId: 'base-test', fetchAll } as unknown as ZohoClient, fetchAll }
+    const fetchByKeyIn = vi.fn(async (tableId: string, _keyFieldId: string, values: readonly string[]) =>
+      tableId === config.id && values.includes('app_revision') ? [revisionRow()] : [],
+    )
+    return {
+      zoho: { baseId: 'base-test', fetchAll, fetchByKeyIn } as unknown as ZohoClient,
+      fetchAll,
+      fetchByKeyIn,
+    }
   }
 
   beforeEach(() => invalidateSnapshotCache())
 
-  it('serves the cached snapshot while the revision stands — one read, not a 26-read sweep', async () => {
+  it('serves the cached snapshot while the revision stands — one criteria read, not a 26-read sweep', async () => {
     let rev = 7
-    const { zoho, fetchAll } = fakeZoho(() => rev)
+    const { zoho, fetchAll, fetchByKeyIn } = fakeZoho(() => rev)
     const first = await readSnapshotCached(zoho)
     expect(first.revision).toBe('7')
     const afterSweep = fetchAll.mock.calls.length
     const second = await readSnapshotCached(zoho)
     expect(second).toBe(first)
-    expect(fetchAll.mock.calls.length).toBe(afterSweep + 1) // the revision read alone
+    expect(fetchAll.mock.calls.length).toBe(afterSweep) // no table was re-swept
+    expect(fetchByKeyIn.mock.calls.length).toBe(1) // the app_revision row alone
+    expect(fetchByKeyIn.mock.calls[0]![2]).toEqual(['app_revision'])
   })
 
   it('sweeps again once the revision moves', async () => {
@@ -181,5 +188,58 @@ describe('readSnapshotCached', () => {
     const second = await readSnapshotCached(zoho)
     expect(second).not.toBe(first)
     expect(second.revision).toBe('7')
+  })
+})
+
+describe('readRevisionMemoized', () => {
+  /** The one-row criteria read the poll route makes, counted. */
+  const fakeZoho = (rev: () => number) => {
+    const config = LIVE_T['Config']
+    const fetchByKeyIn = vi.fn(async (_tableId: string, _keyFieldId: string, values: readonly string[]) =>
+      values.includes('app_revision')
+        ? [{ recordID: 'k1', data: { [config.fields['Setting']]: 'app_revision', [config.fields['Value']]: String(rev()) } }]
+        : [],
+    )
+    return { zoho: { baseId: 'base-test', fetchByKeyIn } as unknown as ZohoClient, fetchByKeyIn }
+  }
+
+  beforeEach(() => invalidateSnapshotCache())
+
+  it('shares one read between concurrent pollers — the 20-second poll is the commonest call in the plant', async () => {
+    const { zoho, fetchByKeyIn } = fakeZoho(() => 7)
+    const [a, b, c] = await Promise.all([
+      readRevisionMemoized(zoho),
+      readRevisionMemoized(zoho),
+      readRevisionMemoized(zoho),
+    ])
+    expect(a).toBe('7')
+    expect(b).toBe('7')
+    expect(c).toBe('7')
+    expect(fetchByKeyIn.mock.calls.length).toBe(1) // single-flighted, not one per poller
+  })
+
+  it('serves the memo within its TTL and reads again once it expires', async () => {
+    let rev = 7
+    const { zoho, fetchByKeyIn } = fakeZoho(() => rev)
+    expect(await readRevisionMemoized(zoho)).toBe('7')
+    expect(await readRevisionMemoized(zoho)).toBe('7')
+    expect(fetchByKeyIn.mock.calls.length).toBe(1) // the TTL held
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(Date.now() + 5_000) // past the 4s TTL
+      rev = 8
+      expect(await readRevisionMemoized(zoho)).toBe('8')
+      expect(fetchByKeyIn.mock.calls.length).toBe(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('serves a just-written token at once after an invalidate — the committing process knows the newest revision', async () => {
+    const { zoho, fetchByKeyIn } = fakeZoho(() => 7)
+    await readRevisionMemoized(zoho) // baseId is now known to the module
+    invalidateSnapshotCache('9:abcdef')
+    expect(await readRevisionMemoized(zoho)).toBe('9:abcdef')
+    expect(fetchByKeyIn.mock.calls.length).toBe(1) // the memo served it, no read
   })
 })

@@ -3,8 +3,8 @@
  *
  * Two things this file is deliberately paranoid about:
  *  1. Rate limits are global per API key and a breach locks the API for five minutes —
- *     the plant stops. So every call goes through a serialized budget (26 reads, 17
- *     writes per minute, under the published 30/20) and a lock response becomes
+ *     the plant stops. So every call goes through the budget (26 reads, 17 writes per
+ *     minute, under the published 30/20 — never raised) and a lock response becomes
  *     ZohoLockedError, which the commit endpoint surfaces as 503 + Retry-After.
  *  2. Writes are upserts keyed by a business key (App ID, Series, Setting), never blind
  *     creates — a retried commit after a partial failure re-writes the same row instead
@@ -72,6 +72,9 @@ interface ClientOpts {
   page?: number
   /** Longest a call may sit waiting for budget before failing retryably. */
   maxWaitMs?: number
+  /** HTTP calls allowed in flight at once; default 6. Caps the burst the pool
+   *  can put on the wire — the per-minute budgets stay 26/17 whatever this is. */
+  maxInflight?: number
 }
 
 export class ZohoClient {
@@ -83,7 +86,12 @@ export class ZohoClient {
   private readonly reads: Budget
   private readonly writes: Budget
   private token: { value: string; expiresAt: number } | null = null
-  private chain: Promise<unknown> = Promise.resolve()
+  /** Single-flight refresh — without it, concurrent calls mint concurrent tokens. */
+  private refreshing: Promise<string> | null = null
+  /** Concurrency gate state — see call(). */
+  private inflight = 0
+  private readonly waiters: (() => void)[] = []
+  private readonly maxInflight: number
 
   constructor(opts: ClientOpts = {}) {
     this.f = opts.fetchImpl ?? fetch
@@ -92,24 +100,65 @@ export class ZohoClient {
     this.page = opts.page ?? 1000
     this.reads = new Budget(26, opts.maxWaitMs ?? 60_000)
     this.writes = new Budget(17, opts.maxWaitMs ?? 60_000)
+    this.maxInflight = opts.maxInflight ?? 6
   }
 
   private async accessToken(): Promise<string> {
     if (this.token && this.token.expiresAt > Date.now() + 120_000) return this.token.value
-    const p = new URLSearchParams({
-      refresh_token: this.env.ZOHO_REFRESH_TOKEN ?? '',
-      client_id: this.env.ZOHO_CLIENT_ID ?? '',
-      client_secret: this.env.ZOHO_CLIENT_SECRET ?? '',
-      grant_type: 'refresh_token',
-    })
-    const res = await this.f('https://accounts.zoho.in/oauth/v2/token?' + p, { method: 'POST' })
-    const j = (await res.json()) as { access_token?: string; expires_in?: number }
-    if (!j.access_token) throw new ZohoApiError('token refresh', res.status, JSON.stringify(j))
-    this.token = { value: j.access_token, expiresAt: Date.now() + (j.expires_in ?? 3600) * 1000 }
-    return this.token.value
+    if (!this.refreshing) {
+      const mint = async () => {
+        const p = new URLSearchParams({
+          refresh_token: this.env.ZOHO_REFRESH_TOKEN ?? '',
+          client_id: this.env.ZOHO_CLIENT_ID ?? '',
+          client_secret: this.env.ZOHO_CLIENT_SECRET ?? '',
+          grant_type: 'refresh_token',
+        })
+        const res = await this.f('https://accounts.zoho.in/oauth/v2/token?' + p, { method: 'POST' })
+        const j = (await res.json()) as { access_token?: string; expires_in?: number }
+        if (!j.access_token) throw new ZohoApiError('token refresh', res.status, JSON.stringify(j))
+        this.token = { value: j.access_token, expiresAt: Date.now() + (j.expires_in ?? 3600) * 1000 }
+        return this.token.value
+      }
+      this.refreshing = mint().finally(() => {
+        this.refreshing = null
+      })
+    }
+    return this.refreshing
   }
 
-  /** One raw call. `kind` picks the budget; everything is serialized so budgets hold. */
+  /**
+   * Concurrency gate: at most `maxInflight` HTTP calls in flight at once. A released
+   * slot is handed straight to the longest-waiting caller (inflight stays counted
+   * through the handoff), so the bound holds without re-checking.
+   */
+  private async acquire(): Promise<void> {
+    if (this.inflight >= this.maxInflight) {
+      await new Promise<void>((resolve) => this.waiters.push(resolve))
+      return // release() transferred its slot to us — inflight already counts this call
+    }
+    this.inflight++
+  }
+
+  private release(): void {
+    const next = this.waiters.shift()
+    if (next) {
+      next()
+      return // slot transferred, inflight unchanged
+    }
+    this.inflight--
+  }
+
+  /**
+   * One raw call. `kind` picks the budget; admission is a concurrency pool, not a
+   * queue: Budget.take()'s check-and-record is synchronous (no await between
+   * testing the window and claiming a hit), so parallel callers cannot overspend
+   * it — but they also no longer wait out each other's HTTP transit. The old
+   * everything-through-one-chain serialization is what made a 26-call snapshot
+   * sweep occupy the client for its whole ~30s duration: any small request
+   * landing mid-sweep (an admin audit, a commit pre-flight) queued behind all of
+   * it. Budget is taken BEFORE the slot so a call sleeping out a rate-limit
+   * window holds no concurrency while it waits.
+   */
   private async call(
     kind: 'read' | 'write',
     method: 'GET' | 'POST' | 'PUT' | 'DELETE',
@@ -118,6 +167,22 @@ export class ZohoClient {
   ): Promise<unknown> {
     const run = async () => {
       await (kind === 'read' ? this.reads : this.writes).take()
+      await this.acquire()
+      try {
+        return await this.transact(method, path, params)
+      } finally {
+        this.release()
+      }
+    }
+    return run()
+  }
+
+  private async transact(
+    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+    path: string,
+    params: Record<string, string | number | boolean | undefined>,
+  ): Promise<unknown> {
+    {
       const url = new URL(`https://${this.env.ZOHO_DC ?? 'tables.zoho.in'}/api/v1${path}`)
       const flat: Record<string, string> = {}
       for (const [k, v] of Object.entries(params)) {
@@ -159,9 +224,6 @@ export class ZohoClient {
       }
       return body
     }
-    const next = this.chain.then(run, run)
-    this.chain = next.catch(() => undefined)
-    return next
   }
 
   /**

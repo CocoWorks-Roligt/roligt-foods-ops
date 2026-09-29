@@ -28,6 +28,7 @@ import { TABLE_WRITE_PERMISSION, CONFIG_KEY_WRITE_PERMISSION, isAdminPermissions
 import { pageScope } from '../../src/lib/pages.js'
 import type { ViewId } from '../../src/types.js'
 import type { Caller } from './auth.js'
+import { noteRevision } from './snapshot.js'
 
 export class Forbidden extends Error {
   readonly table: string
@@ -88,6 +89,29 @@ async function linkMaps(zoho: ZohoClient) {
   })
 }
 
+/**
+ * The last link maps this process built, with the revision they were read at.
+ *
+ * A commit spends four reads on masters for column enrichment, and enrichment is
+ * best-effort by contract (only App ID and Data JSON are load-bearing) — but the
+ * masters only ever change through a commit, and every commit bumps the revision
+ * last, so maps read at revision R are exactly what a fresh read at R would return.
+ * The revision a commit already reads (the config gate below) answers whether the
+ * memo still stands; a commit that itself wrote a master table drops it. Same
+ * argument, same shape as the snapshot cache — and four reads back per commit.
+ */
+let linkMemo: { revision: string; maps: Awaited<ReturnType<typeof linkMaps>> } | null = null
+
+/** The base tables whose rows feed link maps — a commit touching any of them spends the memo. */
+const LINK_TABLES = new Set(['Vendors', 'Purchase Products', 'Storage Locations', 'Items'])
+
+async function linkMapsCached(zoho: ZohoClient, revision: string) {
+  if (linkMemo && linkMemo.revision === revision) return linkMemo.maps
+  const maps = await linkMaps(zoho)
+  linkMemo = { revision, maps }
+  return maps
+}
+
 /** One Config row per Setting — the one Config read a commit spends, reused by the
  *  config gate, the counter-period rule and the revision bump. */
 async function configBySetting(zoho: ZohoClient): Promise<Map<string, string>> {
@@ -121,6 +145,9 @@ function storedPayload(table: TableRef, stored: ZohoRecord): Record<string, unkn
 const jsonEq = (a: Record<string, unknown>, b: Record<string, unknown>) =>
   JSON.stringify(a) === JSON.stringify(b)
 
+/** The leading integer of a revision token ('7:ab3' → 7) — 0 for anything unparseable. */
+const revisionNumberOf = (rev: string | undefined): number => parseInt(String(rev ?? ''), 10) || 0
+
 /**
  * Bumps the revision row to a fresh token and returns it.
  *
@@ -129,11 +156,18 @@ const jsonEq = (a: Record<string, unknown>, b: Record<string, unknown>) =>
  * already cached `n+1` believing itself current, with the second commit's rows
  * committed but invisible plant-wide. A token is unique per write, so any reader
  * comparing for equality always sees the row move. Nothing ever orders revisions
- * numerically — every consumer, client and server, compares with `===`.
+ * numerically — every consumer, client and server, compares with `===`; the
+ * number is for humans, and parsed (not Number()'d — a token NaNs it) so it
+ * keeps counting instead of quietly resetting to 1 forever.
  */
 export async function bumpRevision(zoho: ZohoClient, stored: Map<string, string>): Promise<string> {
+  return bumpRevisionTo(zoho, revisionNumberOf(stored.get('app_revision')))
+}
+
+/** bumpRevision against a revision number the caller already holds — the admin
+ *  audit's path, which knows it from the snapshot cache without reading Config. */
+export async function bumpRevisionTo(zoho: ZohoClient, current: number): Promise<string> {
   const config = T['Config']
-  const current = Number(stored.get('app_revision')) || 0
   const token = `${current + 1}:${Math.random().toString(36).slice(2, 8)}`
   await zoho.upsertByKey(config.id, config.fields['Setting'], 'app_revision', {
     [config.fields['Setting']]: 'app_revision',
@@ -193,12 +227,11 @@ export async function commitChanges(zoho: ZohoClient, caller: Caller, changes: S
   // page's business.
   const storedConfig = await configBySetting(zoho)
   if (changes.config) {
-    const configTable = T['Config']
-    const rows = await zoho.fetchAll(configTable.id)
-    const storedRow = rows.find((r) => String(r.data[configTable.fields['Setting']]) === 'app_config')
+    // app_config is in the very map the gate just read — the second Config sweep
+    // this branch used to make was the same rows fetched twice per commit.
     let stored: Record<string, unknown> = {}
     try {
-      stored = storedRow ? (JSON.parse(String(storedRow.data[configTable.fields['Value']])) as Record<string, unknown>) : {}
+      stored = JSON.parse(storedConfig.get('app_config') ?? '{}') as Record<string, unknown>
     } catch {
       stored = {}
     }
@@ -216,8 +249,9 @@ export async function commitChanges(zoho: ZohoClient, caller: Caller, changes: S
   const auditRemove = changes.tables.some((t) => t.table === 'audits' && t.remove?.length)
   if (auditRemove && !held.has(TABLE_WRITE_PERMISSION.audits)) throw new Forbidden('audits')
 
-  // 2. link maps for column enrichment (masters are small; four reads)
-  const links = await linkMaps(zoho)
+  // 2. link maps for column enrichment — memoized per revision (see linkMemo):
+  // four reads for the first commit after anything changed, none behind it.
+  const links = await linkMapsCached(zoho, storedConfig.get('app_revision') ?? '0')
 
   // 3. pre-flight: read every touched row once, by key, and refuse the whole
   // commit if any row moved under the caller. All-or-nothing happens here,
@@ -363,5 +397,15 @@ export async function commitChanges(zoho: ZohoClient, caller: Caller, changes: S
   }
 
   // 7. revision, last — a reader sees the old plant whole or the new plant whole
-  return bumpRevision(zoho, storedConfig)
+  const token = await bumpRevision(zoho, storedConfig)
+  noteRevision(zoho.baseId, token)
+  // Link-memo upkeep: this commit moved the base to `token`. If it wrote a master
+  // table the memo's maps are spent — drop them. If it did not, the maps still
+  // describe the base as of `token` (our own writes changed nothing they hold),
+  // so the memo rides forward and the next commit skips its four reads.
+  if (linkMemo) {
+    if (changes.tables.some((t) => LINK_TABLES.has(TABLE_FOR[t.table] ?? ''))) linkMemo = null
+    else linkMemo = { revision: token, maps: linkMemo.maps }
+  }
+  return token
 }

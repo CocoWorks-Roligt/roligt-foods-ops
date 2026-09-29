@@ -134,9 +134,56 @@ let cached: { baseId: string; revision: string; snap: Assembled } | null = null
 /** The sweep in flight, shared by every caller asking while it runs. */
 let sweeping: Promise<Assembled> | null = null
 
-/** The base changed by ways this process did not watch — drop what it cached. */
-export function invalidateSnapshotCache(): void {
+/**
+ * The newest revision this process has seen or written, with the base it belongs
+ * to — the value an audit's revision bump starts from without reading Config.
+ */
+let lastKnownRevision: { baseId: string; value: string } | null = null
+
+/** Record the freshest revision in hand — every read and bump passes here. */
+export function noteRevision(baseId: string, value: string): void {
+  lastKnownRevision = { baseId, value }
+}
+
+/**
+ * The revision this process last saw, either from a sweep or from its own commit —
+ * the value an audit's revision bump can start from without reading Config at all.
+ */
+export function cachedRevision(baseId: string): string | null {
+  if (cached && cached.baseId === baseId) return cached.revision
+  return lastKnownRevision && lastKnownRevision.baseId === baseId ? lastKnownRevision.value : null
+}
+
+/**
+ * The last revision read, with when — the poll route's micro-cache. Every client
+ * polls every 20s; on one warm instance those polls land seconds apart, and each
+ * one used to spend a whole Config fetch. Within this TTL they share a single read
+ * (single-flighted below). The TTL is far inside the poll's own granularity, so a
+ * served value is at worst a few seconds staler than the poll already is.
+ */
+let revisionMemo: { baseId: string; value: string; at: number } | null = null
+/** The memo-miss read in flight, shared by every concurrent poller. */
+let revisionReading: Promise<string> | null = null
+const REVISION_MEMO_TTL_MS = 4_000
+
+/**
+ * The base changed by ways this process did not watch — drop what it cached.
+ * `nowAt`, when the caller just wrote a revision token itself, is kept as the
+ * process's newest knowledge (and served by the poll memo at once) instead of
+ * throwing the process back to a cold read.
+ */
+export function invalidateSnapshotCache(nowAt?: string): void {
+  const baseId = cached?.baseId ?? lastKnownRevision?.baseId
   cached = null
+  if (nowAt !== undefined && baseId) {
+    lastKnownRevision = { baseId, value: nowAt }
+    revisionMemo = { baseId, value: nowAt, at: Date.now() }
+  } else {
+    // No token, or no base to pin it to: the process knows nothing about the
+    // base's revision anymore — the next reader pays its one criteria read.
+    lastKnownRevision = null
+    revisionMemo = null
+  }
 }
 
 /** Reads the plant, sweeping Zoho only when the revision has moved since the last read. */
@@ -148,6 +195,7 @@ export async function readSnapshotCached(zoho: ZohoClient): Promise<Assembled> {
     sweeping = readSnapshot(zoho)
       .then((snap) => {
         cached = { baseId: zoho.baseId, revision: snap.revision, snap }
+        noteRevision(zoho.baseId, snap.revision)
         return snap
       })
       .finally(() => {
@@ -157,14 +205,39 @@ export async function readSnapshotCached(zoho: ZohoClient): Promise<Assembled> {
   return sweeping
 }
 
-/** Reads just the revision token (one row) — the client's 20-second poll. */
+/** Reads just the revision token (one row) — the gate every snapshot re-read hangs on. */
 export async function readRevision(zoho: ZohoClient): Promise<string> {
   const cfg = T['Config']
-  const rows = await zoho.fetchAll(cfg.id)
+  // One row by criteria, not a paged Config sweep: the Config table also holds
+  // app_config's whole JSON blob, which a revision gate has no business pulling
+  // down the wire every 20 seconds per client. The criteria form and its
+  // is_ids_used_in_params flag are fetchByKeyIn's, pinned live (see zoho.ts).
+  const rows = await zoho.fetchByKeyIn(cfg.id, cfg.fields['Setting'], ['app_revision'])
   for (const r of rows) {
     if (String(r.data[cfg.fields['Setting']]) === 'app_revision') {
-      return String(r.data[cfg.fields['Value']] ?? '') || '0'
+      const value = String(r.data[cfg.fields['Value']] ?? '') || '0'
+      noteRevision(zoho.baseId, value)
+      return value
     }
   }
+  noteRevision(zoho.baseId, '0')
   return '0'
+}
+
+/** The poll route's read — memoized for a few seconds and shared by concurrent pollers. */
+export async function readRevisionMemoized(zoho: ZohoClient): Promise<string> {
+  if (revisionMemo && revisionMemo.baseId === zoho.baseId && Date.now() - revisionMemo.at < REVISION_MEMO_TTL_MS) {
+    return revisionMemo.value
+  }
+  if (!revisionReading) {
+    revisionReading = readRevision(zoho)
+      .then((value) => {
+        revisionMemo = { baseId: zoho.baseId, value, at: Date.now() }
+        return value
+      })
+      .finally(() => {
+        revisionReading = null
+      })
+  }
+  return revisionReading
 }

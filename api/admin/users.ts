@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { authenticate, AuthError } from '../_lib/auth.js'
+import { ZohoLockedError } from '../_lib/zoho.js'
 import { zoho } from '../_lib/shared.js'
 import { writeAdminAudit } from '../_lib/adminAudit.js'
 import {
@@ -44,14 +45,19 @@ type Body = {
   roleSlugs?: string[]
 }
 
-/** Active memberships that would still hold an admin-carrying role after a change. */
-async function adminsAfter(change: {
-  /** A membership whose roles become these instead of what it holds now. */
-  override?: { membershipId: string; roles: string[] }
-  /** Memberships that stop counting — removed, deactivated, deleted. */
-  without?: Set<string>
-}): Promise<number> {
-  const [roles, users] = await Promise.all([listRoles(), listOrgUsers()])
+/** Active memberships that would still hold an admin-carrying role after a change.
+ *  Takes the member list the handler already resolved — the guard used to fetch
+ *  it a second time, two more WorkOS round-trips behind an action's back. */
+async function adminsAfter(
+  users: Awaited<ReturnType<typeof listOrgUsers>>,
+  change: {
+    /** A membership whose roles become these instead of what it holds now. */
+    override?: { membershipId: string; roles: string[] }
+    /** Memberships that stop counting — removed, deactivated, deleted. */
+    without?: Set<string>
+  },
+): Promise<number> {
+  const roles = await listRoles()
   const adminSlugs = new Set(
     roles.filter((r) => ADMIN_PAGE_SLUGS.some((p) => r.permissions.includes(p))).map((r) => r.slug),
   )
@@ -128,7 +134,8 @@ export default async function (req: VercelRequest, res: VercelResponse) {
           res.status(400).json({ error: 'membershipId is required.' })
           return
         }
-        const row = (await listOrgUsers()).find((u) => u.membershipId === membershipId)
+        const users = await listOrgUsers()
+        const row = users.find((u) => u.membershipId === membershipId)
         if (!row) {
           res.status(400).json({ error: 'That user is not in the organization — perhaps already removed.' })
           return
@@ -137,7 +144,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
           res.status(400).json({ error: 'You cannot deactivate your own access — ask another admin.' })
           return
         }
-        if ((await adminsAfter({ without: new Set([membershipId]) })) === 0) {
+        if ((await adminsAfter(users, { without: new Set([membershipId]) })) === 0) {
           res.status(400).json({ error: 'Refused — this would leave nobody able to manage users. Grant another admin first.' })
           return
         }
@@ -167,13 +174,14 @@ export default async function (req: VercelRequest, res: VercelResponse) {
           return
         }
         const roleSlugs = asSlugs(body.roleSlugs)
-        if (!(await listOrgUsers()).some((u) => u.membershipId === membershipId)) {
+        const users = await listOrgUsers()
+        if (!users.some((u) => u.membershipId === membershipId)) {
           res.status(400).json({ error: 'That membership is not in the organization.' })
           return
         }
         // The caller may demote themselves — but never to a plant where nobody
         // at all can administer users (grant another admin first).
-        if ((await adminsAfter({ override: { membershipId, roles: roleSlugs } })) === 0) {
+        if ((await adminsAfter(users, { override: { membershipId, roles: roleSlugs } })) === 0) {
           res.status(400).json({ error: 'Refused — this would leave nobody able to manage users. Grant another admin first.' })
           return
         }
@@ -187,7 +195,8 @@ export default async function (req: VercelRequest, res: VercelResponse) {
           res.status(400).json({ error: 'membershipId is required.' })
           return
         }
-        const row = (await listOrgUsers()).find((u) => u.membershipId === membershipId)
+        const users = await listOrgUsers()
+        const row = users.find((u) => u.membershipId === membershipId)
         if (!row) {
           res.status(400).json({ error: 'That user is not in the organization — perhaps already removed.' })
           return
@@ -198,7 +207,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
           res.status(400).json({ error: 'You cannot remove your own access — ask another admin.' })
           return
         }
-        if ((await adminsAfter({ without: new Set([membershipId]) })) === 0) {
+        if ((await adminsAfter(users, { without: new Set([membershipId]) })) === 0) {
           res.status(400).json({ error: 'Refused — this would leave nobody able to manage users. Grant another admin first.' })
           return
         }
@@ -212,7 +221,8 @@ export default async function (req: VercelRequest, res: VercelResponse) {
           res.status(400).json({ error: 'userId is required.' })
           return
         }
-        const row = (await listOrgUsers()).find((u) => u.userId === userId)
+        const users = await listOrgUsers()
+        const row = users.find((u) => u.userId === userId)
         if (!row) {
           res.status(400).json({ error: 'That user is not in the organization — only members can be deleted from here.' })
           return
@@ -221,7 +231,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
           res.status(400).json({ error: 'You cannot delete your own account — ask another admin.' })
           return
         }
-        if ((await adminsAfter({ without: new Set([row.membershipId]) })) === 0) {
+        if ((await adminsAfter(users, { without: new Set([row.membershipId]) })) === 0) {
           res.status(400).json({ error: 'Refused — this would leave nobody able to manage users. Grant another admin first.' })
           return
         }
@@ -237,6 +247,14 @@ export default async function (req: VercelRequest, res: VercelResponse) {
   } catch (e) {
     if (e instanceof AuthError) {
       res.status(401).json({ error: e.message })
+      return
+    }
+    // The audit/revision writes ride the Zoho budget like every other write — a
+    // rate-limited lock is retryable, not a 500 (the WorkOS action may already
+    // have landed; the audit's own row-action remedy recovers the trail).
+    if (e instanceof ZohoLockedError) {
+      res.setHeader('Retry-After', String(e.retryAfterSec))
+      res.status(503).json({ error: 'Zoho is rate-limited — the user change may have landed; check the list before retrying.' })
       return
     }
     // A WorkOS refusal (409 email exists, 422 bad payload…) is theirs to read.

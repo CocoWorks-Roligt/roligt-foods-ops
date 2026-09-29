@@ -98,6 +98,11 @@ vi.mock('../_lib/shared.ts', async () => {
 
 vi.mock('../_lib/snapshot.ts', () => ({
   invalidateSnapshotCache: vi.fn(),
+  cachedRevision: vi.fn(() => null),
+  // readRevision/noteRevision ride the same mocked module for the real commit
+  // lib and adminAudit — the tests never call them, but the imports must bind
+  readRevision: vi.fn(async () => '0'),
+  noteRevision: vi.fn(),
 }))
 
 const usersHandler = (await import('./users.ts')).default

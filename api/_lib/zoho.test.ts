@@ -166,6 +166,36 @@ describe('ZohoClient', () => {
     expect(calls.filter((x) => !x.url.startsWith('https://accounts'))).toHaveLength(0)
   })
 
+  it('runs calls concurrently behind the budget — one refresh, overlapped reads', async () => {
+    // The old everything-through-one-chain client ran one HTTP call at a time:
+    // a 26-call snapshot sweep occupied it for its whole duration and any small
+    // request queued behind all of it (a 35s admin action). The pool admits
+    // several calls at once while the per-minute budgets stay untouched.
+    const calls: { url: string; init?: RequestInit }[] = []
+    let inFlight = 0
+    let maxInFlight = 0
+    const reply = () => new Response(JSON.stringify({ records: { fetched: [] } }), { status: 200 })
+    const f = async (url: string, init?: RequestInit) => {
+      calls.push({ url, init })
+      if (url.startsWith('https://accounts.zoho.in')) {
+        await new Promise((r) => setTimeout(r, 5))
+        return new Response(JSON.stringify({ access_token: 'tok', expires_in: 3600 }), { status: 200 })
+      }
+      inFlight++
+      maxInFlight = Math.max(maxInFlight, inFlight)
+      await new Promise((r) => setTimeout(r, 10))
+      inFlight--
+      return reply()
+    }
+    const c = new ZohoClient({ fetchImpl: f, env: ENV })
+    await Promise.all(Array.from({ length: 6 }, () => c.fetchAll('T1')))
+    // one token refresh shared by every concurrent first-call, not one each
+    expect(calls.filter((x) => x.url.startsWith('https://accounts.zoho.in'))).toHaveLength(1)
+    // the six reads genuinely overlapped instead of queueing one-at-a-time
+    expect(maxInFlight).toBeGreaterThan(1)
+    expect(maxInFlight).toBeLessThanOrEqual(6) // the pool's cap held
+  })
+
   it('fails fast into ZohoLockedError when the budget wait would outlive maxWaitMs', async () => {
     vi.useFakeTimers()
     try {

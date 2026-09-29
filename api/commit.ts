@@ -19,7 +19,8 @@ export default async function (req: VercelRequest, res: VercelResponse) {
     const revision = await commitChanges(zoho, caller, body.changes)
     // This process has now changed the base with its own hands — anything it
     // cached about the old plant is spent, even though the revision moved too.
-    invalidateSnapshotCache()
+    // The token rides along so the process remembers the revision it just wrote.
+    invalidateSnapshotCache(revision)
     res.status(200).json({ revision })
   } catch (e) {
     if (e instanceof AuthError) {

@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { authenticate, AuthError } from '../_lib/auth.js'
+import { ZohoLockedError } from '../_lib/zoho.js'
 import { zoho } from '../_lib/shared.js'
 import { writeAdminAudit } from '../_lib/adminAudit.js'
 import {
@@ -129,6 +130,11 @@ export default async function (req: VercelRequest, res: VercelResponse) {
   } catch (e) {
     if (e instanceof AuthError) {
       res.status(401).json({ error: e.message })
+      return
+    }
+    if (e instanceof ZohoLockedError) {
+      res.setHeader('Retry-After', String(e.retryAfterSec))
+      res.status(503).json({ error: 'Zoho is rate-limited — the role change may have landed; check the matrix before retrying.' })
       return
     }
     const status = (e as { status?: number }).status
