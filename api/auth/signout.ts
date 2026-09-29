@@ -5,8 +5,8 @@
  * cleared and the browser lands on '/', where the SPA shows the login screen.
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { signOutUrl } from '../_lib/session.ts'
-import { toWebRequest } from '../_lib/vercel.ts'
+import { signOutUrl } from '../_lib/session.js'
+import { toWebRequest } from '../_lib/vercel.js'
 
 export default async function (req: VercelRequest, res: VercelResponse) {
   try {

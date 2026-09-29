@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { PERMISSIONS } from '../../src/lib/permissions.ts'
+import { PERMISSIONS } from '../../src/lib/permissions.js'
 
 /**
  * Admin endpoint tests: the admin.manage gate, the WorkOS wrapper's arguments,

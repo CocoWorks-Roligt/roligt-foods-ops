@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ZohoApiError, ZohoClient, ZohoLockedError } from './zoho.ts'
+import { ZohoApiError, ZohoClient, ZohoLockedError } from './zoho.js'
 
 /**
  * A fetchImpl that records calls and answers from a scripted map.

@@ -7,8 +7,8 @@
  * a crafted link can never become an open redirect.
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { createSignInUrl, workosConfigured } from '../_lib/session.ts'
-import { siteRelative, toWebRequest } from '../_lib/vercel.ts'
+import { createSignInUrl, workosConfigured } from '../_lib/session.js'
+import { siteRelative, toWebRequest } from '../_lib/vercel.js'
 
 export default async function (req: VercelRequest, res: VercelResponse) {
   if (!workosConfigured()) {

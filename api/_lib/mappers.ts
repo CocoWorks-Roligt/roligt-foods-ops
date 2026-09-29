@@ -7,10 +7,10 @@
  * link fields), but reads never depend on them, so a missing or wrong column can never
  * corrupt the app — only a report.
  */
-import type { ZohoRecord } from './zoho.ts'
-import type { TableRef } from './baseSchema.ts'
-import type { Grn, LedgerEntry, Vendor, PurchaseProduct, StorageLocation, Item } from '../../src/types.ts'
-import { ledgerFromRow } from '../../src/lib/tables.ts'
+import type { ZohoRecord } from './zoho.js'
+import type { TableRef } from './baseSchema.js'
+import type { Grn, LedgerEntry, Vendor, PurchaseProduct, StorageLocation, Item } from '../../src/types.js'
+import { ledgerFromRow } from '../../src/lib/tables.js'
 
 /** One row → the app document it stores. */
 export function rowToDoc(table: TableRef, r: ZohoRecord): Record<string, unknown> | null {

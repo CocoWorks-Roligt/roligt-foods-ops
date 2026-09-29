@@ -1,11 +1,11 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { ZohoLockedError } from './_lib/zoho.ts'
-import { authenticate, AuthError } from './_lib/auth.ts'
-import { commitChanges, Conflict, Forbidden } from './_lib/commit.ts'
-import { invalidateSnapshotCache } from './_lib/snapshot.ts'
-import { zoho } from './_lib/shared.ts'
-import { toWebRequest } from './_lib/vercel.ts'
-import type { StateChanges } from '../src/lib/sync.ts'
+import { ZohoLockedError } from './_lib/zoho.js'
+import { authenticate, AuthError } from './_lib/auth.js'
+import { commitChanges, Conflict, Forbidden } from './_lib/commit.js'
+import { invalidateSnapshotCache } from './_lib/snapshot.js'
+import { zoho } from './_lib/shared.js'
+import { toWebRequest } from './_lib/vercel.js'
+import type { StateChanges } from '../src/lib/sync.js'
 
 export default async function (req: VercelRequest, res: VercelResponse) {
   try {

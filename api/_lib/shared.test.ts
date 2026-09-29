@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { assertBaseMatch } from './shared.ts'
-import { BASE_ID } from './baseSchema.ts'
+import { assertBaseMatch } from './shared.js'
+import { BASE_ID } from './baseSchema.js'
 
 describe('assertBaseMatch — the .env ↔ generated-schema invariant', () => {
   it('throws, naming both ids, when ZOHO_BASE_ID disagrees with the generated schema', () => {

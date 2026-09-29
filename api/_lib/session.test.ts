@@ -6,7 +6,7 @@ import {
   sessionCookieName,
   VercelCookieSessionStorage,
   workosConfigured,
-} from './session.ts'
+} from './session.js'
 
 /**
  * The pure halves of the adapter: cookie parsing (which MUST URL-decode — PKCE

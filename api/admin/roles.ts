@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { authenticate, AuthError } from '../_lib/auth.ts'
-import { zoho } from '../_lib/shared.ts'
-import { writeAdminAudit } from '../_lib/adminAudit.ts'
+import { authenticate, AuthError } from '../_lib/auth.js'
+import { zoho } from '../_lib/shared.js'
+import { writeAdminAudit } from '../_lib/adminAudit.js'
 import {
   createRole,
   ensurePermissions,
@@ -9,9 +9,9 @@ import {
   listPermissionSlugs,
   listRoles,
   setRolePermissions,
-} from '../_lib/workosAdmin.ts'
-import { toWebRequest } from '../_lib/vercel.ts'
-import { ADMIN_PAGE_SLUGS, PERMISSIONS, permissionLabel } from '../../src/lib/permissions.ts'
+} from '../_lib/workosAdmin.js'
+import { toWebRequest } from '../_lib/vercel.js'
+import { ADMIN_PAGE_SLUGS, PERMISSIONS, permissionLabel } from '../../src/lib/permissions.js'
 
 /**
  * Role administration — the Roles & Permissions page's surface (its tick

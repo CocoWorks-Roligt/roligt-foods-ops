@@ -6,9 +6,9 @@
  * rather than a login that can never succeed.
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { authenticate, AuthError, devCaller, devSessionAllowed } from '../_lib/auth.ts'
-import { workosConfigured } from '../_lib/session.ts'
-import { toWebRequest } from '../_lib/vercel.ts'
+import { authenticate, AuthError, devCaller, devSessionAllowed } from '../_lib/auth.js'
+import { workosConfigured } from '../_lib/session.js'
+import { toWebRequest } from '../_lib/vercel.js'
 
 export default async function (req: VercelRequest, res: VercelResponse) {
   if (!workosConfigured()) {

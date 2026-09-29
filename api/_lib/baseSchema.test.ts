@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { T, TABLE_FOR } from './baseSchema.ts'
+import { T, TABLE_FOR } from './baseSchema.js'
 
 describe('baseSchema (generated)', () => {
   it('covers every collection the app syncs, with App ID + Data JSON where required', () => {

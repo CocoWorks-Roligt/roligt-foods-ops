@@ -8,12 +8,12 @@
  * written in the flat shape auditToRow emits (the Audits table stores that
  * shape, not AuditEntry) with a fresh unique id — insert-only by construction.
  */
-import type { ZohoClient } from './zoho.ts'
-import { T } from './baseSchema.ts'
-import { auditColumns } from './mappers.ts'
-import { bumpRevision, columnsByFieldId } from './commit.ts'
-import { invalidateSnapshotCache } from './snapshot.ts'
-import type { Caller } from './auth.ts'
+import type { ZohoClient } from './zoho.js'
+import { T } from './baseSchema.js'
+import { auditColumns } from './mappers.js'
+import { bumpRevision, columnsByFieldId } from './commit.js'
+import { invalidateSnapshotCache } from './snapshot.js'
+import type { Caller } from './auth.js'
 
 function auditId(): string {
   return `AUD-admin-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`

@@ -1,9 +1,9 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { ZohoLockedError } from './_lib/zoho.ts'
-import { authenticate, AuthError } from './_lib/auth.ts'
-import { readRevision } from './_lib/snapshot.ts'
-import { zoho } from './_lib/shared.ts'
-import { toWebRequest } from './_lib/vercel.ts'
+import { ZohoLockedError } from './_lib/zoho.js'
+import { authenticate, AuthError } from './_lib/auth.js'
+import { readRevision } from './_lib/snapshot.js'
+import { zoho } from './_lib/shared.js'
+import { toWebRequest } from './_lib/vercel.js'
 
 export default async function (req: VercelRequest, res: VercelResponse) {
   try {

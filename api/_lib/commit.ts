@@ -18,16 +18,16 @@
  * two devices minting the same document number a refused insert instead of one
  * receipt quietly replacing the other while both ledger lines survive.
  */
-import type { ZohoClient, ZohoRecord } from './zoho.ts'
-import type { TableRef } from './baseSchema.ts'
-import { T, TABLE_FOR } from './baseSchema.ts'
-import { columnsFor, ledgerColumns, auditColumns, buildLinkMaps } from './mappers.ts'
-import { COLLECTIONS } from '../../src/lib/tables.ts'
-import type { StateChanges } from '../../src/lib/sync.ts'
-import { TABLE_WRITE_PERMISSION, CONFIG_KEY_WRITE_PERMISSION, isAdminPermissions } from '../../src/lib/permissions.ts'
-import { pageScope } from '../../src/lib/pages.ts'
-import type { ViewId } from '../../src/types.ts'
-import type { Caller } from './auth.ts'
+import type { ZohoClient, ZohoRecord } from './zoho.js'
+import type { TableRef } from './baseSchema.js'
+import { T, TABLE_FOR } from './baseSchema.js'
+import { columnsFor, ledgerColumns, auditColumns, buildLinkMaps } from './mappers.js'
+import { COLLECTIONS } from '../../src/lib/tables.js'
+import type { StateChanges } from '../../src/lib/sync.js'
+import { TABLE_WRITE_PERMISSION, CONFIG_KEY_WRITE_PERMISSION, isAdminPermissions } from '../../src/lib/permissions.js'
+import { pageScope } from '../../src/lib/pages.js'
+import type { ViewId } from '../../src/types.js'
+import type { Caller } from './auth.js'
 
 export class Forbidden extends Error {
   readonly table: string

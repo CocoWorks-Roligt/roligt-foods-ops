@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { authenticate, AuthError, __setAuthenticator } from './auth.ts'
-import { PERMISSIONS } from '../../src/lib/permissions.ts'
+import { authenticate, AuthError, __setAuthenticator } from './auth.js'
+import { PERMISSIONS } from '../../src/lib/permissions.js'
 import type { AuthResult } from '@workos/authkit-session'
 
 /** The signed-in branch of AuthResult — the shape withAuth returns for a live session. */

@@ -16,7 +16,7 @@
  * projects, so the .ts extension on imports and no browser globals.
  */
 import type { Role } from '../types.ts'
-import { PAGE_CATALOG, pageBySlug } from './pages.ts'
+import { PAGE_CATALOG, pageBySlug } from './pages.js'
 
 /** Every page slug, in catalog (sidebar) order — the whole catalog, nothing else. */
 export const PERMISSIONS = PAGE_CATALOG.map((p) => p.slug) as readonly string[]

@@ -8,7 +8,7 @@
  * handlers above never see WorkOS vocabulary, and a SDK upgrade breaks in this
  * one file rather than everywhere.
  */
-import { workos } from './workos.ts'
+import { workos } from './workos.js'
 
 /** An org member as the admin screens see them. */
 export interface AdminUserRow {

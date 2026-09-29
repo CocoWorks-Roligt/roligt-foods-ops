@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { authenticate, AuthError } from '../_lib/auth.ts'
-import { zoho } from '../_lib/shared.ts'
-import { writeAdminAudit } from '../_lib/adminAudit.ts'
+import { authenticate, AuthError } from '../_lib/auth.js'
+import { zoho } from '../_lib/shared.js'
+import { writeAdminAudit } from '../_lib/adminAudit.js'
 import {
   createPasswordResetLink,
   createUserWithRoles,
@@ -12,10 +12,10 @@ import {
   reactivateUser,
   removeMembership,
   setUserRoles,
-} from '../_lib/workosAdmin.ts'
-import { toWebRequest } from '../_lib/vercel.ts'
+} from '../_lib/workosAdmin.js'
+import { toWebRequest } from '../_lib/vercel.js'
 
-import { ADMIN_PAGE_SLUGS } from '../../src/lib/permissions.ts'
+import { ADMIN_PAGE_SLUGS } from '../../src/lib/permissions.js'
 
 /**
  * User administration — the Users page's surface (its tick carries this API).

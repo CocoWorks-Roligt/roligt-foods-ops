@@ -16,7 +16,7 @@
  * no administrator can escape. The first admin user is created once in the
  * WorkOS dashboard; everything after runs from the app.
  */
-import { PERMISSIONS, permissionLabel } from '../../src/lib/permissions.ts'
+import { PERMISSIONS, permissionLabel } from '../../src/lib/permissions.js'
 import { WorkOS } from '@workos-inc/node'
 
 const ORG_NAME = 'Roligt Foods'

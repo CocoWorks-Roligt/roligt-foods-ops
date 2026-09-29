@@ -15,8 +15,8 @@
  * client is only constructed after assertBaseMatch agrees that .env and the generated
  * schema name the same base; a mismatch throws loudly at boot with both ids.
  */
-import { ZohoClient } from './zoho.ts'
-import { BASE_ID } from './baseSchema.ts'
+import { ZohoClient } from './zoho.js'
+import { BASE_ID } from './baseSchema.js'
 
 /**
  * Throw when env names a different base than the generated schema was built for.

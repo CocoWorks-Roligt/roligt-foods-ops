@@ -10,8 +10,8 @@
  * is cured by the sign-in click that waits there.
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { clearVerifierCookies, handleAuthCallback, workosConfigured } from '../_lib/session.ts'
-import { siteRelative, toWebRequest } from '../_lib/vercel.ts'
+import { clearVerifierCookies, handleAuthCallback, workosConfigured } from '../_lib/session.js'
+import { siteRelative, toWebRequest } from '../_lib/vercel.js'
 
 export default async function (req: VercelRequest, res: VercelResponse) {
   if (!workosConfigured()) {

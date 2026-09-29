@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { commitChanges, Conflict, Forbidden } from './commit.ts'
-import { T } from './baseSchema.ts'
-import type { ZohoClient, ZohoRecord } from './zoho.ts'
-import type { Caller } from './auth.ts'
-import { PERMISSIONS } from '../../src/lib/permissions.ts'
+import { commitChanges, Conflict, Forbidden } from './commit.js'
+import { T } from './baseSchema.js'
+import type { ZohoClient, ZohoRecord } from './zoho.js'
+import type { Caller } from './auth.js'
+import { PERMISSIONS } from '../../src/lib/permissions.js'
 
 type Upsert = { table: string; key: string; values: Record<string, string> }
 

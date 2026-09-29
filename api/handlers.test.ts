@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { T } from './_lib/baseSchema.ts'
+import { T } from './_lib/baseSchema.js'
 
 /**
  * Handler-level tests: the Retry-After plumbing, the status-code mapping and the

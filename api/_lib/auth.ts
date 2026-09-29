@@ -15,10 +15,10 @@
  * src/lib/permissions.ts and commitChanges gates writes on those — this guard
  * is the RLS of the fork.
  */
-import { devPermissions } from '../../src/lib/permissions.ts'
-import type { Role } from '../../src/types.ts'
-import { withAuth, workosConfigured } from './session.ts'
-import { isActiveMember } from './workosAdmin.ts'
+import { devPermissions } from '../../src/lib/permissions.js'
+import type { Role } from '../../src/types.js'
+import { withAuth, workosConfigured } from './session.js'
+import { isActiveMember } from './workosAdmin.js'
 import type { AuthResult } from '@workos/authkit-session'
 
 export class AuthError extends Error {

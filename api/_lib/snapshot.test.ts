@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { assembleState, invalidateSnapshotCache, readSnapshotCached } from './snapshot.ts'
-import { T as LIVE_T } from './baseSchema.ts'
-import type { ZohoClient, ZohoRecord } from './zoho.ts'
+import { assembleState, invalidateSnapshotCache, readSnapshotCached } from './snapshot.js'
+import { T as LIVE_T } from './baseSchema.js'
+import type { ZohoClient, ZohoRecord } from './zoho.js'
 
 const T = {
   GRNs: { name: 'GRNs', id: 't-grn', appId: 'f-app', dataJson: 'f-data', fields: {} },

@@ -4,11 +4,11 @@
  * Supabase client had (id, data) — `migrateState` fills any collection not yet
  * mapped from seed defaults, which is what lets the GRN slice ship before the rest.
  */
-import type { ZohoClient, ZohoRecord } from './zoho.ts'
-import { T, TABLE_FOR } from './baseSchema.ts'
-import { rowToDoc } from './mappers.ts'
-import { COLLECTIONS, ledgerFromRow, auditFromRow } from '../../src/lib/tables.ts'
-import type { AppState } from '../../src/types.ts'
+import type { ZohoClient, ZohoRecord } from './zoho.js'
+import { T, TABLE_FOR } from './baseSchema.js'
+import { rowToDoc } from './mappers.js'
+import { COLLECTIONS, ledgerFromRow, auditFromRow } from '../../src/lib/tables.js'
+import type { AppState } from '../../src/types.js'
 
 export interface Assembled {
   state: Partial<AppState> | null
