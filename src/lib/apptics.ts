@@ -1,13 +1,21 @@
 /**
- * Zoho Apptics facade — dev/staging trial. Production builds emit no SDK script
- * (vite.config.ts keys that on this same token) and the env var is absent there,
- * so every export below is a no-op in production. Call sites never guard: call
- * and move on, exactly like WORKOS_CONFIGURED in src/lib/authMode.ts.
+ * Zoho Apptics facade — dev/staging trial. Production carries none of the env
+ * vars below, so every export here is a no-op there and no SDK is ever fetched.
+ * Call sites never guard: call and move on, exactly like WORKOS_CONFIGURED in
+ * src/lib/authMode.ts.
  */
 import { bootAppticsSdk, sdkSetUser, sdkTrackEvent, sdkTrackScreen } from './appticsSdk'
 
-/** Present = staging trial wiring is live. Absent = everything here is inert. */
-export const APPTICS_CONFIGURED = Boolean(import.meta.env.VITE_APPTICS_APP_TOKEN)
+/**
+ * Present = staging trial wiring is live. Absent = everything here is inert.
+ * All three ids come from the console snippet — a partial set would only build
+ * a broken init URL, so it counts as unconfigured.
+ */
+export const APPTICS_CONFIGURED = Boolean(
+  import.meta.env.VITE_APPTICS_APP_TOKEN &&
+    import.meta.env.VITE_APPTICS_ZSOID &&
+    import.meta.env.VITE_APPTICS_PROJECT_ID,
+)
 
 /** The event vocabulary — a union so a typo at a call site is a compile error. */
 export type AppticsEventName = 'db_commit' | 'db_throttled' | 'session_expired' | 'connectivity'
@@ -32,7 +40,12 @@ function whenReady(call: () => void): void {
 export function initApptics(): void {
   if (!APPTICS_CONFIGURED || started) return
   started = true
-  void bootAppticsSdk(import.meta.env.VITE_APPTICS_APP_TOKEN!, import.meta.env.VITE_APPTICS_DC)
+  void bootAppticsSdk(
+    import.meta.env.VITE_APPTICS_APP_TOKEN!,
+    import.meta.env.VITE_APPTICS_ZSOID!,
+    import.meta.env.VITE_APPTICS_PROJECT_ID!,
+    import.meta.env.VITE_APPTICS_DC,
+  )
     .then(() => {
       ready = true
       const queue = pending

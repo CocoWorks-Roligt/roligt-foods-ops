@@ -2,16 +2,26 @@
  * The only file that knows Zoho Apptics' real API names. Everything above it
  * (src/lib/apptics.ts) speaks our narrow surface, so SDK changes land here.
  *
- * The npm package cannot be imported as a module: it has no exports at all and
- * its IIFE binds `this` (a classic-script tag, where `this` is window, is the
- * documented integration). So we vendored nothing into git — the build/dev
- * pipeline (vite.config.ts) serves the package's script from /vendor/apptics.js
- * and this adapter injects it at runtime, after staging the
- * `window.appticssettings._defaultoptions` the script reads while loading.
+ * Integration is Zoho's documented init script, not the npm package: the SDK
+ * auto-initializes while it loads by reading `window.appticssettings` and its
+ * init reads `base_domain` unconditionally — so the settings it consumes must
+ * already be complete (zsoid, projectID, identifier, base_domain, DC and a
+ * server-minted token). Hand-staging a partial object crashes the SDK inside
+ * its own eval and nothing is ever sent, which is exactly how this trial
+ * shipped dead for a week. The init endpoint mints the full settings for our
+ * app and appends the SDK from Zoho's CDN itself:
+ *
+ *   https://apptics.zoho.<dc>/sdk/web/v1/<zsoid>/<projectID>/init?aaID=<aaID>
+ *
+ * so the only values we carry are the public ids the console prints in the
+ * snippet. (The npm package was also unusable as a module — no exports, IIFE
+ * bound to `this` — and is gone from the build.)
  */
 
-/** Where the vite pipeline serves the SDK script (build: emitted asset; dev: middleware). */
-const APPTICS_SDK_URL = '/vendor/apptics.js'
+/** The only init hosts proven live: the IN portal answers for our org, and the
+ *  .com portal is Zoho's default (it rejects an IN org with INVALID_PORTAL,
+ *  which is how the DC routing was confirmed). */
+const initHostFor = (dc?: string) => (dc === 'IN' ? 'apptics.zoho.in' : 'apptics.zoho.com')
 
 /** The slice of window.apptics we use — verified against the SDK source (v1.0.2). */
 interface AppticsApi {
@@ -25,29 +35,55 @@ interface AppticsApi {
 declare global {
   interface Window {
     apptics?: AppticsApi
-    /** Must exist before the script loads — the SDK auto-initializes from it. */
-    appticssettings?: { _defaultoptions: Record<string, unknown> }
   }
 }
 
 /**
- * Stages the settings, injects the SDK script, and turns on crash capture once
- * it has run. The `aaID` is the app token the Apptics console prints inside its
- * snippet; DC is the optional data-center code the same snippet shows (IN, EU…).
+ * Waits for the SDK the init script appends to define `window.apptics`. The
+ * init tag's own load event only means the settings were staged; the SDK lands
+ * a moment later, so boot is not done until its surface exists.
  */
-export function bootAppticsSdk(token: string, dc?: string): Promise<void> {
+function waitForApptics(timeoutMs: number): Promise<AppticsApi> {
   return new Promise((resolve, reject) => {
-    window.appticssettings = {
-      _defaultoptions: { aaID: token, ...(dc ? { DC: dc } : {}) },
+    const startedAt = Date.now()
+    const tick = () => {
+      if (window.apptics) return resolve(window.apptics)
+      if (Date.now() - startedAt > timeoutMs) {
+        return reject(new Error('apptics sdk failed to load'))
+      }
+      setTimeout(tick, 50)
     }
+    tick()
+  })
+}
+
+/**
+ * Injects Zoho's init script and resolves once the SDK it pulls in is live,
+ * with crash capture armed. The `aaID` is the app token the Apptics console
+ * prints inside its snippet; zsoid and projectID are the ids in the same
+ * snippet's URL; DC is the optional data-center code (IN for this org).
+ */
+export function bootAppticsSdk(
+  token: string,
+  zsoid: string,
+  projectID: string,
+  dc?: string,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
     const script = document.createElement('script')
-    script.src = APPTICS_SDK_URL
+    script.src = `https://${initHostFor(dc)}/sdk/web/v1/${zsoid}/${projectID}/init?aaID=${token}`
+    script.crossOrigin = 'anonymous'
     script.async = true
     script.onload = () => {
-      // Crash capture is a separate opt-in — without this the global handlers
-      // the SDK registers stay dormant.
-      window.apptics?.enableGlobalErrorHandler(true)
-      resolve()
+      // Settings are staged and the SDK tag appended — finish when the SDK
+      // itself has run. Crash capture stays a separate opt-in.
+      void waitForApptics(10_000).then(
+        (api) => {
+          api.enableGlobalErrorHandler(true)
+          resolve()
+        },
+        reject,
+      )
     }
     script.onerror = () => reject(new Error('apptics sdk failed to load'))
     document.head.appendChild(script)

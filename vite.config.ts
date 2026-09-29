@@ -1,46 +1,16 @@
-import { createRequire } from 'node:module'
-import { readFileSync } from 'node:fs'
-import { defineConfig, loadEnv, type Plugin } from 'vite'
+import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
-const require = createRequire(import.meta.url)
-
-/**
- * Serves the Zoho Apptics SDK script at /vendor/apptics.js. The npm package
- * cannot be imported as a module (no exports; its IIFE binds `this`, which is
- * only window under a classic <script>), so src/lib/appticsSdk.ts injects that
- * script at runtime and this plugin is where the file comes from: emitted as a
- * build asset, served straight from node_modules in dev. It exists only in the
- * plugin list when the staging token is present — a production build neither
- * emits nor executes a byte of the SDK.
- */
-function appticsVendorPlugin(): Plugin {
-  const read = () => readFileSync(require.resolve('@zoho_apptics/apptics-js-sdk'), 'utf8')
-  return {
-    name: 'apptics-vendor-script',
-    configureServer(server) {
-      server.middlewares.use('/vendor/apptics.js', (_req, res) => {
-        res.setHeader('content-type', 'application/javascript')
-        res.end(read())
-      })
-    },
-    generateBundle() {
-      this.emitFile({ type: 'asset', fileName: 'vendor/apptics.js', source: read() })
-    },
-  }
-}
-
 // https://vite.dev/config/
-export default defineConfig(({ mode }) => {
-  // The Apptics staging gate: the token is set in .env.local and Vercel
-  // Preview/Development only. Absence removes the vendor plugin entirely, so
-  // production builds carry no SDK script for the workbox precache to pick up.
-  const appticsEnabled = Boolean(loadEnv(mode, process.cwd(), 'VITE_').VITE_APPTICS_APP_TOKEN)
+// The Apptics staging gate lives outside the build now: the SDK is fetched at
+// runtime from Zoho's init endpoint (src/lib/appticsSdk.ts), so a build whose
+// env carries no VITE_APPTICS_* ids never references it at all and there is no
+// script for the workbox precache to pick up.
+export default defineConfig(() => {
   return {
     plugins: [
       react(),
-      ...(appticsEnabled ? [appticsVendorPlugin()] : []),
       VitePWA({
         // We show our own "new version available" prompt instead of silently reloading,
         // so an operator is never interrupted mid-entry.

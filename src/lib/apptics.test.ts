@@ -23,10 +23,13 @@ describe('apptics facade', () => {
   beforeEach(() => {
     vi.resetModules()
     vi.clearAllMocks()
-    // DC defaults to empty for every case (tests that want one override it):
-    // vitest loads .env.local into import.meta.env, so a developer's real
-    // VITE_APPTICS_DC would otherwise leak into the cases that pin boot args.
+    // Every optional id defaults to empty for every case (tests that want one
+    // override it): vitest loads .env.local into import.meta.env, so a
+    // developer's real VITE_APPTICS_* would otherwise leak into the cases that
+    // pin boot args.
     vi.stubEnv('VITE_APPTICS_DC', '')
+    vi.stubEnv('VITE_APPTICS_ZSOID', '')
+    vi.stubEnv('VITE_APPTICS_PROJECT_ID', '')
   })
 
   afterEach(() => {
@@ -48,8 +51,20 @@ describe('apptics facade', () => {
     expect(sdk.setUser).not.toHaveBeenCalled()
   })
 
+  it('treats a partial id set as unconfigured — it could only build a broken init URL', async () => {
+    vi.stubEnv('VITE_APPTICS_APP_TOKEN', 'tok-half')
+    // zsoid and projectID stay empty from beforeEach
+    const a = await import('./apptics')
+    expect(a.APPTICS_CONFIGURED).toBe(false)
+    a.initApptics()
+    await Promise.resolve()
+    expect(sdk.boot).not.toHaveBeenCalled()
+  })
+
   it('boots exactly once and forwards calls once ready', async () => {
     vi.stubEnv('VITE_APPTICS_APP_TOKEN', 'tok-1')
+    vi.stubEnv('VITE_APPTICS_ZSOID', 'zso-1')
+    vi.stubEnv('VITE_APPTICS_PROJECT_ID', 'proj-1')
     const a = await import('./apptics')
     // Fired before the (async) boot resolves: buffered, not dropped.
     a.trackPageView('/procurement')
@@ -58,7 +73,7 @@ describe('apptics facade', () => {
     a.initApptics() // idempotent
     await vi.waitFor(() => expect(sdk.trackScreen).toHaveBeenCalled())
     expect(sdk.boot).toHaveBeenCalledTimes(1)
-    expect(sdk.boot).toHaveBeenCalledWith('tok-1', '')
+    expect(sdk.boot).toHaveBeenCalledWith('tok-1', 'zso-1', 'proj-1', '')
     expect(sdk.trackScreen).toHaveBeenCalledWith('/procurement')
     expect(sdk.setUser).toHaveBeenCalledWith('qa@roligt.local')
 
@@ -74,15 +89,19 @@ describe('apptics facade', () => {
 
   it('passes the data-center code through when set', async () => {
     vi.stubEnv('VITE_APPTICS_APP_TOKEN', 'tok-2')
+    vi.stubEnv('VITE_APPTICS_ZSOID', 'zso-2')
+    vi.stubEnv('VITE_APPTICS_PROJECT_ID', 'proj-2')
     vi.stubEnv('VITE_APPTICS_DC', 'IN')
     const a = await import('./apptics')
     a.initApptics()
     await vi.waitFor(() => expect(sdk.boot).toHaveBeenCalled())
-    expect(sdk.boot).toHaveBeenCalledWith('tok-2', 'IN')
+    expect(sdk.boot).toHaveBeenCalledWith('tok-2', 'zso-2', 'proj-2', 'IN')
   })
 
   it('drops the buffer silently when the script fails to load', async () => {
     vi.stubEnv('VITE_APPTICS_APP_TOKEN', 'tok-3')
+    vi.stubEnv('VITE_APPTICS_ZSOID', 'zso-3')
+    vi.stubEnv('VITE_APPTICS_PROJECT_ID', 'proj-3')
     sdk.boot.mockRejectedValueOnce(new Error('apptics sdk failed to load'))
     const a = await import('./apptics')
     a.trackPageView('/quality')
