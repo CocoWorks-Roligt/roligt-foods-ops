@@ -7,9 +7,12 @@
  * exception is the audit trail, which is insert-only: an upsert naming an App ID that
  * already exists is skipped, so no commit (and no retry) can rewrite history. The
  * revision row is bumped last so a reader either sees the old plant whole or the new
- * plant whole. Tables gated behind a permission the caller lacks are refused here —
- * this is the RLS of the fork, and the client maps the 403 to the same 'forbidden'
- * message it always had.
+ * plant whole — unless nothing landed: a commit whose every row was already exactly
+ * what it carried (an idempotent retry end to end) writes nothing, bumps nothing and
+ * answers the unchanged token, because a bump would order every device in the plant
+ * to re-sweep for a nothing-burger. Tables gated behind a permission the caller
+ * lacks are refused here — this is the RLS of the fork, and the client maps the 403
+ * to the same 'forbidden' message it always had.
  *
  * A commit is also refused, whole, before a single write lands, when any row it
  * would replace no longer matches the version the caller based their edit on
@@ -189,7 +192,18 @@ export async function bumpRevisionTo(zoho: ZohoClient, current: number): Promise
  */
 let commitQueue: Promise<unknown> = Promise.resolve()
 
-export function commitChanges(zoho: ZohoClient, caller: Caller, changes: StateChanges): Promise<string> {
+/** What a commit did to the base: the revision it sits at, and whether the commit
+ *  was the thing that moved it. */
+export interface CommitResult {
+  /** The base's revision after this commit — a fresh token when it wrote, the
+   *  unchanged one when it did not. */
+  token: string
+  /** Whether ANY write landed (upsert, remove, config, counter). False means the
+   *  whole commit was already exactly true — no reader needs to re-sweep. */
+  wrote: boolean
+}
+
+export function commitChanges(zoho: ZohoClient, caller: Caller, changes: StateChanges): Promise<CommitResult> {
   const run = commitQueue.then(() => commitLocked(zoho, caller, changes))
   commitQueue = run.then(
     () => undefined,
@@ -198,7 +212,7 @@ export function commitChanges(zoho: ZohoClient, caller: Caller, changes: StateCh
   return run
 }
 
-async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChanges): Promise<string> {
+async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChanges): Promise<CommitResult> {
   // 1. permission gate — the RLS of this fork
   const held = new Set(caller.permissions)
   const holdsAny = (perm: string | readonly string[]) =>
@@ -351,6 +365,12 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
   }
   if (conflicts.length) throw new Conflict(conflicts)
 
+  // Whether ANY write landed past this point (upsert, remove, config, counter).
+  // The skips below are what make an idempotent retry free: a commit whose every
+  // row was already exactly what it carried reaches step 7 with this still false
+  // and the revision never moves.
+  let wrote = false
+
   // 4. collection rows — { id, data } upserts; ledger and audits arrive flat. Audits are
   // the one insert-only table: an upsert naming an existing id is SKIPPED — a
   // crafted commit cannot rewrite history, and a retried commit re-posting its own
@@ -388,12 +408,14 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
         }
       }
       await zoho.upsertByKey(table.id, table.appId, appId, values)
+      wrote = true
     }
 
     for (const id of change.remove) {
       const rid = byApp.get(String(id))?.recordID
       // An id with no row is already gone — the outcome the caller asked for.
       if (!rid) continue
+      wrote = true // the delete attempt itself, even where the race below swallows it
       try {
         await zoho.deleteRecord(table.id, rid)
       } catch (e) {
@@ -432,10 +454,13 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
   }
   for (const [series, value] of Object.entries(changes.counters)) {
     if (series.startsWith('period:')) {
+      const stored = storedConfig.get(series)
+      if (stored !== undefined && stored === String(value)) continue // unchanged — nothing to write
       await zoho.upsertByKey(configTable.id, configTable.fields['Setting'], series, {
         [configTable.fields['Setting']]: series,
         [configTable.fields['Value']]: String(value),
       })
+      wrote = true
       continue
     }
     const incoming = Number(value) || 0
@@ -454,18 +479,28 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
       [counters.fields['Series']]: series,
       [counters.fields['Next']]: String(value),
     })
+    wrote = true
   }
 
-  // 6. config
+  // 6. config — written only when a key genuinely moved (the gate's own verdict):
+  // a client echoing the stored config back unchanged rewrites byte-for-byte what
+  // is already there, which is a write spent and a revision bumped for nothing.
   const config = T['Config']
-  if (changes.config) {
+  if (changes.config && ownsConfigChange) {
     await zoho.upsertByKey(config.id, config.fields['Setting'], 'app_config', {
       [config.fields['Setting']]: 'app_config',
       [config.fields['Value']]: JSON.stringify(changes.config),
     })
+    wrote = true
   }
 
-  // 7. revision, last — a reader sees the old plant whole or the new plant whole
+  // 7. revision, last — a reader sees the old plant whole or the new plant whole.
+  // Nothing landed means nothing moved: the commit was an idempotent retry of the
+  // caller's own writes end to end, the base still sits at the revision the
+  // pre-flight read, and bumping anyway would push every device in the plant off a
+  // cache that is still exactly true. The unchanged token goes back instead, and
+  // the caller adopts it the same way — it is what a fresh read would return.
+  if (!wrote) return { token: storedConfig.get('app_revision') ?? '0', wrote: false }
   const token = await bumpRevision(zoho, storedConfig)
   noteRevision(zoho.baseId, token)
   // Hints for the next sweep (snapshot substrate cache): the delta read cannot
@@ -497,5 +532,5 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
     if (changes.tables.some((t) => LINK_TABLES.has(TABLE_FOR[t.table] ?? ''))) linkMemo = null
     else linkMemo = { revision: token, maps: linkMemo.maps }
   }
-  return token
+  return { token, wrote: true }
 }

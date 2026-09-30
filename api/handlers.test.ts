@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { T } from './_lib/baseSchema.js'
+import { __resetCommitThrottle } from './_lib/commitThrottle.js'
 
 /**
  * Handler-level tests: the Retry-After plumbing, the status-code mapping and the
@@ -82,6 +83,7 @@ beforeEach(() => {
   mode.permissions = ['masters.manage', 'staff.manage', 'config.manage', 'audit.manage', 'admin.manage']
   mode.setCookies = null
   mode.existing = null
+  __resetCommitThrottle() // every test's caller starts with a fresh bucket
 })
 
 function fakeRes() {
@@ -98,11 +100,65 @@ function fakeReq(body: unknown): VercelRequest {
 }
 
 describe('handlers', () => {
-  it('answers a clean commit with { revision } through the shared client', async () => {
+  it('answers a clean empty commit with the unchanged revision — a no-op bumps nothing', async () => {
     const res = fakeRes()
     await commit(fakeReq({ changes: { tables: [], counters: {}, empty: false } }), res)
     expect(res.status).toHaveBeenCalledWith(200)
-    expect(res.json).toHaveBeenCalledWith({ revision: expect.stringMatching(/^1:/) })
+    // no rows, no counters, no config: nothing landed, so the revision this empty
+    // base already sits at ('0' — nothing was ever written) goes straight back
+    expect(res.json).toHaveBeenCalledWith({ revision: '0' })
+  })
+
+  it('throttles one caller — a burst fired rapid-fire gets 429 with Retry-After', async () => {
+    const codes: number[] = []
+    // seventeen rapid commits from one email: a fresh bucket holds the sustained
+    // minute's worth (8), so the ninth through the seventeenth are refused — the
+    // shared Zoho budget is not one device's to drain.
+    for (let i = 0; i < 17; i++) {
+      const res = fakeRes()
+      await commit(fakeReq({ changes: { tables: [], counters: {}, empty: false } }), res)
+      codes.push(res.status.mock.calls[0][0])
+    }
+    expect(codes.slice(0, 8)).toEqual(Array(8).fill(200))
+    expect(codes.slice(8)).toEqual(Array(9).fill(429))
+    // the refusal carries the same Retry-After shape the Zoho lock's 503 does
+    const refused = fakeRes()
+    await commit(fakeReq({ changes: { tables: [], counters: {}, empty: false } }), refused)
+    expect(refused.setHeader).toHaveBeenCalledWith('Retry-After', expect.any(String))
+    expect(refused.json).toHaveBeenCalledWith(
+      expect.objectContaining({ error: expect.stringContaining('Too many commits') }),
+    )
+  })
+
+  it('refills at the sustained rate and earns the burst by idleness', async () => {
+    vi.useFakeTimers()
+    try {
+      const fire = async () => {
+        const res = fakeRes()
+        await commit(fakeReq({ changes: { tables: [], counters: {}, empty: false } }), res)
+        return {
+          status: res.status.mock.calls[0][0] as number,
+          retryAfter: res.setHeader.mock.calls.find((c) => c[0] === 'Retry-After')?.[1] as
+            | string
+            | undefined,
+        }
+      }
+      // spend the fresh eight; the ninth is told to wait one token's refill (7.5 s → 8)
+      for (let i = 0; i < 8; i++) expect((await fire()).status).toBe(200)
+      const refused = await fire()
+      expect(refused.status).toBe(429)
+      expect(refused.retryAfter).toBe('8')
+      // a minute later exactly the sustained eight have come back — the ninth still waits
+      vi.advanceTimersByTime(60_000)
+      for (let i = 0; i < 8; i++) expect((await fire()).status).toBe(200)
+      expect((await fire()).status).toBe(429)
+      // two idle minutes at once and the bucket has earned its full burst of sixteen
+      vi.advanceTimersByTime(120_000)
+      for (let i = 0; i < 16; i++) expect((await fire()).status).toBe(200)
+      expect((await fire()).status).toBe(429)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('maps a lost save race to 409 with the conflicting rows named', async () => {

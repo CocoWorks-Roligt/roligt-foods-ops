@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { ZohoLockedError } from './_lib/zoho.js'
 import { authenticate, AuthError } from './_lib/auth.js'
 import { commitChanges, Conflict, Forbidden } from './_lib/commit.js'
+import { admitCommit } from './_lib/commitThrottle.js'
 import { invalidateSnapshotCache } from './_lib/snapshot.js'
 import { zoho } from './_lib/shared.js'
 import { toWebRequest } from './_lib/vercel.js'
@@ -16,11 +17,26 @@ export default async function (req: VercelRequest, res: VercelResponse) {
       res.status(400).json({ error: 'Malformed commit payload.' })
       return
     }
-    const revision = await commitChanges(zoho, caller, body.changes)
-    // This process has now changed the base with its own hands — anything it
-    // cached about the old plant is spent, even though the revision moved too.
-    // The token rides along so the process remembers the revision it just wrote.
-    invalidateSnapshotCache(revision)
+    // The shared Zoho budget is not one device's to drain: a tight retry loop on
+    // one tab spent it whatever the server did. Refused before a single Zoho read,
+    // with the same Retry-After shape the 503 carries — the work stays on the
+    // device and the next poll retries it.
+    const retryAfterSec = admitCommit(caller.email)
+    if (retryAfterSec > 0) {
+      res.setHeader('Retry-After', String(retryAfterSec))
+      res.status(429).json({ error: 'Too many commits from this account — the change is still saved on this device and will retry.' })
+      return
+    }
+    const { token: revision, wrote } = await commitChanges(zoho, caller, body.changes)
+    if (wrote) {
+      // This process has now changed the base with its own hands — anything it
+      // cached about the old plant is spent, even though the revision moved too.
+      // The token rides along so the process remembers the revision it just wrote.
+      // A no-op commit (nothing landed) skips this on purpose: its revision never
+      // moved, so the cache still describes the base and evicting it would order
+      // a re-sweep for a nothing-burger.
+      invalidateSnapshotCache(revision)
+    }
     res.status(200).json({ revision })
   } catch (e) {
     if (e instanceof AuthError) {
