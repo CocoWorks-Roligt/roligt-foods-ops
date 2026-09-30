@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { diffRows, diffState } from './sync.ts'
+import { diffRows, diffState, installOver } from './sync.ts'
 import type { AppState } from '../types.ts'
 
 /**
@@ -98,5 +98,57 @@ describe('diffState', () => {
     const next = asState({ counters: { grn: 2, lot: 3 }, counterPeriods: { grn: 'YYYY:2027' } })
     const d = diffState(prev, next)
     expect(d.counters).toEqual({ grn: 2, 'period:grn': 'YYYY:2027' })
+  })
+})
+
+describe('installOver', () => {
+  /**
+   * The install side of the protocol the diff is the push side of. Every
+   * snapshot install used to swap the whole state in, which erased anything
+   * queued while the read was in flight; this merge keeps what the operator
+   * moved off the base and takes the server for the rest — including its
+   * deletions, which a plain upsert would never deliver.
+   */
+  const V = (id: string, name: string) => ({ id, name })
+  const asPlant = (vendors: unknown[], extra: Record<string, unknown> = {}) =>
+    asState({ counters: {}, vendors, ...extra })
+
+  it('keeps the operator, adopts the server: edits, additions, deletions, arrivals', () => {
+    const base = asPlant([V('V1', 'old'), V('V2', 'stays?'), V('V5', 'deleted here')])
+    const live = asPlant([V('V1', 'edited'), V('V2', 'stays?'), V('V3', 'added here')])
+    // the server's fresh view: V1 as it always was, V2 deleted there too, the
+    // V5 this device deleted still sitting on it, and V4 new since the base
+    const source = asPlant([V('V1', 'old'), V('V5', 'deleted here'), V('V4', 'colleague')])
+    const merged = installOver(live, base, source)
+    const names = (merged.vendors as { id: string; name: string }[]).map((v) => `${v.id}:${v.name}`)
+    expect(names).toEqual(['V1:edited', 'V3:added here', 'V4:colleague'])
+    // V2: live held it untouched and the server deleted it — the deletion arrives
+    expect(names.some((n) => n.startsWith('V2:'))).toBe(false)
+    // V5: deleted here while the server still holds it — the base knows the id,
+    // so the server's copy is refused rather than resurrected; the pending push
+    // carries the removal up
+    expect(names.some((n) => n.startsWith('V5:'))).toBe(false)
+  })
+
+  it('takes the server for scalars live has not moved, and keeps the ones it has', () => {
+    const base = asState({ counters: { grn: 1 }, config: { plant: 'A' } })
+    const live = asState({ counters: { grn: 2 }, config: { plant: 'A' } }) // grn minted here
+    const source = asState({ counters: { grn: 9 }, config: { plant: 'B' } })
+    const merged = installOver(live, base, source)
+    expect(merged.counters).toEqual({ grn: 2 }) // the local advance survives
+    expect(merged.config).toEqual({ plant: 'B' }) // the untouched setting refreshes
+  })
+
+  it('a null base keeps everything live and removes nothing — the safe direction', () => {
+    const live = asPlant([V('V1', 'unsaved work')])
+    const source = asPlant([V('V2', 'colleague')])
+    const merged = installOver(live, null, source)
+    expect((merged.vendors as unknown[]).map((r) => (r as { id: string }).id).sort()).toEqual(['V1', 'V2'])
+  })
+
+  it('an identical source over its own base is a no-op row for row', () => {
+    const plant = asPlant([V('V1', 'same'), V('V2', 'same')])
+    const merged = installOver(plant, plant, plant)
+    expect(JSON.stringify(merged)).toBe(JSON.stringify(plant))
   })
 })

@@ -26,6 +26,7 @@ import { useStaffRoster, type ShiftInput, type StaffInput } from './domains/rost
 import { useStorageLocations } from './domains/storage'
 import { fetchDb, fetchRevision, saveDb, ThrottledError, UnauthorizedError, type RowConflict } from '../lib/dbApi'
 import { readLocal, writeLocal, type LocalCopy } from '../lib/localDb'
+import { installOver } from '../lib/sync'
 import { COLLECTIONS } from '../lib/tables'
 import { canAny, type PermissionKey } from '../lib/permissions.ts'
 import { setSessionPermissions, useSessionPermissions } from '../lib/sessionPermissions'
@@ -230,6 +231,21 @@ const idOfFor = (key: string) => {
   return (r: unknown) =>
     spec ? spec.id(r as Record<string, unknown>) : String((r as { id?: unknown }).id ?? '')
 }
+
+/** The number inside a revision token (`<n>:<nonce>`) — the only part that orders. */
+const revNum = (t: number | string) => Number.parseInt(String(t), 10) || 0
+
+/**
+ * Installs a snapshot over the live state. Every one of these used to be a
+ * direct `setState(ready-made)`, which silently discarded anything the operator
+ * queued while the read was in flight; the functional form lets React run the
+ * merge against the state it actually holds. The reference compare is the fast
+ * path: when live is still exactly the state the snapshot was expected to sit
+ * over (no edits in the window), the source is installed whole — which keeps
+ * `state === synced.current` true, so an idle device still writes nothing.
+ */
+const installSnapshot = (source: AppState, base: AppState | null) => (live: AppState) =>
+  live === base ? source : installOver(live, base, source)
 
 /**
  * Adopts the server's version of documents that lost a save race.
@@ -452,6 +468,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let cancelled = false
     ;(async () => {
       const local = readLocal()
+      // The state this device painted from before the first read went out —
+      // held in a local because the awaits below defeat narrowing on the ref.
+      const painted = boot.current!.state
       try {
         // A clean mirror whose revision the database still stands at IS the plant.
         // One revision read answers that. A full snapshot instead is 26 reads
@@ -466,7 +485,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             const mirror = migrateState(local.state)
             synced.current = mirror
             revision.current = rev
-            setState(mirror)
+            setState(installSnapshot(mirror, painted))
             return
           }
         }
@@ -493,21 +512,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
           // squeeze; it knows nothing about the server, so everything is written
           // and nothing removed — the safe direction to be wrong in.
           synced.current = local.base ? migrateState(local.base) : null
-          setState(migrateState(local.state))
+          setState(installSnapshot(migrateState(local.state), painted))
           setDirty(true)
           if (server) showToast('Reconnected — saving the work done on this device.')
           return
         }
 
         // No row at all means a first run: an empty state, nothing seeded.
-        setState(server ?? (local ? migrateState(local.state) : migrateState({})))
+        setState(
+          installSnapshot(
+            server ?? (local ? migrateState(local.state) : migrateState({})),
+            painted,
+          ),
+        )
       } catch (e) {
         if (cancelled) return
         if (e instanceof UnauthorizedError) {
           // A dead session is not an outage — dbApi has already told AuthContext,
           // which swaps in the login screen. This device's copy stays the record.
           synced.current = null
-          if (local) setState(migrateState(local.state))
+          if (local) setState(installSnapshot(migrateState(local.state), painted))
           showToast(e.message)
           return
         }
@@ -515,7 +539,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         // nothing is known about the server, so nothing may be diffed against it.
         synced.current = null
         if (local) {
-          setState(migrateState(local.state))
+          setState(installSnapshot(migrateState(local.state), painted))
           setOffline(true)
           showToast('Offline — working from this device. Changes save when you reconnect.')
         } else {
@@ -550,12 +574,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (cancelled || rev === revision.current) return
         const remote = await fetchDb()
         if (cancelled || dirty || saving.current) return
+        // A read that straddled a commit is not a snapshot: the revision moved
+        // between the two reads, so these rows belong to a version that is no
+        // longer the token that asked for them. The next poll reads a
+        // consistent pair.
+        if (remote.revision !== rev) return
+        // Our own save may have landed while the snapshot was in flight — the
+        // guard above passed because saving.current had already cleared. A
+        // revision older than ours means what this device holds is already
+        // newer than anything this snapshot can teach it: installing it would
+        // undo the save row by row and roll the token back to before it.
+        if (revNum(remote.revision) < revNum(revision.current)) return
         revision.current = remote.revision
         setSessionPermissions(remote.permissions)
         if (!remote.state) return
         const server = migrateState(remote.state)
+        const was = synced.current
+        setState(installSnapshot(server, was))
         synced.current = server
-        setState(server)
       } catch {
         // A poll that cannot reach the database says nothing new; the save path is
         // what reports being offline.
@@ -642,14 +678,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 revision.current = remote.revision
                 setSessionPermissions(remote.permissions)
                 const serverState = migrateState(remote.state)
-                const merged = adoptServerRows(state, serverState, result.conflicts)
                 if (synced.current) {
                   synced.current = adoptServerRows(synced.current, serverState, result.conflicts)
                 }
-                setState(merged)
+                // Functional, and merged against the live state rather than the
+                // one this save started from: anything edited while the adoption
+                // read was in flight is this device's pending work and must
+                // survive it (the doc-chain scan inside adoptServerRows reads
+                // the live state for exactly that).
+                setState((liveNow) => adoptServerRows(liveNow, serverState, result.conflicts))
               } catch {
-                // The read can fail offline; the flag stays up and the poll — or
-                // the next save's 409 — retries the adoption.
+                // The read can fail offline. Without a retry the flag stayed up
+                // until the operator happened to change something else, so the
+                // plant sat showing a lost race that had already been won. The
+                // tick re-runs the save effect; the 409 it gets back — or the
+                // adoption on success — comes with it.
+                scheduleRetry(5)
               }
             })()
             return

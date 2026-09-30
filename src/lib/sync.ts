@@ -170,6 +170,100 @@ export function diffState(prev: AppState | null, next: AppState): StateChanges {
   }
 }
 
+/** Row ids by state key — the collections, plus the ledger and audit trail. */
+const ROW_IDS: Record<string, (row: unknown) => string> = (() => {
+  const map: Record<string, (row: unknown) => string> = {
+    ledger: (l) => (l as { id: string }).id,
+    audits: (a) => String((a as { id: unknown }).id),
+  }
+  for (const spec of COLLECTIONS) map[spec.key] = (row) => spec.id(row as Record<string, unknown>)
+  return map
+})()
+
+const sameValue = (a: unknown, b: unknown) =>
+  a === b || (a !== undefined && b !== undefined && JSON.stringify(a) === JSON.stringify(b))
+
+/** One keyed collection, merged three ways: live's changes against `base` win;
+ *  everything else takes `source`, including its absence. */
+function mergeRows(
+  key: string,
+  live: unknown[] | undefined,
+  base: unknown[] | undefined,
+  source: unknown[] | undefined,
+): unknown[] {
+  const idOf = ROW_IDS[key] ?? ((r: unknown) => String((r as { id?: unknown })?.id ?? ''))
+  const toMap = (rows: unknown[] | undefined) => {
+    const m = new Map<string, unknown>()
+    for (const r of rows || []) m.set(idOf(r), r)
+    return m
+  }
+  const liveRows = toMap(live)
+  const baseRows = toMap(base)
+  const srcRows = toMap(source)
+
+  const out: unknown[] = []
+  // Live order first. A row this device deleted simply does not appear here,
+  // and the base row it deleted must keep the server's copy out too — the
+  // append below refuses any id the base holds.
+  const seen = new Set<string>()
+  for (const [id, lr] of liveRows) {
+    seen.add(id)
+    const br = baseRows.get(id)
+    if (br === undefined || !sameValue(lr, br)) {
+      out.push(lr) // edited here, or added here — the pending push settles it
+      continue
+    }
+    const sr = srcRows.get(id)
+    if (sr !== undefined) out.push(sr) // untouched: the server's version, whatever it now says
+    // else: the server dropped an untouched row — a colleague's deletion arriving
+  }
+  // Rows only the server has: a posting this device has never seen. Ids in the
+  // base are refused — those are this device's deletions, not news.
+  for (const [id, sr] of srcRows) if (!seen.has(id) && !baseRows.has(id)) out.push(sr)
+  return out
+}
+
+/**
+ * Installs a server view over the live state without erasing live work.
+ *
+ * Every snapshot install — boot reconcile, poll, conflict adoption — used to
+ * hand React a ready-made state, and React would replace whatever the operator
+ * had queued while the read was in flight: an edit landing inside that window
+ * was silently discarded and the state then read as clean. This is the three-way
+ * merge that replaces the wholesale swap. Rows the live copy has moved off
+ * `base` (edited, added, deleted) keep the live version — the pending push will
+ * settle them against the server — while everything the live copy has not
+ * touched takes `source`, *including its absence*, so a colleague's deletion
+ * still arrives. Rows new on the server are appended. Scalars (config,
+ * counters, periods) take the server's value unless live moved them.
+ *
+ * `base` is what the live copy was built from: the boot mirror at reconcile,
+ * the last synced state in the poll. A null base makes every live row count as
+ * locally changed — the same safe direction as the null-base push, nothing the
+ * operator holds is dropped and nothing is removed.
+ */
+export function installOver(live: AppState, base: AppState | null, source: AppState): AppState {
+  const liveRec = live as unknown as Record<string, unknown>
+  const baseRec = (base ?? {}) as unknown as Record<string, unknown>
+  const srcRec = source as unknown as Record<string, unknown>
+  const out: Record<string, unknown> = {}
+  for (const key of new Set([...Object.keys(liveRec), ...Object.keys(srcRec)])) {
+    const lv = liveRec[key]
+    const sv = srcRec[key]
+    if (Array.isArray(lv) || Array.isArray(sv)) {
+      out[key] = mergeRows(
+        key,
+        lv as unknown[] | undefined,
+        baseRec[key] as unknown[] | undefined,
+        sv as unknown[] | undefined,
+      )
+    } else {
+      out[key] = sameValue(lv, baseRec[key]) ? sv : lv
+    }
+  }
+  return out as unknown as AppState
+}
+
 /** How many rows a set of changes touches. For the "still saving" indicator. */
 export const changeSize = (changes: StateChanges) =>
   changes.tables.reduce((a, t) => a + t.upsert.length + t.remove.length, 0) +

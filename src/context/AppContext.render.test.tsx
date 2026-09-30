@@ -248,3 +248,181 @@ describe('AppProvider offline push', () => {
     expect(prev && 'grns' in prev ? (prev.grns ?? []).length : 0).toBe(0)
   })
 })
+
+describe('AppProvider snapshot installs', () => {
+  /** Captures the vendor editor from inside the tree — the edit API the tests drive. */
+  function useCapturedUpdate() {
+    const ref = { update: null as ReturnType<typeof useApp>['updateVendor'] | null }
+    function Probe({ bag }: { bag: typeof ref }) {
+      bag.update = useApp().updateVendor
+      return null
+    }
+    return { ref, Probe }
+  }
+
+  const EDIT = { name: 'Kumar Farms', phone: '9999900000', area: 'Hosur', payment: 'Cash' }
+
+  it('an edit queued while the reconcile read was in flight survives the install', async () => {
+    // The window this whole fix exists for: the reconcile's snapshot read is
+    // awaited, and the operator edits a vendor inside it. The install used to
+    // hand React a ready-made state that had never heard of the edit.
+    writeLocal({ state: plant() as AppState, dirty: false, revision: 1 })
+    dbApi.fetchRevision.mockResolvedValue(2) // the mirror is stale — full read follows
+    dbApi.saveDb.mockResolvedValue({ ok: true, revision: '3:x' })
+    const server = deferred<{ state: Partial<AppState> | null; revision: number; permissions: string[] }>()
+    dbApi.fetchDb.mockReturnValue(server.promise)
+    const { ref, Probe } = useCapturedUpdate()
+
+    render(
+      <Providers>
+        <Vendors />
+        <Probe bag={ref} />
+      </Providers>,
+    )
+    expect(screen.getByText('Kumar Farms')).toBeTruthy() // painted from the mirror
+
+    // the edit lands while the snapshot is still in the air
+    await act(async () => {
+      ref.update!('V-0001', EDIT)
+    })
+    expect(screen.getByText('9999900000')).toBeTruthy()
+
+    // the server answers with a plant that never heard of the edit (phone '98')
+    await act(async () => {
+      server.resolve({ state: plant(), revision: 2, permissions: [] })
+    })
+    // the merge kept the operator's row — and the save pushes it, so the edit
+    // is not merely on screen, it is on its way up
+    expect(screen.getByText('9999900000')).toBeTruthy()
+    await waitFor(() => expect(dbApi.saveDb).toHaveBeenCalled())
+    const [next] = dbApi.saveDb.mock.calls.at(-1) as [AppState, AppState | null]
+    expect(next.vendors.find((v) => v.id === 'V-0001')?.phone).toBe('9999900000')
+  })
+
+  it('a save landing mid-poll is not undone by the older snapshot it raced', async () => {
+    // Our save completes while the poll's snapshot read is in flight. That
+    // snapshot is one revision behind what we just wrote: installing it would
+    // revert the saved rows with no re-push (they would read as already
+    // synced) and roll the revision token back to before our own commit.
+    vi.useFakeTimers()
+    try {
+      const boot = deferred<{ state: Partial<AppState> | null; revision: string; permissions: string[] }>()
+      dbApi.fetchDb.mockReturnValueOnce(boot.promise)
+      dbApi.fetchRevision.mockResolvedValue('2') // the colleague's commit the poll notices
+      dbApi.saveDb.mockResolvedValue({ ok: true, revision: '3:x' }) // our own, landing mid-flight
+      const { ref, Probe } = useCapturedUpdate()
+
+      render(
+        <Providers>
+          <Vendors />
+          <Probe bag={ref} />
+        </Providers>,
+      )
+      await act(async () => {
+        boot.resolve({ state: plant(), revision: '1', permissions: [] })
+        await vi.advanceTimersByTimeAsync(0)
+      })
+
+      // the poll ticks: revision moved, the snapshot read starts and hangs
+      const snap = deferred<{ state: Partial<AppState> | null; revision: string; permissions: string[] }>()
+      dbApi.fetchDb.mockReturnValueOnce(snap.promise)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20000)
+      })
+      expect(dbApi.fetchDb).toHaveBeenCalledTimes(2)
+
+      // the operator edits; the debounce and the save both land while the
+      // snapshot is still in the air, advancing us to revision 3
+      await act(async () => {
+        ref.update!('V-0001', EDIT)
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(150)
+      })
+      expect(dbApi.saveDb).toHaveBeenCalledTimes(1)
+
+      // the stale snapshot (revision 2) finally answers — it must be discarded
+      await act(async () => {
+        snap.resolve({ state: plant(), revision: '2', permissions: [] })
+      })
+      expect(screen.getByText('9999900000')).toBeTruthy() // the save was not undone
+
+      // and the token never rolled back: standing at revision 3, the next poll
+      // finds the revision unchanged and reads nothing. A rolled-back token
+      // would see "2 → 3" as news and re-read the plant it already holds.
+      dbApi.fetchRevision.mockResolvedValue('3:x')
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20000)
+      })
+      expect(dbApi.fetchDb).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a 409 whose adoption read fails retries on its own and clears the flag', async () => {
+    // The conflict flag used to stay up until the operator happened to change
+    // something else: the adoption read that clears it can itself fail, and
+    // nothing retried it. The retry tick re-runs the save; the second 409 —
+    // or, here, the second save's success — settles the flag either way.
+    vi.useFakeTimers()
+    try {
+      dbApi.fetchDb
+        .mockResolvedValueOnce({ state: plant(), revision: '1', permissions: [] })
+        .mockRejectedValueOnce(new Error('network down')) // the adoption read fails
+      dbApi.saveDb
+        .mockResolvedValueOnce({
+          ok: false,
+          reason: 'conflict',
+          message: 'Another device saved V-0001 first — their version is now shown.',
+          conflicts: [{ table: 'vendors', id: 'V-0001', kind: 'changed' as const }],
+        })
+        .mockResolvedValueOnce({ ok: true, revision: '2' })
+      const { ref, Probe } = useCapturedUpdate()
+
+      let conflictEver = false
+      let conflictNow = true // inverted sentinel: must be written by a render
+      function ProbeStatus() {
+        const s = useSaveStatus()
+        conflictNow = s.conflict
+        if (s.conflict) conflictEver = true
+        return null
+      }
+
+      render(
+        <Providers>
+          <Vendors />
+          <Probe bag={ref} />
+          <ProbeStatus />
+        </Providers>,
+      )
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+
+      await act(async () => {
+        ref.update!('V-0001', EDIT)
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(150) // the save refuses with a 409; the adoption read fails
+      })
+      expect(conflictEver).toBe(true) // the flag went up
+
+      // the 5s retry fires from a timer callback, so React lands its update
+      // through the scheduler — a separate act between the advances is where
+      // the tick commits and the save effect re-runs
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000)
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200) // the retried save's 150ms debounce
+      })
+      expect(dbApi.saveDb).toHaveBeenCalledTimes(2) // the retry re-ran the save
+      expect(dbApi.saveDb).toHaveBeenCalledTimes(2) // the retry re-ran the save
+      expect(conflictNow).toBe(false) // and the success cleared the flag
+      expect(screen.getByText('9999900000')).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
