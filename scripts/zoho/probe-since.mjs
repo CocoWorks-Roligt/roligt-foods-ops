@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** Live probe of the criteria contract behind fetchSince, against the SCRATCH base.
  *
- * Pinned 2026-09-30 across rounds (docs/zoho-probe-since1-results.md, -since2-3-results.md):
+ * Pinned 2026-09-30 across rounds (probe result papers since removed — git history):
  *   - `=` on a TEXT field works (fetchByKeyIn's daily bread)
  *   - `contains` on a TEXT field works — the ONLY surviving range-ish operator, and the
  *     one fetchSince's hour-bucket delta is built on

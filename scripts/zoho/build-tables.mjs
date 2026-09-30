@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
  * Live-builds the Roligt Plant Ops database in Zoho Tables (IN DC, direct REST —
- * bypasses the broken MCP gate). Schema: docs/zoho-build-pack.md §2–3 and
- * docs/zoho-rebuild-blueprint.md §2.
+ * bypasses the broken MCP gate). Schema: the table/field spec this script carries
+ * below (its Creator-era design papers were removed with the docs cleanup — see the
+ * git history around September 2026).
  *
  * The v1 REST contracts this script is built on (verified live 2026-09-20):
  *   - POST /tables?base_id&table_name            → new table, 3 default text fields + 10 starter records

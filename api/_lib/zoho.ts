@@ -309,8 +309,8 @@ export class ZohoClient {
    * of a hundred.
    *
    * The criteria grammar is `=` and `contains` on TEXT columns, nothing else — pinned
-   * live against the scratch base 2026-09-30 (scripts/zoho/probe-since.mjs,
-   * docs/zoho-probe-since*-results.md): `>=`, `>`, `starts_with`, `like` all answer
+   * live against the scratch base 2026-09-30 (scripts/zoho/probe-since.mjs —
+   * result papers since removed, git history): `>=`, `>`, `starts_with`, `like` all answer
    * HTTP 200 wrapping INTERNAL SERVER ERROR, and EVERY operator on a date-typed
    * column is refused, `=` included. So the delta is a `contains` over the Data JSON
    * column (text) keyed by hour buckets taken from the watermark: one read per hour

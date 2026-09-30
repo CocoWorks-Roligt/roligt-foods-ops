@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 /**
  * Render-level characterization of AppProvider: the mirror-first boot (step 2
- * of docs/perf-audit-2026-09-25.md) and a measured re-render count for a
+ * of the 2026-09-25 perf audit — paper since removed, see git history) and a
+ * measured re-render count for a
  * representative save (step 3 — the number the context-split decision was
  * waiting on). Mounts the real provider and the real Vendors register with a
  * faked dbApi, so what is counted is the actual component tree React commits.

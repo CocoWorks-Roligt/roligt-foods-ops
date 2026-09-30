@@ -11,9 +11,9 @@ rest of the codebase follows from.
 
 This fork replaces the old Supabase backend with **Zoho Tables behind a BFF**: a Vite
 SPA in `src/`, and serverless handlers under `api/` (`/api/snapshot`, `/api/revision`,
-`/api/commit`) that hold the Zoho credentials and enforce roles. The design and the
-migration plan live in `docs/zoho-tables-fork-design-2026-09-21.md` and
-`docs/zoho-tables-fork-plan-2026-09-21.md`.
+`/api/commit`) that hold the Zoho credentials and enforce roles. The fork's design,
+plan and audit papers were removed once it merged (they live in the git history around
+September 2026); this README and the code comments are the living description.
 
 ## Running it
 
