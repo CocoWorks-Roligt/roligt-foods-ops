@@ -272,48 +272,89 @@ describe('ZohoClient', () => {
   })
 
   // ---- fetchSince: the delta read behind the snapshot sweep ----
+  // `contains` on the Data JSON column keyed by hour buckets — the only criteria form
+  // the live probe found working (scripts/zoho/probe-since.mjs, 2026-09-30). Every
+  // wire test pins the clock: the bucket range runs to the current hour.
 
-  it('fetchSince sends the field-ID >= watermark criteria with the params flag, paged by cursor', async () => {
-    const calls: { url: string; init?: RequestInit }[] = []
-    const c = new ZohoClient({
-      fetchImpl: fakeFetch(calls, [
-        { body: { records: { fetched: [
-          { recordID: 'r1', data: { FAPP: 'L1' } }, { recordID: 'r2', data: { FAPP: 'L2' } }, { recordID: 'r3', data: { FAPP: 'L3' } },
-        ] } } },
-        { body: { records: { fetched: [] } } },
-      ]),
-      env: ENV,
-      page: 3,
-    })
-    const out = await c.fetchSince('LEDGER', 'Qz8axw', '2026-09-30T08:00:00.000Z', { scope: 'sweep' })
-    expect(out.map((r) => r.data.FAPP)).toEqual(['L1', 'L2', 'L3'])
-    const pages = calls.filter((x) => x.url.includes('/fetchRecordsWithCriteria'))
-    expect(pages).toHaveLength(2) // paged to a short page, like fetchAll
-    const first = new URL(pages[0]!.url)
-    expect(first.searchParams.get('criteria')).toBe('"Qz8axw" >= "2026-09-30T08:00:00.000Z"')
-    // without the flag a field-ID criteria answers HTTP 200 wrapping INTERNAL SERVER
-    // ERROR (pinned live 2026-09-28) — the delta read would look like "no rows"
-    expect(first.searchParams.get('is_ids_used_in_params')).toBe('true')
-    expect(new URL(pages[1]!.url).searchParams.get('reference_record_id')).toBe('r3')
+  it('fetchSince sends one contains-per-hour-bucket criteria, paged by cursor, deduped by record', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date('2026-09-30T10:30:00Z'))
+      const calls: { url: string; init?: RequestInit }[] = []
+      const c = new ZohoClient({
+        fetchImpl: fakeFetch(calls, [
+          // bucket 08: a full page then a short one (cursor paging within a bucket)
+          { body: { records: { fetched: [
+            { recordID: 'r1', data: { FAPP: 'L1' } }, { recordID: 'r2', data: { FAPP: 'L2' } }, { recordID: 'r3', data: { FAPP: 'L3' } },
+          ] } } },
+          { body: { records: { fetched: [] } } },
+          // bucket 09: one row — a false-positive superset re-mentioning L1's id
+          { body: { records: { fetched: [{ recordID: 'r1', data: { FAPP: 'L1' } }, { recordID: 'r4', data: { FAPP: 'L4' } }] } } },
+          // bucket 10: nothing
+          { body: { records: { fetched: [] } } },
+        ]),
+        env: ENV,
+        page: 3,
+      })
+      const out = await c.fetchSince('LEDGER', 'jRNMfg', '2026-09-30T08:00:00.000Z', { scope: 'sweep' })
+      // r1 appears in two buckets' replies and survives once — superset merges are idempotent
+      expect(out.map((r) => r.data.FAPP)).toEqual(['L1', 'L2', 'L3', 'L4'])
+      const pages = calls.filter((x) => x.url.includes('/fetchRecordsWithCriteria'))
+      expect(pages).toHaveLength(4)
+      const criteria = pages.map((x) => new URL(x.url).searchParams.get('criteria'))
+      expect(criteria).toEqual([
+        '"jRNMfg" contains "2026-09-30T08"',
+        '"jRNMfg" contains "2026-09-30T08"',
+        '"jRNMfg" contains "2026-09-30T09"',
+        '"jRNMfg" contains "2026-09-30T10"',
+      ])
+      // without the flag a field-ID criteria answers HTTP 200 wrapping INTERNAL SERVER
+      // ERROR (pinned live 2026-09-28) — the delta read would look like "no rows"
+      for (const x of pages) expect(new URL(x.url).searchParams.get('is_ids_used_in_params')).toBe('true')
+      // the cursor continues WITHIN a bucket's pages
+      expect(new URL(pages[1]!.url).searchParams.get('reference_record_id')).toBe('r3')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('fetchSince refuses a gap wider than maxBuckets — the caller falls back to a full read', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date('2026-09-30T12:00:00Z'))
+      const calls: { url: string; init?: RequestInit }[] = []
+      const c = new ZohoClient({ fetchImpl: fakeFetch(calls, []), env: ENV })
+      // a weekend-idle device: ~53 hour buckets between watermark and now
+      await expect(c.fetchSince('T1', 'jRNMfg', '2026-09-28T07:00:00.000Z')).rejects.toThrow(/too wide/)
+      expect(calls.filter((x) => !x.url.startsWith('https://accounts'))).toHaveLength(0) // not one read spent
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('fetchSince refuses a watermark containing a quote — no silently-broken criteria', async () => {
     const calls: { url: string; init?: RequestInit }[] = []
     const c = new ZohoClient({ fetchImpl: fakeFetch(calls, []), env: ENV })
-    await expect(c.fetchSince('T1', 'Qz8axw', 'bad"mark')).rejects.toThrow(/quote/)
+    await expect(c.fetchSince('T1', 'jRNMfg', 'bad"mark')).rejects.toThrow(/quote/)
     expect(calls.filter((x) => !x.url.startsWith('https://accounts'))).toHaveLength(0)
   })
 
   it('fetchSince propagates a wrapped INTERNAL SERVER ERROR as a loud failure, never as empty', async () => {
-    const calls: { url: string; init?: RequestInit }[] = []
-    const c = new ZohoClient({
-      fetchImpl: fakeFetch(calls, [
-        { body: { error: { code: 500, message: 'INTERNAL SERVER ERROR' } } }, // HTTP 200 wrapping failure
-      ]),
-      env: ENV,
-    })
-    // a delta read that silently read as "nothing new" would cache a watermark the
-    // rows behind it never reached — the sweep must fail loudly and fall back
-    await expect(c.fetchSince('T1', 'Qz8axw', '2026-09-30T08:00:00.000Z')).rejects.toBeInstanceOf(ZohoApiError)
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date('2026-09-30T08:30:00Z'))
+      const calls: { url: string; init?: RequestInit }[] = []
+      const c = new ZohoClient({
+        fetchImpl: fakeFetch(calls, [
+          { body: { error: { code: 500, message: 'INTERNAL SERVER ERROR' } } }, // HTTP 200 wrapping failure
+        ]),
+        env: ENV,
+      })
+      // a delta read that silently read as "nothing new" would cache a watermark the
+      // rows behind it never reached — the sweep must fail loudly and fall back
+      await expect(c.fetchSince('T1', 'jRNMfg', '2026-09-30T08:00:00.000Z')).rejects.toBeInstanceOf(ZohoApiError)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

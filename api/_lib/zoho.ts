@@ -304,49 +304,89 @@ export class ZohoClient {
   }
 
   /**
-   * The rows whose Time column sits at or past a watermark — the delta read behind
-   * the snapshot sweep, so a 100,000-line ledger costs one read instead of a
-   * hundred. Same transport and paging as fetchAll; the criteria is the one form
-   * the live probe pinned for field-ID criteria (`>=` range form probed against
-   * the scratch base before this shipped — see the probe notes in the repo docs),
-   * with `is_ids_used_in_params: true` because without it Zoho parses the criteria
-   * as field NAMES and answers HTTP 200 wrapping INTERNAL SERVER ERROR. The
-   * watermark is the max `at` already held (`>=` so a row landing exactly on the
-   * watermark re-merges — the merge is idempotent by App ID).
+   * The rows whose Data JSON mentions a timestamp at or past a watermark — the delta
+   * read behind the snapshot sweep, so a 100,000-line ledger costs one read instead
+   * of a hundred.
+   *
+   * The criteria grammar is `=` and `contains` on TEXT columns, nothing else — pinned
+   * live against the scratch base 2026-09-30 (scripts/zoho/probe-since.mjs,
+   * docs/zoho-probe-since*-results.md): `>=`, `>`, `starts_with`, `like` all answer
+   * HTTP 200 wrapping INTERNAL SERVER ERROR, and EVERY operator on a date-typed
+   * column is refused, `=` included. So the delta is a `contains` over the Data JSON
+   * column (text) keyed by hour buckets taken from the watermark: one read per hour
+   * of gap, criteria `"jRNMfg" contains "2026-09-30T07"`. A bucket re-reads the whole
+   * hour, so the boundary row at the watermark re-merges — the merge is idempotent
+   * by App ID, and a false-positive superset (some other JSON value mentioning the
+   * hour) merges away too. A gap wider than maxBuckets (default 6 hours) throws
+   * ZohoApiError; the caller falls back to a full fetchAll — the same handling as a
+   * wrapped-error refusal, one path.
+   *
+   * The watermark is the max `at` already held, and it must be UTC: the bucket
+   * strings come from the JSON's ISO-8601 Zulu timestamps (nowISO()), which sort and
+   * slice chronographically. The Time COLUMN is useless as a watermark source — it
+   * normalizes on read-back (`2026-09-30T07:00:00.000Z` becomes "2026/09/30 07:00:00").
    */
   async fetchSince(
     tableId: string,
-    timeFieldId: string,
+    jsonFieldId: string,
     sinceISO: string,
-    opts: { scope?: ReadScope } = {},
+    opts: { scope?: ReadScope; maxBuckets?: number } = {},
   ): Promise<ZohoRecord[]> {
     // same guard as upsertByKey: a quote or backslash in the watermark would break
     // the criteria silently — matching nothing, or worse, everything
     if (/["\\]/.test(sinceISO)) {
       throw new ZohoApiError('fetchSince', 0, `watermark must not contain quotes or backslashes: ${sinceISO.slice(0, 60)}`)
     }
-    const out: ZohoRecord[] = []
-    let cursor: string | undefined
-    for (;;) {
-      const j = (await this.call(
-        'read',
-        'POST',
-        '/fetchRecordsWithCriteria',
-        {
-          base_id: this.baseId,
-          table_id: tableId,
-          count: this.page,
-          criteria: `"${timeFieldId}" >= "${sinceISO}"`,
-          is_ids_used_in_params: true,
-          ...(cursor ? { reference_record_id: cursor } : {}),
-        },
-        opts.scope,
-      )) as Record<string, any>
-      const page = recordsFrom(j)
-      out.push(...page)
-      if (page.length < this.page) return out
-      cursor = page[page.length - 1]!.recordID
+    const since = Date.parse(sinceISO)
+    if (Number.isNaN(since)) {
+      throw new ZohoApiError('fetchSince', 0, `watermark is not a date: ${sinceISO.slice(0, 60)}`)
     }
+    // hour buckets from the watermark's hour through the current one, inclusive:
+    // flooring the start keeps the watermark's partial hour re-readable, so a row
+    // landing later inside it is caught by the next delta sweep
+    const HOUR = 3_600_000
+    const startHour = Math.floor(since / HOUR) * HOUR
+    const endHour = Math.floor(Date.now() / HOUR) * HOUR
+    const maxBuckets = opts.maxBuckets ?? 6
+    const count = endHour / HOUR - startHour / HOUR + 1
+    if (count > maxBuckets) {
+      throw new ZohoApiError('fetchSince', 0, `delta gap too wide (${count} hour buckets > ${maxBuckets}) — full read instead`)
+    }
+    const buckets: string[] = []
+    for (let t = startHour; t <= endHour; t += HOUR) {
+      buckets.push(new Date(t).toISOString().slice(0, 13)) // '2026-09-30T07'
+    }
+    const seen = new Set<string>()
+    const out: ZohoRecord[] = []
+    for (const bucket of buckets) {
+      let cursor: string | undefined
+      for (;;) {
+        const j = (await this.call(
+          'read',
+          'POST',
+          '/fetchRecordsWithCriteria',
+          {
+            base_id: this.baseId,
+            table_id: tableId,
+            count: this.page,
+            criteria: `"${jsonFieldId}" contains "${bucket}"`,
+            is_ids_used_in_params: true,
+            ...(cursor ? { reference_record_id: cursor } : {}),
+          },
+          opts.scope,
+        )) as Record<string, any>
+        const page = recordsFrom(j)
+        for (const r of page) {
+          if (!seen.has(r.recordID)) {
+            seen.add(r.recordID)
+            out.push(r)
+          }
+        }
+        if (page.length < this.page) break
+        cursor = page[page.length - 1]!.recordID
+      }
+    }
+    return out
   }
 
   /**

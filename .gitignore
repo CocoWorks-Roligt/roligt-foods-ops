@@ -37,3 +37,7 @@ tmp-commit-body.json
 # local agent scratch
 .superpowers/
 gui-test-screenshots/
+
+# zoho probe credentials (staged from .env, never commit)
+.zoho.env
+.zoho-token.json
