@@ -18,6 +18,7 @@
  * two devices minting the same document number a refused insert instead of one
  * receipt quietly replacing the other while both ledger lines survive.
  */
+import { ZohoApiError } from './zoho.js'
 import type { ZohoClient, ZohoRecord } from './zoho.js'
 import type { TableRef } from './baseSchema.js'
 import { T, TABLE_FOR } from './baseSchema.js'
@@ -176,7 +177,28 @@ export async function bumpRevisionTo(zoho: ZohoClient, current: number): Promise
   return token
 }
 
-export async function commitChanges(zoho: ZohoClient, caller: Caller, changes: StateChanges): Promise<string> {
+/**
+ * One commit at a time per process. The `expect` pre-flight refuses a commit whose
+ * rows moved under it, but ledger lines and audit rows carry no `expect` (sync.ts
+ * sends them bare) — so for those tables the only in-process defense against two
+ * interleaved commits double-posting movements is serializing the check-then-act
+ * window itself. Polls, sweeps and admin actions keep overlapping freely through
+ * the client's concurrency pool; only commits queue here, first come first served.
+ * A rejected commit does not jam the queue — the chain swallows the outcome and
+ * the next waiter runs.
+ */
+let commitQueue: Promise<unknown> = Promise.resolve()
+
+export function commitChanges(zoho: ZohoClient, caller: Caller, changes: StateChanges): Promise<string> {
+  const run = commitQueue.then(() => commitLocked(zoho, caller, changes))
+  commitQueue = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  return run
+}
+
+async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChanges): Promise<string> {
   // 1. permission gate — the RLS of this fork
   const held = new Set(caller.permissions)
   const holdsAny = (perm: string | readonly string[]) =>
@@ -347,7 +369,20 @@ export async function commitChanges(zoho: ZohoClient, caller: Caller, changes: S
     for (const id of change.remove) {
       const rid = byApp.get(String(id))?.recordID
       // An id with no row is already gone — the outcome the caller asked for.
-      if (rid) await zoho.deleteRecord(table.id, rid)
+      if (!rid) continue
+      try {
+        await zoho.deleteRecord(table.id, rid)
+      } catch (e) {
+        // The row stood at pre-flight yet the delete still came back refused:
+        // something outside this process — another instance, a hand edit —
+        // removed it inside our window. With commits serialized here that cannot
+        // have been a sibling commit, and the outcome the caller asked for (the
+        // row gone) is already true, so the commit completes. Anything that is
+        // not an API refusal — a lock, a network fault — is an honest failure
+        // and still throws.
+        if (!(e instanceof ZohoApiError)) throw e
+        console.warn(`[commit] ${change.table} ${id} vanished before its delete landed — skipped`)
+      }
     }
   }
 

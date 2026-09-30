@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { commitChanges, Conflict, Forbidden } from './commit.js'
 import { T } from './baseSchema.js'
+import { ZohoApiError, ZohoLockedError } from './zoho.js'
 import type { ZohoClient, ZohoRecord } from './zoho.js'
 import type { Caller } from './auth.js'
 import { PERMISSIONS } from '../../src/lib/permissions.js'
@@ -494,6 +495,82 @@ describe('commitChanges', () => {
     const a = await commitChanges(zoho, admin, { ...CHANGES, tables: [], counters: {} })
     const b = await commitChanges(zoho, admin, { ...CHANGES, tables: [], counters: {} })
     expect(a).not.toBe(b)
+  })
+
+  it('serializes commits — the second commit\'s whole window waits behind the first\'s writes', async () => {
+    // ledger and audits carry no `expect`, so the pre-flight cannot see two commits
+    // racing to post movements; the queue is the only thing that stops them
+    // interleaving. Gate the first commit's first write and watch what the second
+    // is allowed to do meanwhile: nothing, not even its pre-flight read.
+    const events: string[] = []
+    let release!: () => void
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
+    let gated = false
+    const zoho = {
+      fetchAll: async () => [],
+      fetchByKeyIn: async (_t: string, _k: string, values: readonly unknown[]) => {
+        events.push(`read:${values.join(',')}`)
+        return []
+      },
+      upsertByKey: async (_t: string, _k: string, key: string) => {
+        events.push(`write:${key}`)
+        if (!gated) {
+          gated = true
+          await gate
+        }
+      },
+      deleteRecord: async () => {},
+    } as unknown as ZohoClient
+    const flush = () => new Promise((r) => setImmediate(r))
+    const a = commitChanges(zoho, admin, {
+      ...CHANGES, tables: [{ table: 'grns', upsert: [{ id: 'GRN-A', data: { id: 'GRN-A' } }], remove: [] }], counters: {},
+    })
+    await flush()
+    await flush()
+    expect(events).toEqual(['read:GRN-A', 'write:GRN-A']) // A is parked inside its write
+    const b = commitChanges(zoho, admin, {
+      ...CHANGES, tables: [{ table: 'qcs', upsert: [{ id: 'QC-B', data: { id: 'QC-B' } }], remove: [] }], counters: {},
+    })
+    await flush()
+    await flush()
+    // B has not read a row: its check-then-act window never opened inside A's
+    expect(events).toEqual(['read:GRN-A', 'write:GRN-A'])
+    release()
+    const [ra, rb] = await Promise.all([a, b])
+    expect(ra).toBeTypeOf('string')
+    expect(rb).toBeTypeOf('string')
+    expect(events).toEqual([
+      'read:GRN-A', 'write:GRN-A', // A's window, whole
+      'write:app_revision', // A's bump lands after its gated write
+      'read:QC-B', 'write:QC-B', 'write:app_revision', // then B's window, whole
+    ])
+  })
+
+  it('a remove whose row vanished after pre-flight completes the commit; a lock still throws', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { zoho } = fakeZoho([storedGrn('GRN-OLD', { id: 'GRN-OLD' })])
+    const remove = {
+      empty: false,
+      tables: [{ table: 'grns', upsert: [], remove: ['GRN-OLD'] }],
+      counters: {},
+      config: undefined,
+    }
+    // the delete refuses: something outside this process removed the row inside
+    // our window — the outcome asked for is already true, so the commit completes
+    zoho.deleteRecord = async () => {
+      throw new ZohoApiError('DELETE /records', 404, 'record not found')
+    }
+    const rev = await commitChanges(zoho, admin, remove)
+    expect(rev).toBeTypeOf('string')
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('GRN-OLD'))
+    // a lock is an honest failure — it still rejects, never swallowed
+    zoho.deleteRecord = async () => {
+      throw new ZohoLockedError()
+    }
+    await expect(commitChanges(zoho, admin, remove)).rejects.toBeInstanceOf(ZohoLockedError)
+    warn.mockRestore()
   })
 
   it('refuses a page-scoped caller who moves stock or counters with no document of their own', async () => {
