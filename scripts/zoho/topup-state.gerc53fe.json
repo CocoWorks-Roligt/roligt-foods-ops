@@ -1,0 +1,513 @@
+{
+  "base": "gerc53fe9f1e44e5f4a13809d9bd47367ba9d",
+  "tables": {
+    "Vendor Types": {
+      "id": "Q51KfQ",
+      "fields": {
+        "Name": "RL55hQ",
+        "Source Kind": "eOYZug",
+        "Description": "aDofuw",
+        "Status": "iMG4UA",
+        "Link to Vendors": "M7YYig",
+        "App ID": "SgQ1tA",
+        "Data JSON": "z2XJCg"
+      },
+      "appId": "SgQ1tA",
+      "dataJson": "z2XJCg"
+    },
+    "Vendors": {
+      "id": "emPb1Q",
+      "fields": {
+        "Name": "04uhjg",
+        "Phone": "_hmL6A",
+        "Area": "RxTCGw",
+        "Payment Terms": "d_VTlw",
+        "Status": "MYyIYQ",
+        "Email": "i6_-sQ",
+        "Notes": "9B6uxQ",
+        "Vendor Type": "f6eWVA",
+        "Link to Purchase Products": "b_QTKA",
+        "Link to GRNs": "T7-2Pg",
+        "App ID": "UaDEwA",
+        "Data JSON": "_T-lIw"
+      },
+      "appId": "UaDEwA",
+      "dataJson": "_T-lIw"
+    },
+    "Customers": {
+      "id": "uq7Lag",
+      "fields": {
+        "Name": "rXuTTA",
+        "Ship To": "8r5wrg",
+        "GSTIN": "KlHKKA",
+        "Status": "SaKg-w",
+        "Phone": "EBqtDg",
+        "Email": "m2fbUQ",
+        "Contact Person": "kBb5ow",
+        "Notes": "CQmW2Q",
+        "Link to Lab Reports": "lmAA_Q",
+        "Link to Orders": "vfRK5Q",
+        "Link to Dispatches": "tJC3Gw",
+        "App ID": "qsgI8g",
+        "Data JSON": "r81F0w"
+      },
+      "appId": "qsgI8g",
+      "dataJson": "r81F0w"
+    },
+    "Items": {
+      "id": "-pn8Rg",
+      "fields": {
+        "Name": "PPC3zw",
+        "Type": "fDbxMQ",
+        "UOM": "ZYWKcg",
+        "Lot Controlled": "taWNSw",
+        "Reorder Level": "nPXgUg",
+        "Cost Method": "8b5QaQ",
+        "Link to Purchase Products": "zVj6MA",
+        "Link to Products": "GZ3tJw",
+        "Link to BOM Lines": "fM9dvg",
+        "Link to Melanges": "_ApGaw",
+        "Link to Melange Components": "VTlA8g",
+        "Link to Packing Runs": "HXzf4A",
+        "Link to QC Records": "Ec8KUw",
+        "Link to Ledger": "CKyaLg",
+        "App ID": "qke45w",
+        "Data JSON": "LX8o0g"
+      },
+      "appId": "qke45w",
+      "dataJson": "LX8o0g"
+    },
+    "Purchase Products": {
+      "id": "j937WA",
+      "fields": {
+        "Name": "2MjAAA",
+        "Default UOM": "5V_gAQ",
+        "Item": "203N1A",
+        "Linked Vendors": "oP1slA",
+        "Link to GRNs": "7mM5Ig",
+        "App ID": "KX8vQA",
+        "Data JSON": "dBd9eg"
+      },
+      "appId": "KX8vQA",
+      "dataJson": "dBd9eg"
+    },
+    "Storage Locations": {
+      "id": "eU3gew",
+      "fields": {
+        "Name": "Fbdl9w",
+        "Label": "6QTydg",
+        "Holds": "YfR-Ng",
+        "Type": "Mo383Q",
+        "Status": "_ikJig",
+        "Link to GRNs": "E3vV9A",
+        "Link to Batches": "mZA5Ww",
+        "Link to Packing Runs": "2WgAvQ",
+        "Link to Dispatches": "ARfHVw",
+        "Link to Ledger": "TVNgFQ",
+        "App ID": "mqCiIA",
+        "Data JSON": "fWL1JA"
+      },
+      "appId": "mqCiIA",
+      "dataJson": "fWL1JA"
+    },
+    "Test Categories": {
+      "id": "4U0lqg",
+      "fields": {
+        "Title": "IN88Vg",
+        "Format": "UdSLBQ",
+        "Required for Release": "rjN7Cg",
+        "Pass Score": "iguVZg",
+        "Minor Score": "hMuX6w",
+        "Signatory": "FKCE7Q",
+        "Status": "jQyGmw",
+        "Link to Test Parameters": "c9IBEw",
+        "Link to Lab Reports": "WsXb7A",
+        "App ID": "lKZrqA",
+        "Data JSON": "1y01nA"
+      },
+      "appId": "lKZrqA",
+      "dataJson": "1y01nA"
+    },
+    "Test Parameters": {
+      "id": "hBvaNA",
+      "fields": {
+        "Name": "Jo7nGQ",
+        "Method": "RS4gkA",
+        "Unit": "ve9YZQ",
+        "Category": "LwwoFw",
+        "App ID": "2hHeeg",
+        "Data JSON": "nUJ91A"
+      },
+      "appId": "2hHeeg",
+      "dataJson": "nUJ91A"
+    },
+    "Products": {
+      "id": "wtZplw",
+      "fields": {
+        "Name": "R84ItA",
+        "Format": "i0jfDQ",
+        "Size": "_aK5Lg",
+        "Unit": "JbsGxA",
+        "Pack Volume": "A2e6JA",
+        "Shelf Life Days": "TYw0lg",
+        "Chilled Shelf Life Days": "HRHNQw",
+        "MRP": "ao_uIg",
+        "Medium": "LX9yXA",
+        "Bulk Item": "8Q5QNg",
+        "Link to BOM Lines": "QC27-w",
+        "Link to Order Lines": "RgIh4A",
+        "Link to Dispatches": "NBxqAA",
+        "App ID": "efKp5w",
+        "Data JSON": "T6oulA"
+      },
+      "appId": "efKp5w",
+      "dataJson": "T6oulA"
+    },
+    "BOM Lines": {
+      "id": "_BMFqw",
+      "fields": {
+        "Line": "HaG3HQ",
+        "Qty per Pack": "_ZiaEg",
+        "Product": "X8OAEw",
+        "Item": "J9lLLQ",
+        "App ID": "kEKUaA",
+        "Data JSON": "T25HMg"
+      },
+      "appId": "kEKUaA",
+      "dataJson": "T25HMg"
+    },
+    "Melanges": {
+      "id": "HxQjjQ",
+      "fields": {
+        "Name": "ywkOcw",
+        "Status": "qQx6Jg",
+        "Output Item": "iXRk5A",
+        "Link to Melange Components": "G6s0Uw",
+        "App ID": "jvYqGQ",
+        "Data JSON": "zUeZLQ"
+      },
+      "appId": "jvYqGQ",
+      "dataJson": "zUeZLQ"
+    },
+    "Melange Components": {
+      "id": "eDbSvg",
+      "fields": {
+        "Line": "NcmTiw",
+        "Share": "-NXEbQ",
+        "Melange": "Oh5T5A",
+        "Item": "_JfkNw",
+        "App ID": "wlTLQg",
+        "Data JSON": "WRM37g"
+      },
+      "appId": "wlTLQg",
+      "dataJson": "WRM37g"
+    },
+    "Counters": {
+      "id": "la-DXQ",
+      "fields": {
+        "Series": "NlaXqg",
+        "Prefix": "TQXrSw",
+        "Pattern": "NgfLVg",
+        "Pad": "R9OwRw",
+        "Next": "SabsYg",
+        "App ID": "JCXZPA"
+      },
+      "appId": "JCXZPA"
+    },
+    "Config": {
+      "id": "0jAjUQ",
+      "fields": {
+        "Setting": "batStA",
+        "Value": "WcDTZQ",
+        "Notes": "GM8CUg",
+        "App ID": "YzXOxA"
+      },
+      "appId": "YzXOxA"
+    },
+    "Staff": {
+      "id": "-7_2Lw",
+      "fields": {
+        "Staff No": "mKGDbQ",
+        "Name": "MSPtUA",
+        "Role": "SvWaiw",
+        "Phone": "4kjuow",
+        "Status": "ZwCzNQ",
+        "Added On": "HB5G_Q",
+        "Link to Shifts": "BhGKSA",
+        "Link to Attendance": "z07PIw",
+        "App ID": "IYd3fA",
+        "Data JSON": "CAsnww"
+      },
+      "appId": "IYd3fA",
+      "dataJson": "CAsnww"
+    },
+    "GRNs": {
+      "id": "zYc_3A",
+      "fields": {
+        "Doc No": "mpuNTw",
+        "Date": "tZMtQA",
+        "UOM": "5yAcKg",
+        "Area": "n1Upgg",
+        "Harvested On": "B3gZhw",
+        "Total": "jnuzPw",
+        "Accepted": "tBSfBw",
+        "Free": "uRm70g",
+        "Grade A": "LmBRqg",
+        "Grade B": "n5c3ig",
+        "Grade C": "mMWFNA",
+        "Reject": "2nbJkQ",
+        "Rate": "eLB1gQ",
+        "Other Charges": "Epkb8A",
+        "Status": "8B9oGw",
+        "Notes": "XuWNDg",
+        "Product": "Xcb2lQ",
+        "Location": "ksCnhQ",
+        "Vendor": "tG3byA",
+        "App ID": "GweH5w",
+        "Data JSON": "I4as_w"
+      },
+      "appId": "GweH5w",
+      "dataJson": "I4as_w"
+    },
+    "Batches": {
+      "id": "zYKaHQ",
+      "fields": {
+        "Batch No": "SNbqHw",
+        "Date": "M3XoOA",
+        "Kind": "sGas1w",
+        "Spoiled": "-wO95A",
+        "Cost per Unit": "D6eCXA",
+        "Status": "ahgEMQ",
+        "Data JSON": "Z3iOkg",
+        "Location": "772fnw",
+        "Link to Packing Runs": "JE-4Sg",
+        "Link to QC Records": "dXy3Kg",
+        "Link to Lab Reports": "Wal1kQ",
+        "Link to Dispatches": "BehC2Q",
+        "App ID": "EPz9ig"
+      },
+      "appId": "EPz9ig",
+      "dataJson": "Z3iOkg"
+    },
+    "Packing Runs": {
+      "id": "UiOExg",
+      "fields": {
+        "Run No": "ta6pPw",
+        "Date": "XzOTag",
+        "Drawn": "JooyRg",
+        "Status": "gNpRNg",
+        "Data JSON": "wrDPVQ",
+        "Batch": "muIYuA",
+        "Bulk Item": "JKMIyw",
+        "Location": "8Ka4_w",
+        "App ID": "N_2vRA"
+      },
+      "appId": "N_2vRA",
+      "dataJson": "wrDPVQ"
+    },
+    "QC Records": {
+      "id": "bnL8sQ",
+      "fields": {
+        "Doc No": "Psi57w",
+        "Disposition": "3JtFig",
+        "Tests JSON": "m02Ymw",
+        "Attachments": "Rvm7QQ",
+        "Batch": "5a85Nw",
+        "Item": "lntI1Q",
+        "App ID": "slMbXA",
+        "Data JSON": "SE_fog"
+      },
+      "appId": "slMbXA",
+      "dataJson": "SE_fog"
+    },
+    "Lab Reports": {
+      "id": "6KPiJg",
+      "fields": {
+        "Report No": "6VOBSA",
+        "Sample Date": "r1h8Vw",
+        "Issue Date": "qWabHQ",
+        "Scores JSON": "VSc8Hg",
+        "Decision": "FcMUjg",
+        "Attachment": "5pGvYw",
+        "Category": "rNtGjg",
+        "Batch": "OaFgbw",
+        "Customer": "wmWZpw",
+        "App ID": "BMiOtQ",
+        "Data JSON": "8jNTfA"
+      },
+      "appId": "BMiOtQ",
+      "dataJson": "8jNTfA"
+    },
+    "Orders": {
+      "id": "faITbA",
+      "fields": {
+        "Order No": "eK3rpw",
+        "Date": "SxaYSw",
+        "Status": "HCGtCA",
+        "Notes": "AHaJkQ",
+        "Customer": "IYIjIA",
+        "Link to Order Lines": "c5HBhA",
+        "App ID": "p_08eQ",
+        "Data JSON": "LZuEiw"
+      },
+      "appId": "p_08eQ",
+      "dataJson": "LZuEiw"
+    },
+    "Order Lines": {
+      "id": "NfaemA",
+      "fields": {
+        "Line": "Pc0AxA",
+        "Qty": "SflKkw",
+        "Order": "dZYIyg",
+        "SKU": "nZTjuQ",
+        "App ID": "g52kkw",
+        "Data JSON": "tZ-4Vg"
+      },
+      "appId": "g52kkw",
+      "dataJson": "tZ-4Vg"
+    },
+    "Dispatches": {
+      "id": "WwwsFQ",
+      "fields": {
+        "Challan No": "F6Q_AQ",
+        "Date": "3OLwcw",
+        "Expiry": "RKgphA",
+        "Qty": "3FedPg",
+        "Vehicle": "nDxKiw",
+        "Status": "osN62w",
+        "POD": "X9oQqQ",
+        "Customer": "tLTqzQ",
+        "SKU": "UEbucA",
+        "Batch": "IFO-lw",
+        "Location": "WgAK7A",
+        "App ID": "djjBXw",
+        "Data JSON": "sdKCxA"
+      },
+      "appId": "djjBXw",
+      "dataJson": "sdKCxA"
+    },
+    "Stock Issues": {
+      "id": "gFa2tg",
+      "fields": {
+        "Doc No": "pXisDw",
+        "Date": "jwwpwg",
+        "Reason": "wR16KA",
+        "Issued To": "Z2sN9Q",
+        "Lines JSON": "xrHNLQ",
+        "Value": "twCHUQ",
+        "App ID": "s5-0SQ",
+        "Data JSON": "dnfDaA"
+      },
+      "appId": "s5-0SQ",
+      "dataJson": "dnfDaA"
+    },
+    "Production Plans": {
+      "id": "_FPGJw",
+      "fields": {
+        "Plan No": "oG-tMQ",
+        "Day": "aKU7tw",
+        "Stage": "1vfDmQ",
+        "Product": "o5HFSg",
+        "Qty": "UCPu2w",
+        "UOM": "yK5rAA",
+        "Note": "phNpmw",
+        "Status": "R8_qzg",
+        "App ID": "AB76aA",
+        "Data JSON": "J-eCMQ"
+      },
+      "appId": "AB76aA",
+      "dataJson": "J-eCMQ"
+    },
+    "Shifts": {
+      "id": "FjRdFA",
+      "fields": {
+        "Key": "eWXQ-w",
+        "Date": "3lR-qw",
+        "Shift": "pIup2g",
+        "Line": "VbNidQ",
+        "Note": "m7dM1A",
+        "Staff": "zDYSmA",
+        "App ID": "lvVCUg",
+        "Data JSON": "sC6JFg"
+      },
+      "appId": "lvVCUg",
+      "dataJson": "sC6JFg"
+    },
+    "Attendance": {
+      "id": "NCe8vQ",
+      "fields": {
+        "Key": "V1998Q",
+        "Date": "SZQqAQ",
+        "Status": "F4YsSg",
+        "Note": "jeyxPg",
+        "Staff": "iMUGGw",
+        "App ID": "ODvEdQ",
+        "Data JSON": "npIR2Q"
+      },
+      "appId": "ODvEdQ",
+      "dataJson": "npIR2Q"
+    },
+    "Ledger": {
+      "id": "TUf1EA",
+      "fields": {
+        "Doc": "ISSAjA",
+        "Type": "tF3wKw",
+        "Lot": "LLKIHg",
+        "Status": "sE5dZA",
+        "Qty In": "Rc-sSA",
+        "Qty Out": "a3roIQ",
+        "Unit Cost": "1SVG0Q",
+        "Expiry": "Hi-K0Q",
+        "Time": "ZyVR8Q",
+        "Data JSON": "XnQjTw",
+        "Item": "H14YGQ",
+        "Location": "gAC7Qw",
+        "App ID": "PAze8Q"
+      },
+      "appId": "PAze8Q",
+      "dataJson": "XnQjTw"
+    },
+    "Audit Log": {
+      "id": "Ozntnw",
+      "fields": {
+        "Doc": "x-XwPg",
+        "Action": "fv2PTw",
+        "Details": "df8NMA",
+        "Actor": "u7pGxA",
+        "Time": "dZucpg",
+        "App ID": "CwW9iA",
+        "Data JSON": "SZ4XtA"
+      },
+      "appId": "CwW9iA",
+      "dataJson": "SZ4XtA"
+    },
+    "Sticker Templates": {
+      "id": "9wnUOg",
+      "fields": {
+        "Name": "TtX0xw",
+        "Stage": "aJlcLg",
+        "Template JSON": "92YhGA",
+        "App ID": "iejL6w",
+        "Data JSON": "0pTdIw"
+      },
+      "appId": "iejL6w",
+      "dataJson": "0pTdIw"
+    },
+    "Sticker Prints": {
+      "id": "RbDZBw",
+      "fields": {
+        "Doc No": "3YudaA",
+        "Stage": "NYBYNQ",
+        "Title": "BZlg9A",
+        "Printed At": "VLtdnQ",
+        "Qty": "Hvy63Q",
+        "App ID": "FzJY-A",
+        "Data JSON": "cY4MdQ"
+      },
+      "primary": "3YudaA",
+      "appId": "FzJY-A",
+      "dataJson": "cY4MdQ",
+      "done": true
+    }
+  }
+}
