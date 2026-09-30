@@ -370,6 +370,17 @@ body.drawer-open {
   color: rgba(255, 255, 255, 0.75);
 }
 
+/* The mirror-failed line breaks the footer's one-line shape on purpose — while
+   it shows, "held on this device" is not true (see SaveIndicator). A brighter
+   red for the same reason the offline dot runs a brighter amber: this sits on
+   the grove chrome, where the ink-family danger colour is dark on dark. */
+.sidebar-footer .mirror-failed {
+  display: block;
+  margin-top: 4px;
+  font-weight: 700;
+  color: #ff9d8d;
+}
+
 .sidebar-footer select {
   width: 100%;
   background: white;

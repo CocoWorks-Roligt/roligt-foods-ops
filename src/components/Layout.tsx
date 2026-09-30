@@ -56,6 +56,17 @@ const BOTTOM_NAV: (PageRow & { Icon: ComponentType<{ className?: string }> })[] 
  */
 function SaveIndicator() {
   const saveStatus = useSaveStatus()
+  // First, because it breaks the other lines' promise: while the mirror refuses
+  // writes, "held on this device" (the offline branch below) is not true — the
+  // tab on screen is the only copy. It stays until a write lands again.
+  if (saveStatus.mirrorFailed) {
+    return (
+      <span className="mirror-failed">
+        This device cannot store its local copy — unsaved work lives only in this tab. Keep it
+        open.
+      </span>
+    )
+  }
   if (saveStatus.conflict) {
     return (
       <span>Another device saved first — their version is shown; review your unsaved work.</span>

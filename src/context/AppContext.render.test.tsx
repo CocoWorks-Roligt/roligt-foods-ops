@@ -66,6 +66,7 @@ beforeEach(() => {
   // registers — without this, the previous test's tree stays in the document.
   cleanup()
   clearLocal()
+  sessionStorage.clear()
   vi.clearAllMocks()
   dbApi.fetchRevision.mockResolvedValue(1)
 })
@@ -215,5 +216,35 @@ describe('AppProvider offline push', () => {
     expect(changes.tables.find((t) => t.table === 'grns')?.upsert).toHaveLength(1)
     const oldWiring = diffState(freshServer as AppState, local as AppState)
     expect(oldWiring.tables.find((t) => t.table === 'vendors')?.remove).toContain('V-0002')
+  })
+
+  it("adopts a dirty tab's spill even after a clean tab overwrote the shared key", async () => {
+    // The two-tab clobber, end to end. Tab A posts a receipt with no signal (a
+    // dirty write, which lives on ITS spill); tab B, clean, then mirrors the
+    // older plant over the shared key. Boot must adopt A's work from the spill
+    // fold — the shared copy is a view of the server and never overrules it.
+    const base = plant()
+    const local = {
+      ...plant(),
+      grns: [{ id: 'GRN-2026-0001', date: '2026-09-28', status: 'Posted' }] as unknown as AppState['grns'],
+    }
+    sessionStorage.setItem('roligt_foods_ops_tab', 'tabA')
+    writeLocal({ state: local as AppState, dirty: true, revision: '1', base: base as AppState })
+    sessionStorage.setItem('roligt_foods_ops_tab', 'tabB')
+    writeLocal({ state: plant() as AppState, dirty: false, revision: '2' })
+
+    dbApi.fetchDb.mockResolvedValue({ state: plant(), revision: '2', permissions: [] })
+    dbApi.saveDb.mockResolvedValue({ ok: true, revision: '3:x' })
+
+    render(
+      <Providers>
+        <Vendors />
+      </Providers>,
+    )
+    await waitFor(() => expect(dbApi.saveDb).toHaveBeenCalled())
+    const [next, prev] = dbApi.saveDb.mock.calls[0] as [AppState, AppState | null]
+    // the spill's receipt was adopted and pushed — not lost to tab B's mirror
+    expect(next.grns.some((g) => g.id === 'GRN-2026-0001')).toBe(true)
+    expect(prev && 'grns' in prev ? (prev.grns ?? []).length : 0).toBe(0)
   })
 })

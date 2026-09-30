@@ -25,7 +25,7 @@ import { usePlanning, type PlanInput } from './domains/planning'
 import { useStaffRoster, type ShiftInput, type StaffInput } from './domains/roster'
 import { useStorageLocations } from './domains/storage'
 import { fetchDb, fetchRevision, saveDb, ThrottledError, UnauthorizedError, type RowConflict } from '../lib/dbApi'
-import { readLocal, writeLocal } from '../lib/localDb'
+import { readLocal, writeLocal, type LocalCopy } from '../lib/localDb'
 import { COLLECTIONS } from '../lib/tables'
 import { canAny, type PermissionKey } from '../lib/permissions.ts'
 import { setSessionPermissions, useSessionPermissions } from '../lib/sessionPermissions'
@@ -93,6 +93,10 @@ export interface SaveStatus {
    *  the winning versions are shown and this device's copy of them is kept
    *  only until reviewed. */
   conflict: boolean
+  /** The device's own mirror refused its write — storage full, or a private
+   *  window. Until a write lands again this tab is the only copy of the work
+   *  on it, so the header says so and keeps saying so. */
+  mirrorFailed: boolean
 }
 
 interface AppContextValue {
@@ -207,7 +211,12 @@ const AppContext = createContext<AppContextValue | null>(null)
  * folding that into the main value would re-render every screen in the app twice per
  * keystroke-worth of work — for a line of text in the sidebar.
  */
-const SaveStatusContext = createContext<SaveStatus>({ dirty: false, offline: false, conflict: false })
+const SaveStatusContext = createContext<SaveStatus>({
+  dirty: false,
+  offline: false,
+  conflict: false,
+  mirrorFailed: false,
+})
 
 /** The AppState key a table name lives under ('grns' → grns; ledger/audits are theirs). */
 function stateKeyForTable(table: string): string | null {
@@ -370,6 +379,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (retryTimer.current) clearTimeout(retryTimer.current)
     },
     [],
+  )
+
+  /** True while the device's own mirror refuses writes — see writeMirror. */
+  const [mirrorFailed, setMirrorFailed] = useState(false)
+  const mirrorFailedRef = useRef(false)
+  /**
+   * Writes the mirror and reports honestly whether it landed. A quota blown or
+   * a private window used to swallow inside localDb, so "changes are held on
+   * this device" stayed printed while nothing was being held anywhere. The
+   * banner this raises (SaveIndicator) clears only when a write lands again —
+   * and the offline toasts below read the ref to stop promising a copy that is
+   * not being made.
+   */
+  const writeMirror = useCallback(
+    (copy: Omit<LocalCopy, 'savedAt'>) => {
+      if (writeLocal(copy)) {
+        if (mirrorFailedRef.current) {
+          mirrorFailedRef.current = false
+          setMirrorFailed(false)
+        }
+        return
+      }
+      if (!mirrorFailedRef.current) {
+        mirrorFailedRef.current = true
+        setMirrorFailed(true)
+        showToast('This device cannot store its local copy — keep this tab open until changes are saved.')
+      }
+    },
+    [showToast],
   )
 
   /**
@@ -546,10 +584,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // it as unsaved would have the next startup treat it as offline work and announce
     // that it was saving something that had never left.
     if (state === synced.current) {
-      writeLocal({ state, dirty: false, revision: revision.current })
+      writeMirror({ state, dirty: false, revision: revision.current })
       return
     }
-    writeLocal({ state, dirty: true, revision: revision.current, base: synced.current ?? null })
+    writeMirror({ state, dirty: true, revision: revision.current, base: synced.current ?? null })
 
     let live = true
     const t = setTimeout(() => {
@@ -563,7 +601,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             setDirty(false)
             setOffline(false)
             setConflictHeld(false)
-            writeLocal({ state, dirty: false, revision: revision.current })
+            writeMirror({ state, dirty: false, revision: revision.current })
             saveErrorShown.current = false
             return
           }
@@ -622,7 +660,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           // then silence while nothing at all was reaching the database.
           if (!saveErrorShown.current) {
             saveErrorShown.current = true
-            showToast('Offline — changes are held on this device until you reconnect.')
+            showToast(
+              mirrorFailedRef.current
+                ? 'Offline — and this device cannot store its copy, so changes live only in this tab. Keep it open.'
+                : 'Offline — changes are held on this device until you reconnect.',
+            )
           }
           scheduleRetry(30)
         })
@@ -635,7 +677,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           scheduleRetry(e instanceof ThrottledError ? e.retryAfterSec : 30)
           if (!saveErrorShown.current) {
             saveErrorShown.current = true
-            showToast('Offline — changes are held on this device until you reconnect.')
+            showToast(
+              mirrorFailedRef.current
+                ? 'Offline — and this device cannot store its copy, so changes live only in this tab. Keep it open.'
+                : 'Offline — changes are held on this device until you reconnect.',
+            )
           }
         })
         .finally(() => {
@@ -646,11 +692,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       live = false
       clearTimeout(t)
     }
-  }, [ready, retryTick, scheduleRetry, showToast, state])
+  }, [ready, retryTick, scheduleRetry, showToast, state, writeMirror])
 
   const saveStatus: SaveStatus = useMemo(
-    () => ({ dirty, offline, conflict: conflictHeld }),
-    [conflictHeld, dirty, offline],
+    () => ({ dirty, offline, conflict: conflictHeld, mirrorFailed }),
+    [conflictHeld, dirty, mirrorFailed, offline],
   )
 
   const rows = useMemo(() => stockRows(state), [state])
