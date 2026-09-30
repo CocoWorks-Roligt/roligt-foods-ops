@@ -98,24 +98,141 @@ export function assembleState(schema: typeof T, rows: SnapshotRows): Assembled {
 
 /** Reads every mapped table (App ID + Data JSON only) and assembles the snapshot. */
 export async function readSnapshot(zoho: ZohoClient): Promise<Assembled> {
+  return (await sweepTables(zoho, null, new Set())).snap
+}
+
+// ---- the substrate cache: rows held across sweeps, deltas off the watermarks ----
+
+/**
+ * The only tables a watermark delta is safe on. Ledger lines and audit rows are
+ * append-only — a row is written once with a fixed `at` and never edited (audits
+ * are insert-only by the commit gate; a ledger line only ever leaves by whole-
+ * document reversal, which files a remove hint) — so "rows whose Data JSON
+ * mentions an hour at or past the watermark" is exactly the new rows. Every
+ * collection table is edited IN PLACE: the same App ID is re-upserted with new
+ * content whose timestamps need not advance, so a watermark would miss edits —
+ * those tables full-read on every sweep.
+ */
+const DELTA_KEYS = ['ledger', 'audits'] as const
+type DeltaKey = (typeof DELTA_KEYS)[number]
+const isDeltaKey = (supa: string): supa is DeltaKey => supa === 'ledger' || supa === 'audits'
+
+/**
+ * How long a watermark may stand without a full re-read. A delta cannot see
+ * deletions made by a writer this process never heard from (another instance, a
+ * hand edit in the Zoho UI) — its own commits file remove hints, foreign ones
+ * cannot. The clock bounds that blindness: at worst five minutes of rows that
+ * were deleted server-side still show, then a full read reconciles.
+ */
+const FULL_REREAD_MS = 5 * 60_000
+
+/** What one sweep produced, besides the assembled state. */
+interface Swept {
+  snap: Assembled
+  rows: SnapshotRows
+  watermarks: { ledger?: string; audits?: string }
+  lastFullAt: Partial<Record<DeltaKey, number>>
+}
+
+/** The Data JSON `at` of a row — the one timestamp that survives read-back
+ *  un-normalized. The Time column does not (`2026-09-30T07:00:00.000Z` reads
+ *  back "2026/09/30 07:00:00", pinned live 2026-09-30), which is why watermarks
+ *  come from the JSON and never from the column. */
+function rowAt(table: { dataJson?: string }, r: ZohoRecord): string | null {
+  if (!table.dataJson) return null
+  const raw = r.data[table.dataJson]
+  if (raw === undefined || raw === null || raw === '') return null
+  try {
+    const at = (JSON.parse(String(raw)) as { at?: unknown }).at
+    return typeof at === 'string' && at ? at : null
+  } catch {
+    return null
+  }
+}
+
+/** The max `at` across rows (never below `seen`) — ISO-8601 Zulu strings compare
+ *  lexicographically in chronological order, so a plain string compare is it. */
+function maxAt(seen: string | undefined, rows: ZohoRecord[], table: { dataJson?: string }): string | undefined {
+  let max = seen
+  for (const r of rows) {
+    const at = rowAt(table, r)
+    if (at && (max === undefined || at > max)) max = at
+  }
+  return max
+}
+
+/** Delta rows merged over the substrate by App ID. A bucket re-read always
+ *  re-delivers the watermark's boundary row, and a false-positive superset (some
+ *  other JSON value mentioning the hour) re-mentions ids already held — the
+ *  merge is idempotent by business key, which is what makes both safe. */
+function mergeById(base: ZohoRecord[], incoming: ZohoRecord[], appIdField: string): ZohoRecord[] {
+  if (!incoming.length) return base
+  const byId = new Map(base.map((r) => [String(r.data[appIdField] ?? r.recordID), r]))
+  for (const r of incoming) byId.set(String(r.data[appIdField] ?? r.recordID), r)
+  return [...byId.values()]
+}
+
+/**
+ * One sweep. Collection tables and Counters/Config full-read every time (scope
+ * 'sweep' — the self-restraint pool that leaves interactive traffic its slots);
+ * ledger and audits full-read cold, hinted, past the reconciliation clock, or
+ * when their delta read refuses — and delta-read (fetchSince: `contains` hour
+ * buckets over the Data JSON, the one criteria form the live probe found
+ * working) off the substrate otherwise, merging by App ID. Config reads LAST:
+ * it carries the revision the caller is returned and the gate compares against.
+ */
+async function sweepTables(
+  zoho: ZohoClient,
+  entry: SweepCache | null,
+  forceFull: ReadonlySet<string>,
+): Promise<Swept> {
   const schema = T
   const rows: SnapshotRows = {}
+  const watermarks: { ledger?: string; audits?: string } = {}
+  const lastFullAt: Partial<Record<DeltaKey, number>> = {}
+  const canDelta = (key: DeltaKey) =>
+    !!entry &&
+    entry.baseId === zoho.baseId &&
+    entry.watermarks[key] !== undefined &&
+    !forceFull.has(key) &&
+    (entry.lastFullAt[key] ?? 0) > Date.now() - FULL_REREAD_MS
+
   await Promise.all(
     Object.entries(TABLE_FOR).map(async ([supa, base]) => {
       const table = schema[base]
       // order_lines and anything else not in COLLECTIONS is fetched-then-discarded
       // otherwise — a read budget is spent for rows the state can never hold.
       if (!table || !stateKeyFor(supa)) return
-      rows[supa] = await zoho.fetchAll(table.id)
+      if (isDeltaKey(supa)) {
+        if (canDelta(supa)) {
+          try {
+            const since = await zoho.fetchSince(table.id, table.dataJson!, entry!.watermarks[supa]!, {
+              scope: 'sweep',
+            })
+            rows[supa] = mergeById(entry!.rows[supa] ?? [], since, table.appId)
+            watermarks[supa] = maxAt(entry!.watermarks[supa], since, table)
+            lastFullAt[supa] = entry!.lastFullAt[supa] // no full read — the clock stands
+            return
+          } catch {
+            // any refusal — a wrapped INTERNAL SERVER ERROR, a gap too wide for
+            // the bucket cap — falls to the full read below, same sweep
+          }
+        }
+        rows[supa] = await zoho.fetchAll(table.id, { scope: 'sweep' })
+        watermarks[supa] = maxAt(undefined, rows[supa], table)
+        lastFullAt[supa] = Date.now()
+        return
+      }
+      rows[supa] = await zoho.fetchAll(table.id, { scope: 'sweep' })
     }),
   )
-  rows.counters = await zoho.fetchAll(schema['Counters'].id)
-  rows.config = await zoho.fetchAll(schema['Config'].id)
-  return assembleState(schema, rows)
+  rows.counters = await zoho.fetchAll(schema['Counters'].id, { scope: 'sweep' })
+  rows.config = await zoho.fetchAll(schema['Config'].id, { scope: 'sweep' })
+  return { snap: assembleState(schema, rows), rows, watermarks, lastFullAt }
 }
 
 /**
- * The last snapshot assembled, keyed by the revision it was read at.
+ * The last sweep's substrate, keyed by the revision token it gated on.
  *
  * A sweep is 26 read calls — one per table — against the client's budget of 26
  * reads a minute, so a reload that re-swept spent a full minute waiting for the
@@ -124,13 +241,35 @@ export async function readSnapshot(zoho: ZohoClient): Promise<Assembled> {
  * so a snapshot read at revision R is exactly what a fresh sweep at R would
  * return. One revision read answers whether the cache still stands.
  *
- * The sweep reads 26 tables one after another, so a commit landing mid-sweep can
- * be read torn and stamped with the new revision — the same exposure a single
- * uncached read has always had, healed by the next commit. Per process: the dev
- * harness is one process, a warm serverless instance is one, and each gates on
- * its own revision read, so nothing needs coordinating between them.
+ * The entry holds the raw ROWS, not just the assembled state: ledger and audits
+ * are append-only, so a revision bump needs only the rows whose Data JSON
+ * mentions an hour past the watermark (fetchSince — one read instead of one per
+ * thousand lines) merged over what is held. The substrate is only ever installed
+ * under the token the sweep GATED on (read before the first table), never the
+ * token its trailing Config read happened to return: a commit landing mid-sweep
+ * would otherwise cache a torn mix of pre- and post-commit rows under the new
+ * token and serve it as fresh forever. A sweep whose end revision moved is
+ * returned to its caller but cached nowhere — the next gate re-sweeps.
+ *
+ * Per process: the dev harness is one process, a warm serverless instance is
+ * one, and each gates on its own revision read, so nothing needs coordinating
+ * between them.
  */
-let cached: { baseId: string; revision: string; snap: Assembled } | null = null
+interface SweepCache {
+  baseId: string
+  /** The gate token this substrate was assembled under — compared for equality only. */
+  revision: string
+  rows: SnapshotRows
+  /** Max Data JSON `at` held per delta table — the fetchSince watermark. */
+  watermarks: { ledger?: string; audits?: string }
+  /** When each delta table was last full-read — the reconciliation clock. */
+  lastFullAt: Partial<Record<DeltaKey, number>>
+  /** Null after a foreign invalidate: the substrate still deltas, the assembled
+   *  state never serves again. */
+  snap: Assembled | null
+}
+
+let cached: SweepCache | null = null
 /** The sweep in flight, shared by every caller asking while it runs. */
 let sweeping: Promise<Assembled> | null = null
 
@@ -140,9 +279,93 @@ let sweeping: Promise<Assembled> | null = null
  */
 let lastKnownRevision: { baseId: string; value: string } | null = null
 
+/**
+ * Facts a commit files at its bump for the next sweep to honor — accumulated
+ * here, not on the cache entry, so a sweep in flight cannot lose them: the sweep
+ * drains the store when it starts and puts everything back unless its result was
+ * actually installed.
+ */
+let pendingHints: { baseId: string; forceFull: Set<string>; touched: Set<string> } | null = null
+
+/**
+ * Commits this process applied whose route-level invalidations are still
+ * pending, token → base. A marker, not a log: each entry dies the moment its
+ * invalidate arrives or a sweep installs past it. More than one can be
+ * outstanding because the commit mutex serializes the WRITES, not the route
+ * handlers around them — request A's invalidate(T1) can land after request B's
+ * commit already minted T2, and T1 must still read as our own, not as a foreign
+ * token that would roll lastKnownRevision backwards and force-full both delta
+ * tables for nothing. Bounded FIFO — a token that outlives 32 later commits was
+ * dropped by its own route long before this matters.
+ */
+const ownTokens = new Map<string, string>()
+const revisionNumberOf = (token: string): number => parseInt(token, 10) || 0
+
+function addHints(baseId: string, forceFull: Iterable<string>, touched: Iterable<string>): void {
+  const cur =
+    pendingHints && pendingHints.baseId === baseId
+      ? pendingHints
+      : (pendingHints = { baseId, forceFull: new Set(), touched: new Set() })
+  for (const t of forceFull) cur.forceFull.add(t)
+  for (const t of touched) cur.touched.add(t)
+}
+
+function drainHints(baseId: string): { forceFull: Set<string>; touched: Set<string> } {
+  if (!pendingHints || pendingHints.baseId !== baseId) {
+    return { forceFull: new Set(), touched: new Set() }
+  }
+  const drained = pendingHints
+  pendingHints = null
+  return { forceFull: drained.forceFull, touched: drained.touched }
+}
+
+/** Undrains — hints a sweep honored but could not install must wait for the next
+ *  sweep (a failed one, or one the mid-sweep revision move made uncacheable);
+ *  unioned with anything filed meanwhile. */
+function restoreHints(baseId: string, drained: { forceFull: Set<string>; touched: Set<string> }): void {
+  if (drained.forceFull.size || drained.touched.size) addHints(baseId, drained.forceFull, drained.touched)
+}
+
 /** Record the freshest revision in hand — every read and bump passes here. */
 export function noteRevision(baseId: string, value: string): void {
   lastKnownRevision = { baseId, value }
+}
+
+/**
+ * What a commit tells the next sweep. `removedTables` and `backdatedLedger`
+ * exist because a contains-bucket delta cannot see behind its watermark: rows
+ * the commit DELETED, or ledger rows it wrote with an `at` under the watermark
+ * (PM receipts backdate), would otherwise stay invisible until the
+ * reconciliation clock. `touchedTables` is the own-commit fast path's re-sweep
+ * set (Fix 2c — stored now, consumed then).
+ */
+export interface CommitHints {
+  removedTables: string[]
+  backdatedLedger: boolean
+  touchedTables: string[]
+}
+
+/**
+ * Files a commit's hints at its bump. The token is remembered so the route's
+ * post-commit invalidate(token) is the no-op it should be: this process's own
+ * commit does not spend the substrate — its rows land at `at` = now, ahead of
+ * the watermark, where the next delta finds them; only the hints' blind spots
+ * need flagging.
+ */
+export function noteCommitApplied(baseId: string, token: string, hints: CommitHints): void {
+  ownTokens.set(token, baseId)
+  if (ownTokens.size > 32) ownTokens.delete(ownTokens.keys().next().value!)
+  // the poll memo serves the token at once — the committing process is the one
+  // device that knows the revision without reading it
+  revisionMemo = { baseId, value: token, at: Date.now() }
+  const forceFull = new Set<string>(hints.removedTables)
+  if (hints.backdatedLedger) forceFull.add('ledger')
+  addHints(baseId, forceFull, hints.touchedTables)
+}
+
+/** The ledger watermark this process holds — the commit path's backdate test. */
+export function cachedLedgerWatermark(baseId: string): string | null {
+  return cached && cached.baseId === baseId ? (cached.watermarks.ledger ?? null) : null
 }
 
 /**
@@ -150,7 +373,13 @@ export function noteRevision(baseId: string, value: string): void {
  * the value an audit's revision bump can start from without reading Config at all.
  */
 export function cachedRevision(baseId: string): string | null {
-  if (cached && cached.baseId === baseId) return cached.revision
+  // After this process's own commit the entry's token still names the plant as
+  // it was BEFORE the commit — the freshest knowledge is the token the bump just
+  // wrote, and serving the entry's would bump from a number already spent.
+  const hasOwn = [...ownTokens.values()].includes(baseId)
+  if (cached && cached.baseId === baseId && !hasOwn) {
+    return cached.revision
+  }
   return lastKnownRevision && lastKnownRevision.baseId === baseId ? lastKnownRevision.value : null
 }
 
@@ -167,42 +396,91 @@ let revisionReading: Promise<string> | null = null
 const REVISION_MEMO_TTL_MS = 4_000
 
 /**
- * The base changed by ways this process did not watch — drop what it cached.
- * `nowAt`, when the caller just wrote a revision token itself, is kept as the
- * process's newest knowledge (and served by the poll memo at once) instead of
- * throwing the process back to a cold read.
+ * The base changed — what survives depends on who this process is to the change.
+ * Its OWN commit (token === the marker noteCommitApplied left): a no-op — the
+ * substrate stands, the hints are filed, the moved revision gates the next
+ * sweep. A FOREIGN token (the admin audit's own bump): the rows stay as a delta
+ * base but the assembled state must never serve again, and neither delta table
+ * may trust its watermark — a foreign writer's rows are a black box to the
+ * bucket delta. Bare: the process knows nothing anymore (test isolation, a base
+ * switch) — forget everything.
  */
 export function invalidateSnapshotCache(nowAt?: string): void {
+  if (nowAt !== undefined && ownTokens.has(nowAt)) {
+    ownTokens.delete(nowAt)
+    return
+  }
   const baseId = cached?.baseId ?? lastKnownRevision?.baseId
-  cached = null
-  if (nowAt !== undefined && baseId) {
-    lastKnownRevision = { baseId, value: nowAt }
-    revisionMemo = { baseId, value: nowAt, at: Date.now() }
-  } else {
-    // No token, or no base to pin it to: the process knows nothing about the
-    // base's revision anymore — the next reader pays its one criteria read.
+  if (nowAt === undefined || !baseId) {
+    cached = null
+    pendingHints = null
+    ownTokens.clear()
     lastKnownRevision = null
     revisionMemo = null
+    return
   }
+  if (cached && cached.baseId === baseId) {
+    cached = { ...cached, snap: null }
+    addHints(baseId, DELTA_KEYS, [])
+  }
+  lastKnownRevision = { baseId, value: nowAt }
+  revisionMemo = { baseId, value: nowAt, at: Date.now() }
 }
 
 /** Reads the plant, sweeping Zoho only when the revision has moved since the last read. */
 export async function readSnapshotCached(zoho: ZohoClient): Promise<Assembled> {
-  if (cached && cached.baseId === zoho.baseId) {
-    if ((await readRevision(zoho)) === cached.revision) return cached.snap
-  }
+  const entry = cached && cached.baseId === zoho.baseId ? cached : null
+  // the gate is read BEFORE any sweep this call may start — cold included. A
+  // warm entry could gate on its own token, but installing a sweep under a
+  // token that was never read up front is exactly the torn-cache window fix 8
+  // exists to close, so every sweep gates on a token read in its own call.
+  const gate = await readRevision(zoho)
+  if (entry && gate === entry.revision && entry.snap) return entry.snap
   if (!sweeping) {
-    sweeping = readSnapshot(zoho)
-      .then((snap) => {
-        cached = { baseId: zoho.baseId, revision: snap.revision, snap }
-        noteRevision(zoho.baseId, snap.revision)
-        return snap
-      })
-      .finally(() => {
-        sweeping = null
-      })
+    sweeping = runSweep(zoho, gate).finally(() => {
+      sweeping = null
+    })
   }
   return sweeping
+}
+
+/** One sweep, installed only under the token it gated on. */
+async function runSweep(zoho: ZohoClient, gate: string): Promise<Assembled> {
+  const entry = cached && cached.baseId === zoho.baseId ? cached : null
+  const drained = drainHints(zoho.baseId)
+  let installed = false
+  try {
+    const built = await sweepTables(zoho, entry, drained.forceFull)
+    if (built.snap.revision === gate) {
+      cached = {
+        baseId: zoho.baseId,
+        revision: gate,
+        rows: built.rows,
+        watermarks: built.watermarks,
+        lastFullAt: built.lastFullAt,
+        snap: built.snap,
+      }
+      // the substrate has caught up with (or passed) every own token at or below
+      // the gate — their routes' invalidates already behaved; a commit that
+      // landed ABOVE the gate mid-sweep keeps its marker for its own route
+      const gateNum = revisionNumberOf(gate)
+      for (const [t, b] of ownTokens) {
+        if (b === zoho.baseId && revisionNumberOf(t) <= gateNum) ownTokens.delete(t)
+      }
+      noteRevision(zoho.baseId, gate)
+      installed = true
+    } else {
+      // a commit moved the base mid-sweep: the assembled state goes to this
+      // caller, but it is cached NOWHERE — a torn substrate must never serve as
+      // fresh. The old entry survives untouched; the next sweep deltas off it.
+      noteRevision(zoho.baseId, built.snap.revision)
+    }
+    return built.snap
+  } finally {
+    // hints are only consumed by an installed sweep — a failed or uncacheable
+    // one puts them back for the next, unioned with anything filed meanwhile
+    if (!installed) restoreHints(zoho.baseId, drained)
+  }
 }
 
 /** Reads just the revision token (one row) — the gate every snapshot re-read hangs on. */

@@ -65,6 +65,8 @@ vi.mock('./_lib/snapshot.ts', async () => {
     // the real commit lib imports these off the same mocked module
     noteRevision: vi.fn(),
     cachedRevision: vi.fn(() => null),
+    noteCommitApplied: vi.fn(),
+    cachedLedgerWatermark: vi.fn(() => null),
   }
 })
 

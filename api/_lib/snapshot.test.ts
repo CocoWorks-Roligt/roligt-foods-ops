@@ -1,5 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { assembleState, invalidateSnapshotCache, readRevisionMemoized, readSnapshotCached } from './snapshot.js'
+import {
+  assembleState,
+  cachedLedgerWatermark,
+  cachedRevision,
+  invalidateSnapshotCache,
+  noteCommitApplied,
+  noteRevision,
+  readRevisionMemoized,
+  readSnapshotCached,
+} from './snapshot.js'
 import { T as LIVE_T } from './baseSchema.js'
 import type { ZohoClient, ZohoRecord } from './zoho.js'
 
@@ -157,7 +166,7 @@ describe('readSnapshotCached', () => {
 
   beforeEach(() => invalidateSnapshotCache())
 
-  it('serves the cached snapshot while the revision stands — one criteria read, not a 26-read sweep', async () => {
+  it('serves the cached snapshot while the revision stands — one criteria read per ask, not a 26-read sweep', async () => {
     let rev = 7
     const { zoho, fetchAll, fetchByKeyIn } = fakeZoho(() => rev)
     const first = await readSnapshotCached(zoho)
@@ -166,8 +175,11 @@ describe('readSnapshotCached', () => {
     const second = await readSnapshotCached(zoho)
     expect(second).toBe(first)
     expect(fetchAll.mock.calls.length).toBe(afterSweep) // no table was re-swept
-    expect(fetchByKeyIn.mock.calls.length).toBe(1) // the app_revision row alone
+    // two gate reads total: the cold call gates BEFORE its sweep too — a sweep
+    // may only install under a token read up front (fix 8's torn-cache rule)
+    expect(fetchByKeyIn.mock.calls.length).toBe(2)
     expect(fetchByKeyIn.mock.calls[0]![2]).toEqual(['app_revision'])
+    expect(fetchByKeyIn.mock.calls[1]![2]).toEqual(['app_revision'])
   })
 
   it('sweeps again once the revision moves', async () => {
@@ -188,6 +200,278 @@ describe('readSnapshotCached', () => {
     const second = await readSnapshotCached(zoho)
     expect(second).not.toBe(first)
     expect(second.revision).toBe('7')
+  })
+})
+
+describe('delta sweep — the substrate cache deltas off the watermarks', () => {
+  const LED = LIVE_T['Ledger']
+  const AUD = LIVE_T['Audit Log']
+  const CFG = LIVE_T['Config']
+
+  const ledRow = (id: string, at: string, qtyIn = 10): ZohoRecord => ({
+    recordID: 'z-' + id,
+    data: { [LED.appId]: id, [LED.dataJson!]: JSON.stringify({ id, at, type: 'GRN', qty_in: qtyIn, unit: 'kg' }) },
+  })
+  const audRow = (id: string, at: string): ZohoRecord => ({
+    recordID: 'z-' + id,
+    data: { [AUD.appId]: id, [AUD.dataJson!]: JSON.stringify({ id, at, action: 'posted', actor: 'a@b.c', doc: 'D-1', details: '' }) },
+  })
+
+  /**
+   * A fake holding live-schema rows in a mutable store: fetchAll reads the whole
+   * table, fetchSince answers the rows whose Data JSON `at` sits at or past the
+   * watermark (the semantics the hour-bucket delta delivers — boundary row
+   * included), and the Config criteria read answers the revision closure. Every
+   * call is counted per table id; `failSince` makes fetchSince refuse the way a
+   * wrapped INTERNAL SERVER ERROR does; `onFetchAll` fires before a table's rows
+   * return, so a test can move the base mid-sweep.
+   */
+  const fakeDelta = (opts: {
+    rev: () => number
+    ledger?: ZohoRecord[]
+    audits?: ZohoRecord[]
+    onFetchAll?: (tableId: string) => void
+  }) => {
+    const store: Record<string, ZohoRecord[]> = {
+      [LED.id]: opts.ledger ? [...opts.ledger] : [],
+      [AUD.id]: opts.audits ? [...opts.audits] : [],
+      [CFG.id]: [],
+    }
+    const calls = { fetchAll: {} as Record<string, number>, fetchSince: {} as Record<string, number> }
+    const bump = (m: Record<string, number>, id: string) => (m[id] = (m[id] ?? 0) + 1)
+    const failSince = { on: false }
+    const revRow = (): ZohoRecord => ({
+      recordID: 'k1',
+      data: { [CFG.fields['Setting']]: 'app_revision', [CFG.fields['Value']]: String(opts.rev()) },
+    })
+    const atOf = (r: ZohoRecord, jsonField: string): string | null => {
+      try {
+        const at = (JSON.parse(String(r.data[jsonField])) as { at?: unknown }).at
+        return typeof at === 'string' ? at : null
+      } catch {
+        return null
+      }
+    }
+    const fetchAll = vi.fn(async (tableId: string): Promise<ZohoRecord[]> => {
+      bump(calls.fetchAll, tableId)
+      opts.onFetchAll?.(tableId)
+      if (tableId === CFG.id) return [revRow()]
+      return [...(store[tableId] ?? [])]
+    })
+    const fetchSince = vi.fn(
+      async (tableId: string, jsonFieldId: string, sinceISO: string): Promise<ZohoRecord[]> => {
+        bump(calls.fetchSince, tableId)
+        if (failSince.on) throw new Error('fetchSince → HTTP 200: {"error":{"code":500}}')
+        return (store[tableId] ?? []).filter((r) => {
+          const at = atOf(r, jsonFieldId)
+          return at !== null && at >= sinceISO
+        })
+      },
+    )
+    const fetchByKeyIn = vi.fn(async (tableId: string, _keyFieldId: string, values: readonly string[]) =>
+      tableId === CFG.id && values.includes('app_revision') ? [revRow()] : [],
+    )
+    return {
+      zoho: { baseId: 'base-test', fetchAll, fetchSince, fetchByKeyIn } as unknown as ZohoClient,
+      store,
+      calls,
+      failSince,
+    }
+  }
+
+  beforeEach(() => invalidateSnapshotCache())
+
+  it('a cold sweep full-reads; a moved revision then costs one fetchSince per delta table', async () => {
+    let rev = 7
+    const f = fakeDelta({
+      rev: () => rev,
+      ledger: [ledRow('L1', '2026-09-30T08:00:00.000Z')],
+      audits: [audRow('A1', '2026-09-30T08:00:00.000Z')],
+    })
+    const s1 = await readSnapshotCached(f.zoho)
+    expect(s1.revision).toBe('7')
+    expect(s1.state?.ledger?.length).toBe(1)
+    const ledFull = f.calls.fetchAll[LED.id] ?? 0
+    expect(ledFull).toBeGreaterThan(0)
+    expect(f.calls.fetchSince[LED.id] ?? 0).toBe(0) // cold: nothing to delta off
+    rev = 8
+    f.store[LED.id]!.push(ledRow('L2', '2026-09-30T08:20:00.000Z', 7))
+    f.store[AUD.id]!.push(audRow('A2', '2026-09-30T08:20:00.000Z'))
+    const s2 = await readSnapshotCached(f.zoho)
+    expect(s2.revision).toBe('8')
+    expect(s2.state?.ledger?.length).toBe(2)
+    expect(s2.state?.audits?.length).toBe(2)
+    // one delta read per append-only table — not one per thousand lines
+    expect(f.calls.fetchSince[LED.id]).toBe(1)
+    expect(f.calls.fetchSince[AUD.id]).toBe(1)
+    // and no full re-read of either
+    expect(f.calls.fetchAll[LED.id]).toBe(ledFull)
+  })
+
+  it('re-delivered rows merge by App ID — the watermark boundary row comes back every delta and must not double', async () => {
+    let rev = 7
+    const f = fakeDelta({ rev: () => rev, ledger: [ledRow('L1', '2026-09-30T08:00:00.000Z')] })
+    await readSnapshotCached(f.zoho)
+    rev = 8
+    // L1 sits AT the watermark: the bucket re-reads its whole hour, so the delta
+    // hands it back alongside the genuinely new row — merge, never append
+    f.store[LED.id] = [ledRow('L1', '2026-09-30T08:00:00.000Z'), ledRow('L2', '2026-09-30T08:30:00.000Z', 7)]
+    const s2 = await readSnapshotCached(f.zoho)
+    expect(s2.state?.ledger?.length).toBe(2)
+    expect(f.calls.fetchSince[LED.id]).toBe(1)
+  })
+
+  it('a commit that removed rows files a remove hint — the deletion is visible at the next sweep, not five minutes later', async () => {
+    let rev = 7
+    const f = fakeDelta({
+      rev: () => rev,
+      ledger: [ledRow('L1', '2026-09-30T08:00:00.000Z'), ledRow('L2', '2026-09-30T08:10:00.000Z', 7)],
+    })
+    await readSnapshotCached(f.zoho)
+    noteCommitApplied('base-test', '1:own', { removedTables: ['ledger'], backdatedLedger: false, touchedTables: [] })
+    invalidateSnapshotCache('1:own') // the route's own-token invalidate: cache no-op, hint stands
+    rev = 8
+    f.store[LED.id] = [ledRow('L1', '2026-09-30T08:00:00.000Z')] // L2 deleted by the commit
+    const s2 = await readSnapshotCached(f.zoho)
+    expect(s2.state?.ledger?.length).toBe(1)
+    expect(f.calls.fetchSince[LED.id] ?? 0).toBe(0) // hinted: no delta attempted
+    expect(f.calls.fetchAll[LED.id]).toBe(2) // the full read saw the deletion
+  })
+
+  it('a backdated ledger write files a backdate hint — the full read catches rows the bucket delta would miss', async () => {
+    let rev = 7
+    const f = fakeDelta({ rev: () => rev, ledger: [ledRow('L1', '2026-09-30T08:00:00.000Z')] })
+    await readSnapshotCached(f.zoho)
+    noteCommitApplied('base-test', '1:own', { removedTables: [], backdatedLedger: true, touchedTables: [] })
+    invalidateSnapshotCache('1:own')
+    rev = 8
+    // a PM receipt written at 07:00, under the 08:00 watermark — `contains` on the
+    // 08 bucket can never find it
+    f.store[LED.id] = [ledRow('L1', '2026-09-30T08:00:00.000Z'), ledRow('LB', '2026-09-30T07:00:00.000Z', 3)]
+    const s2 = await readSnapshotCached(f.zoho)
+    expect(s2.state?.ledger?.length).toBe(2)
+    expect(f.calls.fetchSince[LED.id] ?? 0).toBe(0)
+    expect(f.calls.fetchAll[LED.id]).toBe(2)
+  })
+
+  it('a fetchSince refusal falls to the full read in the same sweep, and the rebuilt watermark deltas again after', async () => {
+    let rev = 7
+    const f = fakeDelta({ rev: () => rev, ledger: [ledRow('L1', '2026-09-30T08:00:00.000Z')] })
+    await readSnapshotCached(f.zoho)
+    rev = 8
+    f.store[LED.id]!.push(ledRow('L2', '2026-09-30T08:40:00.000Z', 7))
+    f.failSince.on = true
+    const s2 = await readSnapshotCached(f.zoho)
+    expect(s2.state?.ledger?.length).toBe(2) // the fallback found the row
+    expect(f.calls.fetchSince[LED.id]).toBe(1) // tried once
+    expect(f.calls.fetchAll[LED.id]).toBe(2) // and full-read, same sweep
+    f.failSince.on = false
+    rev = 9
+    f.store[LED.id]!.push(ledRow('L3', '2026-09-30T08:50:00.000Z', 5))
+    const s3 = await readSnapshotCached(f.zoho)
+    expect(s3.state?.ledger?.length).toBe(3)
+    expect(f.calls.fetchSince[LED.id]).toBe(2) // the full read rebuilt the watermark
+  })
+
+  it('a watermark older than five minutes is re-read whole — foreign deletions cannot outlive the clock', async () => {
+    vi.useFakeTimers()
+    try {
+      let rev = 7
+      const f = fakeDelta({ rev: () => rev, ledger: [ledRow('L1', '2026-09-30T08:00:00.000Z')] })
+      await readSnapshotCached(f.zoho)
+      rev = 8
+      vi.setSystemTime(Date.now() + 6 * 60_000) // past FULL_REREAD_MS
+      const s2 = await readSnapshotCached(f.zoho)
+      expect(s2.revision).toBe('8')
+      expect(f.calls.fetchAll[LED.id]).toBe(2) // the reconciliation clock fired
+      expect(f.calls.fetchSince[LED.id] ?? 0).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a commit landing mid-sweep is returned but cached nowhere — the next call re-sweeps, the one after serves', async () => {
+    let rev = 7
+    const flip = { on: false }
+    const f = fakeDelta({
+      rev: () => rev,
+      ledger: [ledRow('L1', '2026-09-30T08:00:00.000Z')],
+      onFetchAll: (tableId) => {
+        if (tableId === LED.id && flip.on) rev = 8 // the base moves mid-sweep
+      },
+    })
+    flip.on = true
+    const s1 = await readSnapshotCached(f.zoho) // gated on 7, read the config at 8
+    expect(s1.revision).toBe('8') // the caller still gets the freshest plant
+    const ledFull = f.calls.fetchAll[LED.id]
+    const s2 = await readSnapshotCached(f.zoho) // nothing was installed — re-sweep
+    expect(s2.revision).toBe('8')
+    expect(s2.state?.ledger?.length).toBe(1)
+    expect(f.calls.fetchAll[LED.id]).toBe(ledFull + 1) // the torn sweep cached nothing
+    const s3 = await readSnapshotCached(f.zoho)
+    expect(s3).toBe(s2) // now it serves
+    expect(f.calls.fetchAll[LED.id]).toBe(ledFull + 1) // zero table reads
+  })
+
+  it('invalidate semantics: own token keeps the substrate deltaing, foreign never serves the stale snap, bare forgets', async () => {
+    let rev = 7
+    const f = fakeDelta({ rev: () => rev, ledger: [ledRow('L1', '2026-09-30T08:00:00.000Z')] })
+    const s1 = await readSnapshotCached(f.zoho)
+    // own commit: the route invalidates with the commit's own token — no-op for
+    // the cache, and the next sweep still DELTAS
+    noteCommitApplied('base-test', '1:own', { removedTables: [], backdatedLedger: false, touchedTables: ['ledger'] })
+    invalidateSnapshotCache('1:own')
+    rev = 8
+    f.store[LED.id]!.push(ledRow('L2', '2026-09-30T08:30:00.000Z', 7))
+    const s2 = await readSnapshotCached(f.zoho)
+    expect(s2.state?.ledger?.length).toBe(2)
+    expect(f.calls.fetchSince[LED.id]).toBe(1)
+    // foreign token (an admin audit's own bump): the revision has NOT moved, but
+    // the assembled state must never serve again and neither watermark is trusted
+    invalidateSnapshotCache('2:foreign')
+    const ledFull = f.calls.fetchAll[LED.id] ?? 0
+    const s3 = await readSnapshotCached(f.zoho)
+    expect(s3).not.toBe(s2) // snap was null — it re-assembled instead of serving
+    expect(f.calls.fetchAll[LED.id]).toBe(ledFull + 1) // forced full, no delta
+    expect(f.calls.fetchSince[LED.id]).toBe(1)
+    expect(s3.state?.ledger?.length).toBe(2) // same plant, rebuilt
+    // bare: the process knows nothing — a cold full sweep
+    invalidateSnapshotCache()
+    const s4 = await readSnapshotCached(f.zoho)
+    expect(s4.state?.ledger?.length).toBe(2)
+    expect(f.calls.fetchAll[LED.id]).toBe(ledFull + 2)
+    expect(f.calls.fetchSince[LED.id]).toBe(1)
+    expect(s1.revision).toBe('7')
+  })
+
+  it('an older own token still reads as own after a newer commit — the mutex serializes writes, not the routes around them', async () => {
+    let rev = 7
+    const f = fakeDelta({ rev: () => rev, ledger: [ledRow('L1', '2026-09-30T08:00:00.000Z')] })
+    await readSnapshotCached(f.zoho)
+    // two commits land back-to-back; request A's route-level invalidate(T1) then
+    // runs AFTER request B's commit minted T2 — T1 must not be mistaken for a
+    // foreign token (which would roll lastKnownRevision back and force-full both
+    // delta tables for nothing)
+    noteRevision('base-test', '8:aaa') // commitChanges notes its bump before filing hints
+    noteCommitApplied('base-test', '8:aaa', { removedTables: [], backdatedLedger: false, touchedTables: [] })
+    noteRevision('base-test', '9:bbb')
+    noteCommitApplied('base-test', '9:bbb', { removedTables: [], backdatedLedger: false, touchedTables: [] })
+    expect(cachedRevision('base-test')).toBe('9:bbb') // the newer token, never the stale entry's 7
+    invalidateSnapshotCache('8:aaa') // the late invalidate from request A
+    expect(cachedRevision('base-test')).toBe('9:bbb') // no rollback to 8
+    const ledFull = f.calls.fetchAll[LED.id] ?? 0
+    const snap = await readSnapshotCached(f.zoho) // revision never moved (7)
+    expect(snap.revision).toBe('7')
+    expect(f.calls.fetchAll[LED.id] ?? 0).toBe(ledFull) // served the intact snap — no forced full
+    expect(f.calls.fetchSince[LED.id] ?? 0).toBe(0)
+  })
+
+  it('cachedLedgerWatermark: null cold, the watermark once installed, null for another base', async () => {
+    expect(cachedLedgerWatermark('base-test')).toBeNull()
+    const f = fakeDelta({ rev: () => 7, ledger: [ledRow('L1', '2026-09-30T08:00:00.000Z')] })
+    await readSnapshotCached(f.zoho)
+    expect(cachedLedgerWatermark('base-test')).toBe('2026-09-30T08:00:00.000Z')
+    expect(cachedLedgerWatermark('base-other')).toBeNull()
   })
 })
 

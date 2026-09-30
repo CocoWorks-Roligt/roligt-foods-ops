@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { commitChanges, Conflict, Forbidden } from './commit.js'
+import { invalidateSnapshotCache, readSnapshotCached } from './snapshot.js'
 import { T } from './baseSchema.js'
 import { ZohoApiError, ZohoLockedError } from './zoho.js'
 import type { ZohoClient, ZohoRecord } from './zoho.js'
@@ -10,8 +11,29 @@ type Upsert = { table: string; key: string; values: Record<string, string> }
 
 function fakeZoho(existing: ZohoRecord[] = []) {
   const ops: { upserts: Upsert[]; deletes: { table: string; recordId: string }[] } = { upserts: [], deletes: [] }
+  // per-table read counters — the commit-hint tests prove a hinted sweep FULL-reads
+  // (and an unhinted one deltas) by counting which reader fired
+  const calls = { fetchAll: {} as Record<string, number>, fetchSince: {} as Record<string, number> }
   const zoho = {
-    fetchAll: async (tableId: string) => existing.filter((r) => r.data.__table === tableId),
+    baseId: 'base-test',
+    fetchAll: async (tableId: string) => {
+      calls.fetchAll[tableId] = (calls.fetchAll[tableId] ?? 0) + 1
+      return existing.filter((r) => r.data.__table === tableId)
+    },
+    // the delta read, semantically: rows whose Data JSON `at` sits at or past the
+    // watermark (boundary row included — what the hour-bucket delta delivers)
+    fetchSince: async (tableId: string, jsonFieldId: string, sinceISO: string) => {
+      calls.fetchSince[tableId] = (calls.fetchSince[tableId] ?? 0) + 1
+      return existing.filter((r) => {
+        if (r.data.__table !== tableId) return false
+        try {
+          const at = (JSON.parse(String(r.data[jsonFieldId])) as { at?: unknown }).at
+          return typeof at === 'string' && at >= sinceISO
+        } catch {
+          return false
+        }
+      })
+    },
     // criteria-scoped read — the pre-flight reads exactly the touched rows, not
     // the whole table, and must see what earlier commits in this test wrote
     fetchByKeyIn: async (tableId: string, keyFieldId: string, values: readonly unknown[]) =>
@@ -32,7 +54,7 @@ function fakeZoho(existing: ZohoRecord[] = []) {
       if (i >= 0) existing.splice(i, 1)
     },
   } as unknown as ZohoClient
-  return { zoho, ops }
+  return { zoho, ops, calls }
 }
 
 const admin: Caller = { email: 'boss@roligt.local', permissions: [...PERMISSIONS] }
@@ -626,5 +648,90 @@ describe('commitChanges', () => {
     const { zoho, ops } = fakeZoho()
     await commitChanges(zoho, admin, { ...CHANGES, tables: [], counters: { grn: 4 } })
     expect(ops.upserts.some((u) => u.key === 'grn')).toBe(true)
+  })
+})
+
+describe('commit hints → the snapshot substrate', () => {
+  const led = T['Ledger']
+  const cfg = T['Config']
+
+  /** A stored ledger row the substrate sweep can watermark, in final DB shape. */
+  const ledSeed = (id: string, at: string): ZohoRecord => ({
+    recordID: 'z-' + id,
+    data: {
+      __table: led.id,
+      [led.appId]: id,
+      [led.dataJson!]: JSON.stringify({ id, at, type: 'GRN', doc: 'GRN-2026-0000', item: 'Tender Coconut', item_type: 'Raw Material', lot: 'LOT-0', location: 'Cold Room', status: 'In Stock', qty_in: 5, qty_out: 0, uom: 'Piece', unit_cost: 30 }),
+    },
+  })
+  const revRow = (v: string): ZohoRecord => ({
+    recordID: 'z-rev',
+    data: { __table: cfg.id, [cfg.fields['Setting']]: 'app_revision', [cfg.fields['Value']]: v },
+  })
+  /** A PM receipt written under the watermark — the backdate the hint exists for. */
+  const BACKDATED = {
+    empty: false,
+    tables: [
+      { table: 'ledger', upsert: [{ id: 'LB', type: 'PM Receipt', doc: 'PM-1', item: 'Box', item_type: 'Packing Material', lot: 'PML-1', location: 'Store', status: 'In Stock', qty_in: 10, qty_out: 0, uom: 'Piece', unit_cost: 12, at: '2026-09-21T07:00:00Z' }], remove: [] },
+      { table: 'audits', upsert: [{ id: 'AB', at: '2026-09-21T09:00:00Z', actor: 'Admin', action: 'posted', doc: 'PM-1', details: 'backdated' }], remove: [] },
+    ],
+    counters: {},
+    config: undefined,
+  }
+  const NORMAL = {
+    empty: false,
+    tables: [
+      { table: 'ledger', upsert: [{ id: 'LN', type: 'GRN', doc: 'GRN-2026-0002', item: 'Tender Coconut', item_type: 'Raw Material', lot: 'LOT-2', location: 'Cold Room', status: 'In Stock', qty_in: 8, qty_out: 0, uom: 'Piece', unit_cost: 31, at: '2026-09-21T09:00:00Z' }], remove: [] },
+      { table: 'audits', upsert: [{ id: 'AN', at: '2026-09-21T09:05:00Z', actor: 'Admin', action: 'posted', doc: 'GRN-2026-0002', details: '' }], remove: [] },
+    ],
+    counters: {},
+    config: undefined,
+  }
+
+  // real snapshot module state leaks within this file — every test starts cold
+  beforeEach(() => invalidateSnapshotCache())
+
+  it('a backdated ledger write under the held watermark hints the next sweep to full-read', async () => {
+    const { zoho, calls } = fakeZoho([revRow('7'), ledSeed('L0', '2026-09-21T08:00:00Z')])
+    await readSnapshotCached(zoho) // the substrate: ledger watermark 08:00
+    expect(calls.fetchAll[led.id]).toBe(1)
+    expect((calls.fetchSince[led.id] ?? 0)).toBe(0)
+    const token = await commitChanges(zoho, admin, BACKDATED) // LB at 07:00, under it
+    expect(token).toMatch(/^8:/)
+    const snap = await readSnapshotCached(zoho)
+    expect(snap.state?.ledger?.length).toBe(2) // the backdated row is visible at once
+    expect(calls.fetchSince[led.id] ?? 0).toBe(0) // the hint forbade the delta
+    expect(calls.fetchAll[led.id]).toBe(2) // full read instead
+  })
+
+  it('a commit that removes ledger rows hints the next sweep to full-read — a delta cannot see deletions', async () => {
+    const { zoho, calls } = fakeZoho([revRow('7'), ledSeed('L0', '2026-09-21T08:00:00Z')])
+    await readSnapshotCached(zoho)
+    const token = await commitChanges(zoho, admin, {
+      empty: false,
+      tables: [{ table: 'ledger', upsert: [], remove: ['L0'] }],
+      counters: {},
+      config: undefined,
+    })
+    expect(token).toMatch(/^8:/)
+    const snap = await readSnapshotCached(zoho)
+    expect(snap.state?.ledger?.length).toBe(0) // the deletion shows, not five minutes later
+    expect(calls.fetchSince[led.id] ?? 0).toBe(0)
+    expect(calls.fetchAll[led.id]).toBe(2)
+  })
+
+  it('with no substrate there is no watermark to be backdated under — the later sweep still deltas', async () => {
+    const { zoho, calls } = fakeZoho([])
+    // commit BEFORE any sweep: no watermark is held, so nothing flags, and the
+    // first sweep's full read watermarks at the backdated row's own 07:00
+    await commitChanges(zoho, admin, BACKDATED)
+    await readSnapshotCached(zoho)
+    expect(calls.fetchAll[led.id]).toBe(1) // cold — one full read
+    // a normally-dated write (09:00 > the 07:00 watermark) flags nothing
+    await commitChanges(zoho, admin, NORMAL)
+    const snap = await readSnapshotCached(zoho)
+    expect(snap.state?.ledger?.length).toBe(2)
+    expect(calls.fetchSince[led.id]).toBe(1) // the delta served this sweep
+    expect(calls.fetchAll[led.id]).toBe(1) // and no second full read happened
   })
 })

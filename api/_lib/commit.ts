@@ -29,7 +29,7 @@ import { TABLE_WRITE_PERMISSION, CONFIG_KEY_WRITE_PERMISSION, isAdminPermissions
 import { pageScope } from '../../src/lib/pages.js'
 import type { ViewId } from '../../src/types.js'
 import type { Caller } from './auth.js'
-import { noteRevision } from './snapshot.js'
+import { cachedLedgerWatermark, noteCommitApplied, noteRevision } from './snapshot.js'
 
 export class Forbidden extends Error {
   readonly table: string
@@ -444,6 +444,27 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
   // 7. revision, last — a reader sees the old plant whole or the new plant whole
   const token = await bumpRevision(zoho, storedConfig)
   noteRevision(zoho.baseId, token)
+  // Hints for the next sweep (snapshot substrate cache): the delta read cannot
+  // see behind its watermark, so this commit flags what landed there — rows it
+  // removed, and ledger rows written with an `at` under the watermark (PM
+  // receipts backdate). Rows written at `at` = now are exactly what the bucket
+  // delta finds; only the blind spots need flagging.
+  const watermark = cachedLedgerWatermark(zoho.baseId)
+  const backdatedLedger =
+    watermark !== null &&
+    changes.tables.some(
+      (t) =>
+        t.table === 'ledger' &&
+        t.upsert.some((row) => {
+          const at = (row as { at?: unknown }).at
+          return typeof at === 'string' && at < watermark
+        }),
+    )
+  noteCommitApplied(zoho.baseId, token, {
+    removedTables: changes.tables.filter((t) => t.remove.length > 0).map((t) => t.table),
+    backdatedLedger,
+    touchedTables: changes.tables.filter((t) => t.upsert.length > 0 || t.remove.length > 0).map((t) => t.table),
+  })
   // Link-memo upkeep: this commit moved the base to `token`. If it wrote a master
   // table the memo's maps are spent — drop them. If it did not, the maps still
   // describe the base as of `token` (our own writes changed nothing they hold),

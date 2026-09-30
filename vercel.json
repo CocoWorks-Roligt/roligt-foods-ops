@@ -1,7 +1,8 @@
 {
   "regions": ["fra1"],
   "functions": {
-    "api/**/*.ts": { "maxDuration": 60 }
+    "api/**/*.ts": { "maxDuration": 60 },
+    "api/snapshot.ts": { "maxDuration": 300 }
   },
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }
