@@ -13,7 +13,7 @@ import type { PackingInput } from '../../lib/posting'
 import { sampleProductName } from '../../lib/controlSamples'
 import { itemName } from '../../lib/stock'
 import { deepClone, localDay, nowISO, QTY_EPSILON, toDateKey, uid } from '../../lib/utils'
-import type { AppState } from '../../types'
+import type { AppState, LedgerEntry, PackingRun } from '../../types'
 import { POSTED } from './deps'
 import type { ControlSamplePatch, CoreDeps, PackingStockInput } from './deps'
 
@@ -39,6 +39,20 @@ function packingStockError(state: AppState, input: PackingStockInput): string | 
   if (!input.lot.trim()) return 'Lot / batch reference is required.'
   if (input.unitCost < 0) return 'Unit cost cannot be negative.'
   return null
+}
+
+/**
+ * The first ledger line from any OTHER document that has touched this run's packs —
+ * a QC release, a dispatch, a stock transfer or issue, or a second run packing the
+ * same SKU off the same batch — or undefined. Every one of them shares the blended
+ * unit cost this run's posting computed, so neither an edit (which re-draws the bulk
+ * and material) nor a delete (which returns them) may quietly shift what those
+ * documents were costed at. The run's own lines are excluded by doc; a QC-released
+ * run is unfrozen by reversing the verdict, not by deleting around its transfers.
+ */
+function touchingLine(state: AppState, run: PackingRun): LedgerEntry | undefined {
+  const skus = run.lines.map((l) => l.sku)
+  return state.ledger.find((l) => l.doc !== run.id && l.lot === run.batchId && skus.includes(l.item))
 }
 
 export function usePacking({ state, setState, nextId, log, showToast, announcement }: CoreDeps) {
@@ -78,13 +92,10 @@ export function usePacking({ state, setState, nextId, log, showToast, announceme
       // Anything else that has touched these packs — a QC release, a dispatch, or a
       // second run that packed the same SKU from the same batch — shares their blended
       // unit cost, so re-drawing this run's bulk and packing material would shift it.
-      const skus = existing.lines.map((l) => l.sku)
-      const touched = state.ledger.some(
-        (l) => l.doc !== id && l.lot === existing.batchId && skus.includes(l.item),
-      )
+      const touched = touchingLine(state, existing)
       if (touched) {
         showToast(
-          'These packs have already been released by QC, dispatched, or packed alongside another run — delete this run instead if it has to change.',
+          `These packs have already been drawn on by ${touched.type} ${touched.doc} — reverse that first if this run has to change.`,
         )
         return null
       }
@@ -119,15 +130,15 @@ export function usePacking({ state, setState, nextId, log, showToast, announceme
     (id: string) => {
       const run = state.packingRuns.find((r) => r.id === id)
       if (!run) return
-      if (state.ledger.some((l) => l.doc === id && l.type === 'Packing Output')) {
-        const packed = run.lines.map((l) => l.sku)
-        const dispatched = state.ledger.some(
-          (l) => l.type === 'Dispatch' && l.lot === run.batchId && packed.includes(l.item),
-        )
-        if (dispatched) {
-          showToast('Cannot delete: packs from this run have already been dispatched.')
-          return
-        }
+      // The same rule an edit enforces: anything else that has drawn on these packs
+      // shares their blended cost, so deleting the run would strand the draw. This
+      // used to block dispatches only — a QC release (whose transfer lines post under
+      // the QC record's own doc) slipped through and left released packs dispatchable
+      // forever, with no run left behind to explain them.
+      const touched = touchingLine(state, run)
+      if (touched) {
+        showToast(`Cannot delete: ${touched.type} ${touched.doc} has already drawn on these packs.`)
+        return
       }
       setState((prev) => {
         const draft = deepClone(prev)
@@ -138,7 +149,7 @@ export function usePacking({ state, setState, nextId, log, showToast, announceme
       })
       showToast('Packing run deleted; stock recalculated.')
     },
-    [log, setState, showToast, state.ledger, state.packingRuns],
+    [log, setState, showToast, state],
   )
 
   /**
