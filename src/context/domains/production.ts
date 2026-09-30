@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useMemo } from 'react'
-import { MALAI_ITEM, WATER_ITEM, batchOutputs, usableYield } from '../../lib/batches'
+import { MALAI_ITEM, WATER_ITEM, batchOutputs, fmtBatchInput, usableYield } from '../../lib/batches'
 import {
   batchDisposition,
   batchQuantitiesChanged,
@@ -18,7 +18,7 @@ import {
 } from '../../lib/posting'
 import type { BatchInput } from '../../lib/posting'
 import { requiredCategoryKeys } from '../../lib/qcCategories'
-import { itemName } from '../../lib/stock'
+import { fmtRowTotal, itemName } from '../../lib/stock'
 import { deepClone } from '../../lib/utils'
 import { POSTED } from './deps'
 import type { CoreDeps } from './deps'
@@ -39,6 +39,13 @@ export function useProduction({ state, setState, nextId, log, showToast, announc
         const id = nextId(draft, blending ? 'melangeBatch' : 'batch')
         const posted = postBatchLines(draft, id, input)
         const { main } = posted
+        // Litres-per-input only exists when the whole issue is counted in one unit.
+        // A mixed issue (pieces of fruit, kilograms of malai) has no denominator —
+        // dividing by the raw cross-unit sum printed a ratio that meant nothing, so a
+        // mixed batch reports no per-unit yield and no wastage off it.
+        const yieldEach = posted.inputUom
+          ? usableYield(posted.inputQty, input.spoiled, main?.qty ?? 0)
+          : 0
 
         /**
          * One QC record per bulk the batch made. A pressing gives water and malai and
@@ -85,9 +92,9 @@ export function useProduction({ state, setState, nextId, log, showToast, announc
           // everything carried in — a load with 50 rotten nuts did not get worse at
           // pressing, it got smaller. `wastage` is what those spoiled nuts would have
           // given at that same rate.
-          yieldPerCoconut: usableYield(posted.inputQty, input.spoiled, main?.qty ?? 0),
-          yieldPerUnit: usableYield(posted.inputQty, input.spoiled, main?.qty ?? 0),
-          wastage: usableYield(posted.inputQty, input.spoiled, main?.qty ?? 0) * (input.spoiled || 0),
+          yieldPerCoconut: yieldEach,
+          yieldPerUnit: yieldEach,
+          wastage: yieldEach * (input.spoiled || 0),
           rmCost: posted.inputCost,
           pmCost: 0,
           directCost: posted.inputCost,
@@ -100,7 +107,7 @@ export function useProduction({ state, setState, nextId, log, showToast, announc
           draft,
           blending ? 'Posted melange' : 'Posted production',
           id,
-          `${blending ? 'Blended' : 'Consumed'} ${posted.inputQty} ${posted.inputUom} into ${describeOutputs(draft, posted.outputLines)}.`,
+          `${blending ? 'Blended' : 'Consumed'} ${fmtRowTotal([...posted.sourceLines, ...posted.blendLines].map((l) => ({ qty: l.qty, uom: l.uom || '' })))} into ${describeOutputs(draft, posted.outputLines)}.`,
         )
         // Each QC record its own entry, as one raised from the Quality page gets.
         posted.outputLines.forEach((line, i) => {
@@ -158,6 +165,10 @@ export function useProduction({ state, setState, nextId, log, showToast, announc
           draft.ledger = draft.ledger.filter((l) => l.doc !== id)
           const posted = postBatchLines(draft, id, input)
           const { main } = posted
+          // The same rule as a fresh post: no per-unit yield off a mixed-unit issue.
+          const yieldEach = posted.inputUom
+            ? usableYield(posted.inputQty, input.spoiled, main?.qty ?? 0)
+            : 0
           b.sourceLines = posted.sourceLines
           b.blendLines = posted.blendLines
           b.outputLines = posted.outputLines
@@ -167,9 +178,9 @@ export function useProduction({ state, setState, nextId, log, showToast, announc
           b.waterLitres = posted.outputLines.find((l) => l.item === WATER_ITEM)?.qty ?? 0
           b.malaiKg = posted.outputLines.find((l) => l.item === MALAI_ITEM)?.qty ?? 0
           b.outputLitres = main?.qty ?? 0
-          b.yieldPerCoconut = usableYield(posted.inputQty, input.spoiled, main?.qty ?? 0)
-          b.yieldPerUnit = b.yieldPerCoconut
-          b.wastage = b.yieldPerCoconut * (input.spoiled || 0)
+          b.yieldPerCoconut = yieldEach
+          b.yieldPerUnit = yieldEach
+          b.wastage = yieldEach * (input.spoiled || 0)
           b.rmCost = posted.inputCost
           b.directCost = posted.inputCost
           b.costPerL = main?.qty ? posted.inputCost / main.qty : 0
@@ -211,7 +222,7 @@ export function useProduction({ state, setState, nextId, log, showToast, announc
           existing.kind === 'Melange' ? 'Edited melange' : 'Edited production',
           id,
           qtyChanged || moved
-            ? `Re-posted ${b.inputQty} ${b.inputUom} into ${describeOutputs(draft, batchOutputs(b))}.`
+            ? `Re-posted ${fmtBatchInput(b)} into ${describeOutputs(draft, batchOutputs(b))}.`
             : 'Updated batch details; stock unchanged.',
         )
         return draft
@@ -239,6 +250,23 @@ export function useProduction({ state, setState, nextId, log, showToast, announc
         showToast(`Cannot delete: ${blendedInto.id} was blended from this batch. Delete that melange first.`)
         return
       }
+      // The sweep below unwinds the batch's own lines, its QC transfer lines and its
+      // dependent runs' lines — but a Stock Issue, a Stock Transfer or any other
+      // document that drew this lot's bulk survives it, and would strand a qtyOut on
+      // a lot that no longer exists. Those draws are the plant's own word that the
+      // bulk moved, so the document is named and the deletion refused. Evaluated
+      // against the same gone-set the sweep uses, so a run going with the batch
+      // never blocks its own deletion.
+      const runIds = state.packingRuns.filter((r) => r.batchId === id).map((r) => r.id)
+      const qcDocs = state.qcs.filter((x) => x.batchId === id).map((x) => x.id)
+      const gone = new Set([id, b.qcId, ...qcDocs, ...runIds].filter(Boolean))
+      const drawnBy = state.ledger.find(
+        (l) => l.lot === id && (l.qtyOut || 0) > 0 && l.doc !== id && !gone.has(l.doc),
+      )
+      if (drawnBy) {
+        showToast(`Cannot delete: ${drawnBy.doc} drew stock from this batch. Delete or edit that document first.`)
+        return
+      }
       setState((prev) => {
         const draft = deepClone(prev)
         // Packing runs draw from this batch, so they go with it — otherwise their
@@ -262,7 +290,7 @@ export function useProduction({ state, setState, nextId, log, showToast, announc
       })
       showToast('Batch deleted; stock recalculated.')
     },
-    [log, setState, showToast, state.batches, state.ledger],
+    [log, setState, showToast, state.batches, state.ledger, state.packingRuns, state.qcs],
   )
 
   return useMemo(

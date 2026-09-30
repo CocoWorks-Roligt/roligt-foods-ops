@@ -20,12 +20,15 @@
  */
 
 import {
+  batchInputMixed,
   batchInputQty,
+  batchInputRows,
   batchInputUom,
   batchKind,
   batchOutputs,
   batchWastage,
   batchYield,
+  fmtBatchInput,
   mainOutput,
 } from '../batches.ts'
 import type { AppState, Batch, BulkOutputLine } from '../../types.ts'
@@ -120,7 +123,9 @@ function accumulate(acc: MonthAcc, b: Batch): void {
     acc.melanges += 1
   } else {
     acc.extractions += 1
-    if (main && main.qty > 0) {
+    // A mixed-unit issue carries no per-unit yield (its batchYield reads 0), and a
+    // zero folded into an average is exactly the drag the pairing exists to avoid.
+    if (main && main.qty > 0 && !batchInputMixed(b)) {
       const pair = yieldPair(main.uom, batchInputUom(b))
       const y = acc.yieldTotals.get(pair) || { total: 0, count: 0 }
       y.total += batchYield(b)
@@ -136,7 +141,18 @@ function accumulate(acc: MonthAcc, b: Batch): void {
     ...acc.netNew,
     ...netNewOutputs(b).map((x) => ({ uom: x.uom, qty: x.qty })),
   ])
-  acc.spoiled = fold([...acc.spoiled, { uom: batchInputUom(b), qty: b.spoiled || 0 }])
+  // Spoilage is entered as one number against an issue that may span units; when it
+  // does, the loss comes off each unit's issue pro-rata — the same way the yield
+  // denominator takes it off the whole, and lotYield attributes it to lots.
+  const issue = batchInputRows(b).filter((r) => r.qty > 0)
+  const issueTotal = issue.reduce((a, r) => a + r.qty, 0)
+  const spoiledQty = b.spoiled || 0
+  acc.spoiled = fold([
+    ...acc.spoiled,
+    ...(issueTotal > 0 && batchInputMixed(b)
+      ? issue.map((r) => ({ uom: r.uom, qty: (spoiledQty * r.qty) / issueTotal }))
+      : [{ uom: batchInputUom(b), qty: spoiledQty }]),
+  ])
   acc.wastage = fold([
     ...acc.wastage,
     { uom: main?.uom || 'Litre', qty: batchWastage(b) },
@@ -273,7 +289,8 @@ export interface BatchWiseRow {
   /** Recipe name for a mélange, main-output item name for an extraction. */
   label: string
   inputQty: number
-  inputUom: string
+  /** Every unit named — "600 Piece · 40 Kg" when the issue was mixed. */
+  inputLabel: string
   spoiled: number
   wastage: number
   outputs: { item: string; name: string; qty: number; uom: string; costShare: number }[]
@@ -308,7 +325,7 @@ export function batchWiseRows(state: AppState, w: ReportWindow): BatchWiseRow[] 
         kind,
         label,
         inputQty: batchInputQty(b),
-        inputUom: batchInputUom(b),
+        inputLabel: fmtBatchInput(b),
         spoiled: b.spoiled || 0,
         wastage: Number(batchWastage(b).toFixed(3)),
         outputs: outputs.map((o) => ({
@@ -320,7 +337,10 @@ export function batchWiseRows(state: AppState, w: ReportWindow): BatchWiseRow[] 
         })),
         mainQty: main?.qty || 0,
         mainUom: main?.uom || '',
-        yieldPerUnit: kind === 'Extraction' && batchInputQty(b) ? batchYield(b) : null,
+        // No per-unit yield off a mixed-unit issue: pieces plus kilograms is not a
+        // denominator, and the ratio it produced meant nothing.
+        yieldPerUnit:
+          kind === 'Extraction' && batchInputQty(b) && !batchInputMixed(b) ? batchYield(b) : null,
         rmCost: b.rmCost || 0,
         pmCost: b.pmCost || 0,
         directCost: b.directCost || 0,

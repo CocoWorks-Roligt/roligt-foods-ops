@@ -546,9 +546,11 @@ export function postBatchLines(draft: AppState, id: string, input: BatchInput) {
     blendLines,
     outputLines,
     inputQty,
-    // A batch pressing one produce reports in that produce's unit; a mixed issue has
-    // no single unit to report in, so its total is left unlabelled.
-    inputUom: uoms.size === 1 ? [...uoms][0] : 'Unit',
+    // A batch pressing one produce reports in that produce's unit. A mixed issue
+    // (water by the litre, malai by the kilo) has no unit at all: the raw sum above
+    // stays for cost, but no unit is claimed for it — an invented "Unit" would put a
+    // dimension under a number that has none. The label comes from the lines.
+    inputUom: uoms.size === 1 ? [...uoms][0] : '',
     inputCost,
     main: outputLines.find((l) => l.costShare > 0) || outputLines[0],
   }

@@ -83,6 +83,34 @@ describe('production report', () => {
     expect(perKg.avg).toBeCloseTo(45 / 95, 3)
   })
 
+  it('keeps a mixed-unit issue out of the yield average and splits its spoilage by unit', () => {
+    const s = fixtureState()
+    // A second September pressing whose issue spans units: 600 pieces and 40 kg.
+    // Its yieldPerUnit is 0 (no denominator exists), which under the old fold
+    // dragged the month's L/piece average down to half its honest value.
+    s.batches.push({
+      id: 'BAT-2026-0006', kind: 'Extraction', date: '2026-09-20',
+      sourceLines: [
+        { lot: 'LOT-P', item: 'RM-TCW-COCO', uom: 'Piece', qty: 600, unitCost: 30 },
+        { lot: 'LOT-K', item: 'RM-TCW-COCO', uom: 'Kg', qty: 40, unitCost: 30 },
+      ],
+      outputLines: [{ stockId: 'BAT-2026-0006/1', item: 'SF-TCW-WATER', qty: 180, uom: 'Litre', costShare: 100 }],
+      coconuts: 640, inputQty: 640, inputUom: '', spoiled: 20, outputs: [], outputLitres: 180,
+      yieldPerCoconut: 0, yieldPerUnit: 0, rmCost: 19200, pmCost: 0, directCost: 19200, costPerL: 19200 / 180,
+      status: 'Awaiting QC', qcId: '',
+    })
+    const row = productionReport(s, SEP).rows[0]
+    expect(row.extractions).toBe(2)
+    // One pairing, one honest average — the mixed batch's 0 is not folded in.
+    expect(row.avgYield).toHaveLength(1)
+    expect(row.avgYield[0].pair).toBe('L / piece')
+    expect(row.avgYield[0].avg).toBeCloseTo(90 / 495, 3)
+    // 20 spoiled off an issue of 600 pieces and 40 kg comes off each unit pro-rata
+    // (18.75 and 1.25, on top of BAT-0005's 5 pieces) — never 20 of one unit.
+    expect(row.spoiled.find((x) => x.uom === 'Piece')!.qty).toBeCloseTo(23.75, 6)
+    expect(row.spoiled.find((x) => x.uom === 'Kg')!.qty).toBeCloseTo(1.25, 6)
+  })
+
   it('compares two months', () => {
     const lines = productionCompare(
       productionReport(state, AUG).totals,
@@ -126,7 +154,7 @@ describe('batch-wise production', () => {
     expect(bat4.kind).toBe('Melange')
     expect(bat4.label).toBe('ABC Melange')
     expect(bat4.inputQty).toBe(100)
-    expect(bat4.inputUom).toBe('Litre')
+    expect(bat4.inputLabel).toBe('100 Litre')
     expect(bat4.yieldPerUnit).toBeNull() // only extractions carry a yield per input
   })
 })

@@ -4,8 +4,8 @@
  * The join the register never draws: a receipt's accepted quantity on one side,
  * the batches that pressed it on the other. A batch may draw more than one lot,
  * and a lot may feed more than one batch, so a lot's share of a batch is its
- * issued quantity over the batch's whole issue — everything the lot is credited
- * with is pro-rata on that share.
+ * issued quantity over the issue counted in its own unit — everything the lot is
+ * credited with is pro-rata on that share.
  *
  * Only extraction batches attribute to lots. A mélange draws bulk that an
  * extraction already produced, so counting its output against the lot's fruit
@@ -104,6 +104,15 @@ export function lotYieldRows(state: AppState, w: ReportWindow): LotYieldRow[] {
 function attributeBatch(b: Batch, lot: (key: string) => LotAcc): void {
   const totalIssued = b.sourceLines.reduce((a, s) => a + (s.qty || 0), 0)
   if (!totalIssued) return
+  // A share's denominator is the issue counted in the line's OWN unit: a batch that
+  // pressed Piece lots and Kg lots has no whole-issue number, and pro-rata on
+  // pieces-plus-kilograms credited whichever lot happened to be counted in the
+  // bigger unit. Each lot keeps its correct share within its unit.
+  const issuedByUom = new Map<string, number>()
+  for (const s of b.sourceLines) {
+    const uom = s.uom || ''
+    issuedByUom.set(uom, (issuedByUom.get(uom) || 0) + (s.qty || 0))
+  }
   const outputs = batchOutputs(b)
   // mainOutput re-runs batchOutputs, and for a batch in the deprecated shape each
   // call builds its lines afresh — never reference-equal — so the by-products are
@@ -114,7 +123,8 @@ function attributeBatch(b: Batch, lot: (key: string) => LotAcc): void {
   const byQty = by.reduce((a, o) => a + o.qty, 0)
 
   for (const s of b.sourceLines) {
-    const share = (s.qty || 0) / totalIssued
+    const inMyUnit = issuedByUom.get(s.uom || '') || 0
+    const share = inMyUnit ? (s.qty || 0) / inMyUnit : 0
     const a = lot(s.lot)
     a.issued += s.qty || 0
     a.spoiled += (b.spoiled || 0) * share

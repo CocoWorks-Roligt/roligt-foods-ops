@@ -20,7 +20,7 @@ import { Select } from './Select'
 import { SortHeader, SortSelect, sortRows, useTableSort, type SortAccessors } from './tableSort'
 import { StatusBadge } from './StatusBadge'
 import { useApp } from '../context/AppContext'
-import { batchInputQty, batchLabel, batchOutputs, bulkItems, fmtBulk, mainOutput } from '../lib/batches'
+import { batchLabel, batchLossToMain, batchOutputs, bulkItems, fmtBatchInput, fmtBulk, itemUom, mainOutput } from '../lib/batches'
 import { useLinkedView } from '../lib/linkedView'
 import { DRAWABLE, defaultBulkStore, postedLocation } from '../lib/posting'
 import {
@@ -28,6 +28,8 @@ import {
   poolByLot,
   stockRowsExcluding,
   areaChoices,
+  sumByUom,
+  fmtByUom,
 } from '../lib/stock'
 import { fmtDate, fmtQty, inr, QTY_EPSILON, toLocalInputValue } from '../lib/utils'
 import type { Batch } from '../types'
@@ -123,7 +125,7 @@ export function MelangeRuns() {
     melange: (b) => batchLabel(state, b),
     components: (b) => b.blendLines?.length || 0,
     out: (b) => mainOutput(b)?.qty ?? null,
-    loss: (b) => batchInputQty(b) - (mainOutput(b)?.qty ?? 0),
+    loss: (b) => batchLossToMain(b) ?? 0,
     cost: (b) => b.costPerL,
     status: (b) => b.status,
   }
@@ -160,7 +162,12 @@ export function MelangeRuns() {
 
   const drawnTotal = draws.reduce((a, d) => a + num(d.qty), 0)
   const outTotal = num(outQty)
-  const loss = drawnTotal - outTotal
+  // Components may be counted in more than one unit (water by the litre, malai by
+  // the kilo), so the drawn total is held apart by unit and the loss is figured
+  // only against the blend's own: a kilo line is an input, not a litre lost.
+  const drawnByUom = sumByUom(draws.map((d) => ({ qty: num(d.qty), uom: itemUom(state, d.item) })))
+  const drawnInBlendUom = selected ? drawnByUom.get(selected.uom) || 0 : 0
+  const loss = drawnInBlendUom - outTotal
 
   /**
    * Components more than two points off the share the recipe names — including one
@@ -199,6 +206,9 @@ export function MelangeRuns() {
     )
   }
   const labReports = viewing ? labReportSection(state, viewing.id) : null
+  // Loss against the blend's own unit: a component counted in another unit is an
+  // input, not a loss. Null when nothing in the blend's unit went in.
+  const viewLoss = viewing ? batchLossToMain(viewing) : null
   const viewSections: DetailSection[] = viewing
     ? [
         {
@@ -239,13 +249,11 @@ export function MelangeRuns() {
               label: itemName(o.item),
               value: fmtBulk(o.qty, o.uom),
             })),
-            { label: 'Bulk in', value: fmtBulk(batchInputQty(viewing), viewing.inputUom || 'Litre') },
+            { label: 'Bulk in', value: fmtBatchInput(viewing) },
             {
               label: 'Blending loss',
-              value: fmtBulk(
-                batchInputQty(viewing) - (mainOutput(viewing)?.qty ?? 0),
-                viewing.inputUom || 'Litre',
-              ),
+              value:
+                viewLoss === null ? '—' : fmtBulk(viewLoss, mainOutput(viewing)?.uom || 'Litre'),
             },
             {
               label: 'Packed from this run',
@@ -368,6 +376,7 @@ export function MelangeRuns() {
               ) : (
                 sorted.map((b) => {
                   const main = mainOutput(b)
+                  const loss = batchLossToMain(b)
                   const uom = b.inputUom || 'Litre'
                   return (
                     <tr key={b.id} {...detailRowProps(() => setViewId(b.id))}>
@@ -386,7 +395,7 @@ export function MelangeRuns() {
                       </td>
                       <td data-label="Blend Out">{fmtBulk(main?.qty ?? 0, main?.uom || uom)}</td>
                       <td data-label="Loss">
-                        {fmtBulk(Math.max(0, batchInputQty(b) - (main?.qty ?? 0)), uom)}
+                        {loss === null ? '—' : fmtBulk(Math.max(0, loss), main?.uom || uom)}
                       </td>
                       <td data-label="Cost / Unit">{inr(b.costPerL)}</td>
                       <td data-label="Status">
@@ -641,7 +650,7 @@ export function MelangeRuns() {
 
         {selected && drawnTotal > 0 ? (
           <div className={`note${loss < -0.001 ? ' warning-note' : ''}`}>
-            Drawing <b>{fmtBulk(drawnTotal, selected.uom)}</b> of components
+            Drawing <b>{fmtByUom(drawnByUom)}</b> of components
             {outTotal > 0 ? (
               <>
                 {' '}

@@ -270,6 +270,22 @@ export function useCatalog({ state, setState, nextId, log, showToast }: CoreDeps
         showToast(error)
         return null
       }
+      // Once the pack has stock history, the fields that history was costed in are
+      // frozen: a new pack unit re-dimensions every pack line already posted, and a
+      // different bulk orphans the cost trail behind them. Size may still move —
+      // posted runs carry their own perPack copy, per the note below. deleteProduct
+      // has refused on the same history since the beginning; the edit path did not.
+      const existing = state.products.find((x) => x.id === id)
+      if (
+        existing &&
+        state.ledger.some((l) => l.item === id) &&
+        (input.unit !== existing.unit || input.bulkItem !== existing.bulkItem)
+      ) {
+        showToast(
+          `${existing.name} has stock history — its pack unit and the bulk it draws cannot change. Size and shelf life may still be edited.`,
+        )
+        return null
+      }
       setState((prev) => {
         const draft = deepClone(prev)
         const p = draft.products.find((x) => x.id === id)
@@ -299,7 +315,7 @@ export function useCatalog({ state, setState, nextId, log, showToast }: CoreDeps
       showToast(`${input.name.trim()} updated.`)
       return id
     },
-    [checkProduct, log, setState, showToast],
+    [checkProduct, log, setState, showToast, state.products, state.ledger],
   )
 
   const deleteProduct = useCallback(

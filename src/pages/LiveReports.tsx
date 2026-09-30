@@ -557,7 +557,7 @@ function BatchWiseView({ def }: { def: ReportDef }) {
     { header: 'Date', value: (r) => r.date },
     { header: 'Kind', value: (r) => r.kind },
     { header: 'Product', value: (r) => r.label },
-    { header: 'Input', value: (r) => `${r.inputQty} ${r.inputUom}` },
+    { header: 'Input', value: (r) => r.inputLabel },
     { header: 'Spoiled', value: (r) => r.spoiled },
     { header: 'Outputs', value: (r) => r.outputs.map((o) => `${o.qty} ${o.uom} ${o.name}`).join('; ') },
     { header: 'Yield', value: (r) => (r.yieldPerUnit === null ? '' : Number(r.yieldPerUnit.toFixed(4))) },
@@ -611,9 +611,7 @@ function BatchWiseView({ def }: { def: ReportDef }) {
                   </td>
                   <td data-label="Date">{r.date}</td>
                   <td data-label="Product">{r.label}</td>
-                  <td data-label="Input" className="cell-num">
-                    {fmtQty(r.inputQty)} {r.inputUom}
-                  </td>
+                  <td data-label="Input" className="cell-num">{r.inputLabel}</td>
                   <td data-label="Spoiled" className="cell-num">{fmtQty(r.spoiled)}</td>
                   <td data-label="Outputs">
                     {r.outputs.map((o) => (

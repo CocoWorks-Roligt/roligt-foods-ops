@@ -8,7 +8,7 @@
 
 // `.ts` extensions — see the note in stock.ts: this module is compiled by the api
 // project's nodenext tsconfig too.
-import { itemName } from './stock.ts'
+import { fmtRowTotal, itemName } from './stock.ts'
 import type { AppState, Batch, BatchKind, BulkOutputLine, Item, PackingRun } from '../types.ts'
 
 export const COCONUT_ITEM = 'RM-TCW-COCO'
@@ -38,6 +38,39 @@ export function mainOutput(b: Batch): BulkOutputLine | undefined {
 export const batchInputQty = (b: Batch) => b.inputQty ?? b.coconuts ?? 0
 export const batchInputUom = (b: Batch) => b.inputUom || 'Piece'
 export const batchYield = (b: Batch) => b.yieldPerUnit ?? b.yieldPerCoconut ?? 0
+
+/** The batch's whole issue, one row per line — source and blend lines each carry the
+ *  unit their quantity is counted in, so this is where a per-unit figure comes from. */
+export const batchInputRows = (b: Batch): { qty: number; uom: string }[] =>
+  [...(b.sourceLines || []), ...(b.blendLines || [])].map((l) => ({ qty: l.qty || 0, uom: l.uom || '' }))
+
+/** True when the issue spans more than one unit (water by the litre, malai by the
+ *  kilo): no single denominator exists, so no per-unit yield is reported for it. */
+export const batchInputMixed = (b: Batch) =>
+  new Set(batchInputRows(b).map((r) => r.uom).filter(Boolean)).size > 1
+
+/** The whole issue ready to print, every unit named — "600 Piece · 40 Kg" for a mixed
+ *  issue, never a bare sum with an invented unit. The recorded figure stands when the
+ *  lines that would say are missing (a batch too old to carry them). */
+export const fmtBatchInput = (b: Batch): string => {
+  const rows = batchInputRows(b)
+  return rows.length ? fmtRowTotal(rows) : `${batchInputQty(b)} ${batchInputUom(b)}`
+}
+
+/**
+ * Blending loss against the main output's own unit: the issue counted in that unit
+ * minus what came out in it. A line in another unit is an input, not a loss —
+ * subtracting kilos of malai from litres of water never produced a number that
+ * meant anything. Null when nothing in the main output's unit went in.
+ */
+export const batchLossToMain = (b: Batch): number | null => {
+  const main = mainOutput(b)
+  if (!main) return null
+  const issued = batchInputRows(b)
+    .filter((r) => r.uom === main.uom)
+    .reduce((a, r) => a + r.qty, 0)
+  return issued > 0 ? issued - main.qty : null
+}
 
 /**
  * Litres per *usable* unit — what came out divided by what was actually pressed.

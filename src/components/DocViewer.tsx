@@ -6,7 +6,7 @@ import { labReportSection } from './labReportSection'
 import { StatusBadge } from './StatusBadge'
 import { DocViewerContext } from './docViewerContext'
 import { useApp } from '../context/AppContext'
-import { batchInputQty, batchLabel, batchOutputs, fmtBulk } from '../lib/batches'
+import { batchLabel, batchOutputs, fmtBatchInput, fmtBulk } from '../lib/batches'
 import { categoryTitle, qcAttachments } from '../lib/qcCategories'
 import { docRef } from '../lib/links'
 import { itemName } from '../lib/stock'
@@ -75,7 +75,7 @@ function docSections(state: AppState, id: string): { title: string; sections: De
               { label: 'Status', value: <StatusBadge value={b.status} /> },
               {
                 label: 'Issued',
-                value: `${fmtBulk(batchInputQty(b), b.inputUom || 'Litre')}`,
+                value: fmtBatchInput(b),
               },
               ...batchOutputs(b).map((o) => ({
                 label: itemName(state, o.item),
