@@ -68,9 +68,38 @@ export class VercelCookieSessionStorage extends CookieSessionStorage<Request, un
   }
 }
 
-const authService = createAuthService<Request, undefined>({
-  sessionStorageFactory: (config) => new VercelCookieSessionStorage(config),
-})
+const makeAuthService = (redirectUri?: string) =>
+  createAuthService<Request, undefined>({
+    // only the SCHEME of the config's redirectUri ever reaches the storage (it
+    // is what the cookie's Secure flag is baked from, at construction); the
+    // spread below re-bakes that flag and touches nothing else
+    sessionStorageFactory: (config) =>
+      new VercelCookieSessionStorage(redirectUri ? { ...config, redirectUri } : config),
+  })
+
+const authService = makeAuthService()
+
+/**
+ * The service that seals THIS request's cookies. The storage instance bakes the
+ * session cookie's Secure flag from the configured redirectUri's scheme —
+ * WORKOS_REDIRECT_URI, defaulting to the http localhost callback — so a deploy
+ * that omits the env var silently strips Secure off every cookie it seals. The
+ * request's own protocol is the truth the env var only approximates: a request
+ * that arrived over https while the effective redirectUri is http-prefixed is
+ * served by a second service, its storage built over an https URI so Secure is
+ * baked in. Memoized — the URI's host is never read, so one https variant
+ * speaks for every https host — while plain-http dev traffic and an https env
+ * pin keep the default service exactly as it was.
+ */
+let secureAuthService: ReturnType<typeof makeAuthService> | null = null
+export function authServiceFor(req: Request) {
+  const configured = process.env.WORKOS_REDIRECT_URI ?? 'http://localhost:3000/api/auth/callback'
+  if (configured.startsWith('https://')) return authService
+  const { host, proto } = hostProto(req)
+  if (proto !== 'https') return authService
+  if (!secureAuthService) secureAuthService = makeAuthService(`https://${host}/api/auth/callback`)
+  return secureAuthService
+}
 
 /** HeadersBag['Set-Cookie'] → one string per cookie, in order. */
 export function setCookiesOf(bag?: HeadersBag): string[] {
@@ -97,9 +126,10 @@ export function deriveRedirectUri(req: Request): string {
 /** Validate the session cookie, refreshing the short-lived access token server-side. */
 export async function withAuth(req: Request): Promise<{ auth: AuthResult; setCookies: string[] }> {
   ensureConfigured()
-  const { auth, refreshedSessionData } = await authService.withAuth(req)
+  const service = authServiceFor(req)
+  const { auth, refreshedSessionData } = await service.withAuth(req)
   if (!refreshedSessionData) return { auth, setCookies: [] }
-  const { headers } = await authService.saveSession(undefined, refreshedSessionData)
+  const { headers } = await service.saveSession(undefined, refreshedSessionData)
   return { auth, setCookies: setCookiesOf(headers) }
 }
 
@@ -109,7 +139,7 @@ export async function createSignInUrl(
   options: { returnPathname: string; organizationId?: string },
 ): Promise<{ url: string; setCookies: string[] }> {
   ensureConfigured()
-  const { url, headers } = await authService.createSignIn(undefined, {
+  const { url, headers } = await authServiceFor(req).createSignIn(undefined, {
     returnPathname: options.returnPathname,
     redirectUri: deriveRedirectUri(req),
     ...(options.organizationId ? { organizationId: options.organizationId } : {}),
@@ -123,7 +153,7 @@ export async function handleAuthCallback(
   options: { code: string; state?: string },
 ): Promise<{ returnPathname: string; setCookies: string[] }> {
   ensureConfigured()
-  const { headers, returnPathname } = await authService.handleCallback(req, undefined, {
+  const { headers, returnPathname } = await authServiceFor(req).handleCallback(req, undefined, {
     code: options.code,
     state: options.state,
   })
@@ -133,7 +163,7 @@ export async function handleAuthCallback(
 /** Best-effort verifier cleanup for a failed callback, so the state cookie cannot linger its full TTL. */
 export async function clearVerifierCookies(req: Request, state: string): Promise<string[]> {
   ensureConfigured()
-  const { headers } = await authService.clearPendingVerifier(undefined, {
+  const { headers } = await authServiceFor(req).clearPendingVerifier(undefined, {
     state,
     redirectUri: deriveRedirectUri(req),
   })
@@ -146,19 +176,20 @@ export async function signOutUrl(
 ): Promise<{ logoutUrl: string | null; setCookies: string[] }> {
   if (!workosConfigured()) return { logoutUrl: null, setCookies: [] }
   ensureConfigured()
+  const service = authServiceFor(req)
   let sessionId: string | null = null
   try {
-    const { auth } = await authService.withAuth(req)
+    const { auth } = await service.withAuth(req)
     if (auth.user) sessionId = auth.sessionId
   } catch {
     // unreadable seal — clear the cookie anyway below
   }
   if (!sessionId) {
-    const { headers } = await authService.clearSession(undefined)
+    const { headers } = await service.clearSession(undefined)
     return { logoutUrl: null, setCookies: setCookiesOf(headers) }
   }
   const { host, proto } = hostProto(req)
-  const { logoutUrl, headers } = await authService.signOut(sessionId, { returnTo: `${proto}://${host}/` })
+  const { logoutUrl, headers } = await service.signOut(sessionId, { returnTo: `${proto}://${host}/` })
   return { logoutUrl, setCookies: setCookiesOf(headers) }
 }
 

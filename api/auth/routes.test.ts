@@ -16,6 +16,8 @@ const world = vi.hoisted(() => ({
   signOut: { logoutUrl: 'https://authkit.workos.io/user/logout?sid=1' as string | null },
   auth: { error: null as string | null, caller: { email: 'lead@roligt.local', permissions: ['masters.manage'] }, setCookies: [] as string[] },
   dev: false,
+  /** The bare hosts the dev gate admits, port-stripped the way the real one does. */
+  devHosts: ['localhost', '127.0.0.1'],
 }))
 
 vi.mock('../_lib/session.ts', () => ({
@@ -39,6 +41,8 @@ vi.mock('../_lib/auth.ts', () => ({
   }),
   AuthError: class AuthError extends Error {},
   devSessionAllowed: () => world.dev,
+  devHostAllowed: (host: string | null | undefined) =>
+    world.devHosts.includes(String(host ?? '').split(':')[0]),
   devCaller: () => ({ email: 'dev@roligt.local', permissions: ['masters.manage'] }),
 }))
 
@@ -54,6 +58,7 @@ beforeEach(() => {
   world.signOut = { logoutUrl: 'https://authkit.workos.io/user/logout?sid=1' }
   world.auth = { error: null, caller: { email: 'lead@roligt.local', permissions: ['masters.manage'] }, setCookies: [] }
   world.dev = false
+  world.devHosts = ['localhost', '127.0.0.1']
   delete process.env.WORKOS_ORG_ID
 })
 afterEach(() => delete process.env.WORKOS_ORG_ID)
@@ -183,20 +188,33 @@ describe('GET /api/auth/session', () => {
     expect(res.json).toHaveBeenCalledWith({ error: 'Sign in first.' })
   })
 
-  it('answers the dev session when unconfigured and dev is allowed', async () => {
+  it('answers the dev session when unconfigured and dev is allowed on a dev host', async () => {
     world.configured = false
     world.dev = true
     const res = fakeRes()
-    await session(fakeReq('/api/auth/session', { 'x-dev-role': 'Operator' }), res)
+    await session(fakeReq('/api/auth/session', { 'x-dev-role': 'Operator', host: 'localhost:3000' }), res)
     expect(res.status).toHaveBeenCalledWith(200)
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ dev: true, user: { email: 'dev@roligt.local' } }))
+  })
+
+  it('refuses the dev session on a plant domain even when the flag allows it — 503, no free admin', async () => {
+    world.configured = false
+    world.dev = true
+    // the forwarded host wins over a loopback host header, exactly as the gate reads it
+    const res = fakeRes()
+    await session(
+      fakeReq('/api/auth/session', { host: 'localhost:3000', 'x-forwarded-host': 'ops.roligt.example' }),
+      res,
+    )
+    expect(res.status).toHaveBeenCalledWith(503)
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.stringContaining('not configured') }))
   })
 
   it('answers 503 when unconfigured and dev is not allowed', async () => {
     world.configured = false
     world.dev = false
     const res = fakeRes()
-    await session(fakeReq('/api/auth/session'), res)
+    await session(fakeReq('/api/auth/session', { host: 'localhost:3000' }), res)
     expect(res.status).toHaveBeenCalledWith(503)
   })
 })

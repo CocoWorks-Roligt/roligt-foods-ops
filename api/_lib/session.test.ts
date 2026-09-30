@@ -1,6 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { AuthKitConfig } from '@workos/authkit-session'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { configure, type AuthKitConfig } from '@workos/authkit-session'
 import {
+  authServiceFor,
   deriveRedirectUri,
   setCookiesOf,
   sessionCookieName,
@@ -123,5 +124,72 @@ describe('workosConfigured / sessionCookieName', () => {
     expect(sessionCookieName()).toBe('wos-session')
     process.env.WORKOS_COOKIE_NAME = 'custom'
     expect(sessionCookieName()).toBe('custom')
+  })
+})
+
+describe("authServiceFor — the cookie's Secure flag follows the request's protocol", () => {
+  const KEYS = ['WORKOS_REDIRECT_URI'] as const
+  let saved: Record<string, string | undefined>
+  beforeEach(() => {
+    saved = {}
+    for (const k of KEYS) saved[k] = process.env[k]
+    // the package-global config both service variants resolve lazily — what
+    // ensureConfigured would set on a first request. Sealing through it never
+    // reaches the WorkOS network; it only serializes against the baked options.
+    configure({
+      clientId: 'client',
+      apiKey: 'sk_test',
+      redirectUri: process.env.WORKOS_REDIRECT_URI ?? 'http://localhost:3000/api/auth/callback',
+      cookiePassword: 'x'.repeat(32),
+    })
+  })
+  afterEach(() => {
+    for (const k of KEYS) {
+      if (saved[k] === undefined) delete process.env[k]
+      else process.env[k] = saved[k]
+    }
+  })
+
+  /** The session cookie this request's own service would seal, as header strings. */
+  const sealOn = async (req: Request): Promise<string[]> =>
+    setCookiesOf((await authServiceFor(req).saveSession(undefined, 'Fe26.2-seal')).headers)
+  const httpsReq = (headers: Record<string, string> = {}) =>
+    new Request('https://internal/api/revision', {
+      headers: { 'x-forwarded-host': 'ops.roligt.example', 'x-forwarded-proto': 'https', ...headers },
+    })
+
+  it('seals a Secure session cookie over https even with WORKOS_REDIRECT_URI unset', async () => {
+    delete process.env.WORKOS_REDIRECT_URI
+    const [cookie] = await sealOn(httpsReq())
+    expect(cookie).toContain('wos-session=')
+    expect(cookie).toMatch(/; Secure/)
+  })
+
+  it('keeps the plain cookie for local http traffic — the default service, unchanged', async () => {
+    delete process.env.WORKOS_REDIRECT_URI
+    const [cookie] = await sealOn(new Request('https://internal/', { headers: { host: 'localhost:3000' } }))
+    expect(cookie).toContain('wos-session=')
+    expect(cookie).not.toMatch(/secure/i)
+  })
+
+  it('an https env pin needs no patching — one default service serves both, still Secure', async () => {
+    process.env.WORKOS_REDIRECT_URI = 'https://ops.roligt.example/api/auth/callback'
+    // the default service's storage bakes its flag at FIRST use, from the env
+    // in effect then — a fresh module is the honest way to pin the pin
+    vi.resetModules()
+    configure({
+      clientId: 'client',
+      apiKey: 'sk_test',
+      redirectUri: 'https://ops.roligt.example/api/auth/callback',
+      cookiePassword: 'x'.repeat(32),
+    })
+    const fresh = await import('./session.ts')
+    const [cookie] = setCookiesOf(
+      (await fresh.authServiceFor(httpsReq()).saveSession(undefined, 'Fe26.2-seal')).headers,
+    )
+    expect(cookie).toMatch(/; Secure/)
+    // and http traffic gets the very same service — no second variant exists
+    const httpReq = new Request('https://internal/', { headers: { host: 'localhost:3000' } })
+    expect(fresh.authServiceFor(httpsReq())).toBe(fresh.authServiceFor(httpReq))
   })
 })

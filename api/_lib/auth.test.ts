@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { authenticate, AuthError, __setAuthenticator } from './auth.js'
+import { authenticate, AuthError, devHostAllowed, __setAuthenticator } from './auth.js'
 import { PERMISSIONS } from '../../src/lib/permissions.js'
 import type { AuthResult } from '@workos/authkit-session'
 
@@ -34,6 +34,7 @@ const ENV_KEYS = [
   'WORKOS_COOKIE_PASSWORD',
   'WORKOS_ORG_ID',
   'ALLOW_DEV_SESSION',
+  'ALLOW_DEV_HOSTS',
   'NODE_ENV',
 ] as const
 let envSaved: Record<string, string | undefined>
@@ -167,29 +168,65 @@ describe('authenticate — the WorkOS session cookie', () => {
 })
 
 describe('authenticate — anonymous', () => {
+  /** A dev request: any URL, the host header carries the loopback origin the gate wants. */
+  const devReq = (headers: Record<string, string> = {}) =>
+    new Request('https://internal/api/revision', { headers: { host: 'localhost:3000', ...headers } })
+
   it('rejects a caller with no credential with AuthError', async () => {
     process.env.WORKOS_CLIENT_ID = 'client'
     process.env.ALLOW_DEV_SESSION = ''
-    await expect(authenticate(new Request('https://bff.roligt.local/api/revision'))).rejects.toBeInstanceOf(AuthError)
+    await expect(authenticate(devReq())).rejects.toBeInstanceOf(AuthError)
   })
 
-  it('issues the dev session when ALLOW_DEV_SESSION=1, no WorkOS config and not production', async () => {
+  it('issues the dev session when ALLOW_DEV_SESSION=1, no WorkOS config, not production, host loopback', async () => {
     process.env.NODE_ENV = 'development'
     process.env.ALLOW_DEV_SESSION = '1'
-    const op = await authenticate(new Request('https://bff.roligt.local/api/revision', { headers: { 'X-Dev-Role': 'Operator' } }))
+    const op = await authenticate(devReq({ 'X-Dev-Role': 'Operator' }))
     expect(op.caller).toEqual({ email: 'dev@roligt.local', permissions: [] })
-    const admin = await authenticate(new Request('https://bff.roligt.local/api/revision'))
+    const admin = await authenticate(devReq())
     expect(admin.caller).toEqual({ email: 'dev@roligt.local', permissions: [...PERMISSIONS] })
   })
 
   it('gives the dev Quality Tester the quality pages and nothing else', async () => {
     process.env.NODE_ENV = 'development'
     process.env.ALLOW_DEV_SESSION = '1'
-    const lab = await authenticate(new Request('https://bff.roligt.local/api/revision', { headers: { 'X-Dev-Role': 'QualityTester' } }))
+    const lab = await authenticate(devReq({ 'X-Dev-Role': 'QualityTester' }))
     expect(lab.caller).toEqual({
       email: 'dev@roligt.local',
       permissions: ['page.quality', 'page.control-samples', 'page.reports', 'page.test-parameters'],
     })
+  })
+
+  it('refuses the dev session on any host but a dev one — the flag licenses the process, never a plant domain', async () => {
+    process.env.NODE_ENV = 'development'
+    process.env.ALLOW_DEV_SESSION = '1'
+    // everything but the host would mint an anonymous admin: forwarded host first…
+    await expect(
+      authenticate(new Request('http://localhost:3000/api/revision', { headers: { 'x-forwarded-host': 'ops.roligt.example' } })),
+    ).rejects.toBeInstanceOf(AuthError)
+    // …and the bare host header too — both precedence orders fail closed
+    await expect(
+      authenticate(new Request('https://internal/api/revision', { headers: { host: 'ops.roligt.example' } })),
+    ).rejects.toBeInstanceOf(AuthError)
+  })
+
+  it('names further dev hosts through ALLOW_DEV_HOSTS', async () => {
+    process.env.NODE_ENV = 'development'
+    process.env.ALLOW_DEV_SESSION = '1'
+    process.env.ALLOW_DEV_HOSTS = 'ops.roligt.example, lan-box.local'
+    const a = await authenticate(
+      new Request('https://internal/api/revision', { headers: { host: 'localhost:3000', 'x-forwarded-host': 'ops.roligt.example' } }),
+    )
+    expect(a.caller.email).toBe('dev@roligt.local')
+    // csv entries match bare, case- and port-insensitively, like the loopback check
+    const b = await authenticate(
+      new Request('https://internal/api/revision', { headers: { host: 'LAN-Box.local:3000' } }),
+    )
+    expect(b.caller.email).toBe('dev@roligt.local')
+    // a host nobody named is still nobody's dev box
+    await expect(
+      authenticate(new Request('https://internal/api/revision', { headers: { host: 'other.example' } })),
+    ).rejects.toBeInstanceOf(AuthError)
   })
 
   it('refuses the dev session once WorkOS is configured — anonymous callers must get AuthError', async () => {
@@ -198,13 +235,13 @@ describe('authenticate — anonymous', () => {
     process.env.WORKOS_COOKIE_PASSWORD = 'x'.repeat(32)
     process.env.NODE_ENV = 'development'
     process.env.ALLOW_DEV_SESSION = '1'
-    await expect(authenticate(new Request('https://bff.roligt.local/api/revision'))).rejects.toBeInstanceOf(AuthError)
+    await expect(authenticate(devReq())).rejects.toBeInstanceOf(AuthError)
   })
 
   it('refuses the dev session under NODE_ENV=production even with no WorkOS config', async () => {
     process.env.NODE_ENV = 'production'
     process.env.ALLOW_DEV_SESSION = '1'
-    await expect(authenticate(new Request('https://bff.roligt.local/api/revision'))).rejects.toBeInstanceOf(AuthError)
+    await expect(authenticate(devReq())).rejects.toBeInstanceOf(AuthError)
   })
 
   it('warns once while the dev session is active, then stays quiet', async () => {
@@ -214,10 +251,31 @@ describe('authenticate — anonymous', () => {
     process.env.NODE_ENV = 'development'
     process.env.ALLOW_DEV_SESSION = '1'
     for (let i = 0; i < 2; i++) {
-      const auth = await mod.authenticate(new Request('https://bff.roligt.local/api/revision'))
+      const auth = await mod.authenticate(devReq())
       expect(auth.caller.permissions).toEqual([...PERMISSIONS])
     }
     expect(warn).toHaveBeenCalledTimes(1)
     expect(String(warn.mock.calls[0]![0])).toMatch(/dev session/i)
+  })
+})
+
+describe('devHostAllowed', () => {
+  it('strips ports, lowercases, and takes a csv — nothing else through', () => {
+    expect(devHostAllowed('localhost:3000')).toBe(true)
+    expect(devHostAllowed('127.0.0.1:8787')).toBe(true)
+    expect(devHostAllowed('LocalHost')).toBe(true)
+    expect(devHostAllowed('ops.roligt.example')).toBe(false)
+    expect(devHostAllowed('sub.localhost.example')).toBe(false)
+    expect(devHostAllowed(null)).toBe(false)
+    expect(devHostAllowed('')).toBe(false)
+    process.env.ALLOW_DEV_HOSTS = 'ops.roligt.example,  LAN-Box.local'
+    expect(devHostAllowed('ops.roligt.example')).toBe(true)
+    expect(devHostAllowed('lan-box.local:3000')).toBe(true)
+    expect(devHostAllowed('evil.example')).toBe(false)
+    // a comma-smuggled list ('localhost:1234, evil.example' would split to localhost)
+    expect(devHostAllowed('localhost:1234, evil.example')).toBe(false)
+    // an unset csv is one empty entry — it can never match a real host
+    process.env.ALLOW_DEV_HOSTS = ''
+    expect(devHostAllowed('ops.roligt.example')).toBe(false)
   })
 })

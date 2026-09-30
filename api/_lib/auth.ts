@@ -8,8 +8,10 @@
  *    `setCookies` — a dropped refresh cookie means a session that can never
  *    refresh twice).
  * 2. The dev session: ALLOW_DEV_SESSION=1 AND not production AND WorkOS not
- *    configured. With real auth live (or in production) an anonymous caller
- *    gets AuthError, never a free admin.
+ *    configured AND the request's own host is loopback (or named in
+ *    ALLOW_DEV_HOSTS) — the env conditions license the process, never a plant
+ *    domain. With real auth live (or in production) an anonymous caller gets
+ *    AuthError, never a free admin.
  *
  * Authorization is permissions, not roles: the caller holds slugs from
  * src/lib/permissions.ts and commitChanges gates writes on those — this guard
@@ -53,6 +55,26 @@ export function devSessionAllowed(): boolean {
     && process.env.NODE_ENV !== 'production'
     && !workosConfigured()
   )
+}
+
+/**
+ * The hosts a dev session may be minted for: the loopback interface, plus any
+ * host named in ALLOW_DEV_HOSTS (csv — a LAN dev box, a preview URL). The three
+ * env conditions above say the PROCESS may mint dev callers; they say nothing
+ * about where a request came from, and on a mis-deployed instance (NODE_ENV
+ * unset, flag leaked into env) they alone would mint anonymous admins on a
+ * plant domain. The host is read with the same x-forwarded-host precedence
+ * hostProto uses — behind the platform proxy that header is the proxy's own,
+ * not client choice.
+ */
+export function devHostAllowed(host: string | null | undefined): boolean {
+  if (!host || host.includes(',')) return false // a proxy chain's appended list is not a dev box
+  const bare = host.split(':')[0].trim().toLowerCase()
+  if (!bare) return false
+  if (bare === 'localhost' || bare === '127.0.0.1') return true
+  return (process.env.ALLOW_DEV_HOSTS ?? '')
+    .split(',')
+    .some((named) => named.trim().toLowerCase() === bare)
 }
 
 /** The dev session for an x-dev-role header value ('Operator'/'QualityTester' pick themselves, anything else admin). */
@@ -108,6 +130,12 @@ export async function authenticate(req: Request): Promise<Authentication> {
 
   // 2. the dev session
   if (devSessionAllowed()) {
+    // Fail-closed on the host too: the env conditions license the process, not
+    // this request — a plant domain never mints a dev admin, and the refusal is
+    // the same one any anonymous caller gets, leaking nothing about the flag.
+    if (!devHostAllowed(req.headers.get('x-forwarded-host') ?? req.headers.get('host'))) {
+      throw new AuthError('Sign in first.')
+    }
     if (!devSessionWarned) {
       devSessionWarned = true
       console.warn(

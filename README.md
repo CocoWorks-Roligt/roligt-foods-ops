@@ -51,12 +51,20 @@ Server-side (BFF only — never give these a `VITE_` prefix):
 - `WORKOS_ORG_ID` — the one "Roligt Foods" organization, printed by
   `scripts/workos/seed-rbac.mjs`
 - `WORKOS_REDIRECT_URI` — optional pin, e.g. `https://<production-domain>/api/auth/callback`,
-  so production cookies carry `Secure` (unset defaults to localhost http)
+  so the session cookie's `Secure` flag is baked from it. Unset defaults to
+  localhost http, but a request that arrives over https is still served cookies
+  sealed `Secure` — the request's own protocol (`x-forwarded-proto`) decides, so an
+  omitted env var no longer silently strips the flag.
 - `ALLOW_DEV_SESSION=1` — dev only: with WorkOS not configured and
   `NODE_ENV !== 'production'`, anonymous callers get a dev session (every
   permission, or none via the `x-dev-role` header). Once WorkOS is configured, or
   in production, the flag is ignored and anonymous callers get 401. Never set it
   in Vercel.
+- `ALLOW_DEV_HOSTS` — optional csv of extra hosts the dev session may serve
+  (`localhost`/`127.0.0.1` are always allowed). With WorkOS unconfigured and the
+  flag on, a request from any other host still gets no dev session, so a leaked
+  flag on a mis-deployed instance cannot mint anonymous admins on the plant
+  domain.
 
 Browser-side (a flag only — the SPA never talks to WorkOS):
 
