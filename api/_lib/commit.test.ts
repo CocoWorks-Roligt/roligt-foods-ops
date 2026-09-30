@@ -644,6 +644,49 @@ describe('commitChanges', () => {
     ).rejects.toMatchObject(new Forbidden('ledger'))
   })
 
+  it('refuses a crafted audit-only commit — the trail is not a page anyone may write', async () => {
+    const { zoho, ops } = fakeZoho()
+    // audits inserts passed any signed-in caller before the gate learned them: no
+    // collection spec carries audits, so nothing stood between a scoped caller
+    // and a fabricated trail row
+    await expect(
+      commitChanges(zoho, procurementClerk, { ...CHANGES, tables: [CHANGES.tables[2]], counters: {} }),
+    ).rejects.toMatchObject(new Forbidden('audits'))
+    // the lab tester — four pages of their own — is no closer to the trail
+    await expect(
+      commitChanges(zoho, labTester, { ...CHANGES, tables: [CHANGES.tables[2]], counters: {} }),
+    ).rejects.toMatchObject(new Forbidden('audits'))
+    expect(ops.upserts).toEqual([]) // refused before a single write landed
+  })
+
+  it('lets a config change carry its audit row — and refuses the echo that rides nothing', async () => {
+    const { zoho, ops } = fakeZoho([configRow(STORED_CONFIG)])
+    // the honest shape of setTestCategoryStatus: config.testCategories moves under
+    // the lab's own key and files its audit row, with no collection change behind it
+    const edited = { ...STORED_CONFIG, testCategories: [{ key: 'sensory', title: 'Sensory Evaluation' }] }
+    const rev = await commitChanges(zoho, labTester, {
+      ...CHANGES,
+      tables: [{ table: 'audits', upsert: [{ id: 'A2', at: '2026-09-21T10:00:00Z', actor: 'lab@roligt.local', action: 'Reactivated report type', doc: 'Sensory', details: '' }], remove: [] }],
+      counters: {},
+      config: edited,
+    })
+    expect(rev).toBeTypeOf('string')
+    expect(ops.upserts.some((u) => u.key === 'A2')).toBe(true)
+    expect(ops.upserts.some((u) => u.key === 'app_config')).toBe(true)
+    // the echo trick: the same config again — identical to what is now stored, so
+    // no key moves — must not stand as the ride for a second fabricated row
+    const landed = ops.upserts.length
+    await expect(
+      commitChanges(zoho, labTester, {
+        ...CHANGES,
+        tables: [{ table: 'audits', upsert: [{ id: 'A3', at: '2026-09-21T10:05:00Z', actor: 'lab@roligt.local', action: 'posted', doc: 'GRN-2026-0001', details: 'never happened' }], remove: [] }],
+        counters: {},
+        config: edited,
+      }),
+    ).rejects.toMatchObject(new Forbidden('audits'))
+    expect(ops.upserts.length).toBe(landed) // the refused echo wrote nothing
+  })
+
   it('exempts a full administrator from the ride-along gate — housekeeping is their page', async () => {
     const { zoho, ops } = fakeZoho()
     await commitChanges(zoho, admin, { ...CHANGES, tables: [], counters: { grn: 4 } })

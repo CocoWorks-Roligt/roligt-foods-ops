@@ -214,6 +214,13 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
   // BFF is what makes this real: the UI's nav hiding a page would matter little
   // to a crafted POST without this loop.
   const pages = pageScope(caller.permissions)
+  // Audits inserts are the third ride-along, and the only one whose verdict is
+  // not settled inside the scoped block: an audit row may also ride a config
+  // change, and whether any config key actually moved is known only after the
+  // config gate below has read what is stored. These two carry the scoped
+  // block's verdict out to the refusal that stands after that gate.
+  let auditsNeedRide = false
+  let auditsRideOwned = false
   if (pages && !isAdminPermissions([...held])) {
     const holdsPage = (page: ViewId | readonly ViewId[]) =>
       typeof page === 'string' ? pages.has(page) : page.some((p) => pages.has(p))
@@ -245,6 +252,12 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
     if ((ledgerWrites && !ownsCollectionChange && !stockMove) || (counterWrites && !ownsCollectionChange)) {
       throw new Forbidden('ledger')
     }
+    // Audit inserts ride the same two verdicts — a document's posting files its
+    // audit row, and so does the Storage move above. The config ride (saveConfig,
+    // saveStickerSize) is judged after the config gate; the refusal itself is
+    // thrown below it, not here.
+    auditsNeedRide = changes.tables.some((t) => t.table === 'audits' && !!t.upsert?.length)
+    auditsRideOwned = ownsCollectionChange || stockMove
   }
   // config writes and audit deletions carry their own gates: the trail is
   // insert-only for callers without the Audit page (sync.ts only ever emits
@@ -258,6 +271,10 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
   // No stored row means every key is new, and first-time config is the Settings
   // page's business.
   const storedConfig = await configBySetting(zoho)
+  // Set when a config key genuinely moved under a permission this caller holds —
+  // the third honest ride for an audit insert (a settings change files its own
+  // audit row with no collection change behind it).
+  let ownsConfigChange = false
   if (changes.config) {
     // app_config is in the very map the gate just read — the second Config sweep
     // this branch used to make was the same rows fetched twice per commit.
@@ -276,8 +293,15 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
         (CONFIG_KEY_WRITE_PERMISSION as Record<string, readonly string[] | undefined>)[key] ??
         [TABLE_WRITE_PERMISSION.app_config]
       if (!gate.some((p) => held.has(p))) throw new Forbidden(`app_config ${key}`)
+      ownsConfigChange = true
     }
   }
+  // The audits ride-along refusal, held until this point because the config ride
+  // is only known now: an audit insert a scoped caller files must stand on a
+  // collection change whose page they hold, the Storage page's move shape, or a
+  // config key that genuinely moved under them. Anything else is a crafted
+  // audit-only POST — the trail is evidence, not a page anyone may write.
+  if (auditsNeedRide && !auditsRideOwned && !ownsConfigChange) throw new Forbidden('audits')
   const auditRemove = changes.tables.some((t) => t.table === 'audits' && t.remove?.length)
   if (auditRemove && !held.has(TABLE_WRITE_PERMISSION.audits)) throw new Forbidden('audits')
 
