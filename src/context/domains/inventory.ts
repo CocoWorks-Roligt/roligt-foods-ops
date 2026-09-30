@@ -17,9 +17,14 @@ import { deepClone, nowISO, uid, fmtQty } from '../../lib/utils'
 import { POSTED } from './deps'
 import type { CoreDeps } from './deps'
 
-export function useInventory({ state, setState, nextId, log, showToast, rows }: CoreDeps) {
+export function useInventory({ state, setState, nextId, log, forbidden, showToast, rows }: CoreDeps) {
   const moveStock = useCallback(
     (input: MoveStockInput): string | null => {
+      // A stock move posts nothing but ledger lines and an audit row — the
+      // server's ride-along gate lets exactly the Storage page's holder do
+      // that without a document. Refuse before a line exists, so the work is
+      // never created just to be unsavable.
+      if (forbidden('Moving stock', 'page.storage')) return null
       const { item, lot, status, from, to, expiry, qty } = input
       if (!to || from === to) {
         showToast('Pick a different destination.')
@@ -89,7 +94,7 @@ export function useInventory({ state, setState, nextId, log, showToast, rows }: 
       showToast(`Moved ${qty} ${r.uom} to ${target.label}.`)
       return POSTED
     },
-    [log, rows, setState, showToast, state],
+    [forbidden, log, rows, setState, showToast, state],
   )
 
   /**

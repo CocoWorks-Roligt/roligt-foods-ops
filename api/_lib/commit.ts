@@ -208,11 +208,21 @@ export async function commitChanges(zoho: ZohoClient, caller: Caller, changes: S
       const spec = COLLECTIONS.find((c) => c.table === t.table)
       return !!spec?.page && holdsPage(spec.page) && (t.upsert?.length || t.remove?.length)
     })
+    const ledgerRemove = changes.tables.some((t) => t.table === 'ledger' && !!t.remove?.length)
     const ledgerWrites = changes.tables.some(
       (t) => t.table === 'ledger' && (t.upsert?.length || t.remove?.length),
     )
     const counterWrites = Object.keys(changes.counters || {}).some((k) => !k.startsWith('period:'))
-    if ((ledgerWrites || counterWrites) && !ownsCollectionChange) throw new Forbidden('ledger')
+    // One honest exception: moving stock between rooms is the Storage page's own
+    // job, and it posts ledger lines and an audit row while owning no collection
+    // row to hang them on — so that page stands in for one. A holder may upsert
+    // ledger lines with no collection change; removals and counters still need a
+    // document behind them, because a move never deletes history and never mints
+    // a number.
+    const stockMove = ledgerWrites && !ledgerRemove && holdsPage('storage')
+    if ((ledgerWrites && !ownsCollectionChange && !stockMove) || (counterWrites && !ownsCollectionChange)) {
+      throw new Forbidden('ledger')
+    }
   }
   // config writes and audit deletions carry their own gates: the trail is
   // insert-only for callers without the Audit page (sync.ts only ever emits

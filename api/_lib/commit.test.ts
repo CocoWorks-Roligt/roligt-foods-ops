@@ -515,6 +515,36 @@ describe('commitChanges', () => {
     expect(ops.upserts.some((u) => u.key === 'L1')).toBe(true)
   })
 
+  it('lets a page.storage holder commit the moveStock shape — ledger lines and an audit row, no document', async () => {
+    const { zoho, ops } = fakeZoho()
+    const storekeeper = { email: 'store@roligt.local', permissions: ['page.storage'] } as Caller
+    // exactly what a stock move sends: two ledger lines and an audit row ride along
+    // with no collection row to hang them on — the Storage page stands in for one
+    const rev = await commitChanges(zoho, storekeeper, {
+      ...CHANGES,
+      tables: [CHANGES.tables[1], CHANGES.tables[2]], // ledger + audits only
+      counters: {},
+    })
+    expect(rev).toBeTypeOf('string')
+    expect(ops.upserts.some((u) => u.key === 'L1')).toBe(true)
+    expect(ops.upserts.some((u) => u.key === 'A1')).toBe(true)
+    // the allowance is upserts only: a move never deletes history, so a ledger
+    // removal without a document behind it is refused even for the storekeeper
+    await expect(
+      commitChanges(zoho, storekeeper, {
+        ...CHANGES,
+        tables: [{ table: 'ledger', upsert: [], remove: ['L1'] }, CHANGES.tables[2]],
+        counters: {},
+      }),
+    ).rejects.toMatchObject(new Forbidden('ledger'))
+    expect(ops.deletes.filter((d) => d.table === T['Ledger'].id)).toEqual([]) // the refused removal landed nothing
+    // and the exception is the Storage page's alone — the procurement clerk's
+    // ledger-only commit stays refused
+    await expect(
+      commitChanges(zoho, procurementClerk, { ...CHANGES, tables: [CHANGES.tables[1]], counters: {} }),
+    ).rejects.toMatchObject(new Forbidden('ledger'))
+  })
+
   it('exempts a full administrator from the ride-along gate — housekeeping is their page', async () => {
     const { zoho, ops } = fakeZoho()
     await commitChanges(zoho, admin, { ...CHANGES, tables: [], counters: { grn: 4 } })
