@@ -8,27 +8,30 @@
  * spent once, plant-wide. Tests keep injecting their own fakes through
  * `commitChanges`'s parameters; this instance is for the handlers only.
  *
- * The generated schema (baseSchema.ts) is pinned to one base: BASE_ID was baked in by
- * scripts/zoho/gen-base-schema.mjs from whatever .env pointed at *then*. A half-done
- * base flip — schema regenerated but .env not switched, or the reverse — would send
- * scratch table ids at production (or vice versa) with no error anywhere. So the
- * client is only constructed after assertBaseMatch agrees that .env and the generated
- * schema name the same base; a mismatch throws loudly at boot with both ids.
+ * The generated schema (baseSchema.ts) carries every synced base — one SCHEMAS entry
+ * per scripts/zoho/topup-state.<base8>.json — and T resolves the active one from
+ * ZOHO_BASE_ID at import (DEFAULT_BASE_ID when unset). A base nobody synced still has
+ * to fail loudly rather than quietly serve another base's table ids, so the client is
+ * only constructed after assertBaseMatch agrees that ZOHO_BASE_ID, when set, names a
+ * base the schemas actually carry; an unknown base throws at boot naming what to run.
  */
 import { ZohoClient } from './zoho.js'
-import { BASE_ID } from './baseSchema.js'
+import { SCHEMAS } from './baseSchema.js'
 
 /**
- * Throw when env names a different base than the generated schema was built for.
- * Empty values stay allowed: no ZOHO_BASE_ID (client falls back) and empty BASE_ID
- * (tests, pre-generation) are not a mismatch.
+ * Throw when env names a base the generated schemas don't carry. Unset stays allowed:
+ * no ZOHO_BASE_ID means the client and T both fall back to DEFAULT_BASE_ID, the base
+ * this checkout was generated against.
  */
-export function assertBaseMatch(env: { ZOHO_BASE_ID?: string | undefined }, baseId: string = BASE_ID): void {
+export function assertBaseMatch(
+  env: { ZOHO_BASE_ID?: string | undefined },
+  known: string[] = Object.keys(SCHEMAS),
+): void {
   const envBase = env.ZOHO_BASE_ID
-  if (envBase && baseId && envBase !== baseId) {
+  if (envBase && !known.includes(envBase)) {
     throw new Error(
-      `generated schema is for base ${baseId} but ZOHO_BASE_ID is ${envBase} — regenerate or fix .env ` +
-        `(scripts/zoho/gen-base-schema.mjs)`,
+      `ZOHO_BASE_ID ${envBase} has no generated schema (have: ${known.join(', ')}) — sync the base first ` +
+        `(node scripts/zoho/topup.mjs ${envBase}), then fix .env`,
     )
   }
 }

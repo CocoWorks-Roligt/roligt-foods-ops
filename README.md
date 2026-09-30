@@ -143,26 +143,44 @@ against; Production is provisioned at switch-over:
    configured, so either enable MFA and re-run the same calls, or follow the
    dashboard checklist. Register `https://roligt-foods-ops.vercel.app/api/auth/callback`
    + post-logout `/` there, not on Staging.
-6. Vercel project envs (when the fork goes live): the two Zoho sets above plus
-   `WORKOS_API_KEY`, `WORKOS_CLIENT_ID`, `WORKOS_COOKIE_PASSWORD`,
-   `WORKOS_ORG_ID`, `VITE_WORKOS_CLIENT_ID` — the Production environment's
-   values, its own org and API key. Functions run in `fra1` (`vercel.json`),
-   between the US WorkOS and India Zoho endpoints. Do not set
-   `ALLOW_DEV_SESSION` in production, and remove any retired provider keys from
-   the project when the swap is verified.
+6. Vercel project envs (when the fork goes live): mirror them with
+   `node scripts/vercel/sync-env.mjs <development|preview|production>` — it reads
+   `.env` + `.env.local` (or `--from <file>`), syncs only the BFF's own keys, keeps
+   `ALLOW_DEV_SESSION`/`ALLOW_DEV_HOSTS` and the Supabase keys out of every
+   environment, keeps Apptics out of Production, and takes a typed
+   `--production production` that also refuses a half-configured Production
+   (every `WORKOS_*` key must be present). Production carries its own values —
+   its own org and API key, `WORKOS_API_HOSTNAME=api.workos.com`, and the
+   Production `VITE_WORKOS_CLIENT_ID`. Functions run in `fra1` (`vercel.json`),
+   between the US WorkOS and India Zoho endpoints. Remove any retired provider
+   keys from the project when the swap is verified.
 
 Preview deployments are not registered redirect URIs — test auth on localhost
 (against Staging) and the production domain (against Production) only.
 
-### Scratch vs production base
+### Bases: one repo, every synced base
 
 `api/_lib/baseSchema.ts` is **generated** (`scripts/zoho/gen-base-schema.mjs`) and
-pinned to one base — its `BASE_ID` is the base every table id in it belongs to.
-Switching bases means switching `ZOHO_BASE_ID` in `.env` *and* regenerating the
-schema; doing only one half is caught at boot: the shared client refuses to start
-(`assertBaseMatch` in `api/_lib/shared.ts`) when `ZOHO_BASE_ID` and the generated
-`BASE_ID` disagree. `scripts/zoho/make-scratch.mjs` builds a disposable scratch base
-for e2e; the dev server's `--seed-scratch` seeds it and refuses any other base.
+carries **every synced base**: one `SCHEMAS` entry per
+`scripts/zoho/topup-state.<base8>.json`, each state recording the base it belongs
+to. The active one is chosen by `ZOHO_BASE_ID` at import — `DEFAULT_BASE_ID`, the
+checkout's `.env` base at generation time, when unset — so local scratch and the
+production deploy ship from the same committed file, with no schema swap on merge
+day. A base nobody synced fails at boot: `schemaFor` throws naming what to run,
+and the shared client's `assertBaseMatch` (`api/_lib/shared.ts`) refuses any
+`ZOHO_BASE_ID` the schemas don't carry.
+
+**Syncing a base** — adds `App ID`/`Data JSON` where missing, the Sticker Prints
+table and the revision/config rows, then regenerates the schema so every base
+lands in the same commit:
+
+    node scripts/zoho/topup.mjs <base-id>                        # sync
+    node scripts/zoho/topup.mjs <base-id> --dry-run              # read-only drift check
+    node scripts/zoho/topup.mjs <prod-id> --production <prod-id> # production, typed confirmation
+
+A feature that adds a table or field lands as declarative data in `topup.mjs`,
+then runs once per base. `scripts/zoho/make-scratch.mjs` builds a disposable
+scratch base for e2e — run the sync on it afterwards.
 
 The day's work (receive, produce, pack, dispatch) is open to every signed-in
 caller; masters, the staff register, settings, audit removals and user

@@ -1,32 +1,70 @@
 #!/usr/bin/env node
 /**
- * Top-up for the fork: App ID + Data JSON on every table, a Sticker Prints table,
- * and the revision/config rows. Resumable via topup-state.json.
+ * Base sync for the fork: App ID + Data JSON on every table, a Sticker Prints table,
+ * and the revision/config rows — kept declarative so a feature that adds a table or
+ * field lands here as data, then runs once per base. Per-base state files
+ * (topup-state.<base8>.json, each recording its base) make scratch and production
+ * safe to sync independently, and a successful run regenerates api/_lib/baseSchema.ts
+ * so every synced base ships in the commit.
  *
- * usage: node scripts/zoho/topup.mjs <base-id>
- * Target the SCRATCH base first. The production run is Task 12, on explicit user go.
+ * usage: node scripts/zoho/topup.mjs <base-id> [--dry-run] [--production <exact-id>]
+ * --dry-run is a read-only diff (doubles as the pre-merge drift check). The
+ * production base refuses without the typed escape hatch; a dry run against it is
+ * read-only and allowed.
  */
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
 const ROOT = dirname(fileURLToPath(import.meta.url))
-const CW = join(ROOT, '..', '..', '..')
-const TARGET = process.argv[2]
-if (!TARGET) { console.error('usage: node scripts/zoho/topup.mjs <base-id>'); process.exit(1) }
-// HARD GUARD: never touch production. The production top-up is Task 12, on explicit user go.
+const CW = join(ROOT, '..', '..')
+
+const argv = process.argv.slice(2)
+const DRY = argv.includes('--dry-run')
+const hatchIdx = argv.indexOf('--production')
+const HATCH = hatchIdx >= 0 ? argv[hatchIdx + 1] : null
+const TARGET = argv.filter((a, i) => !a.startsWith('--') && !(hatchIdx >= 0 && i === hatchIdx + 1))[0]
+if (!TARGET) {
+  console.error('usage: node scripts/zoho/topup.mjs <base-id> [--dry-run] [--production <exact-id>]')
+  process.exit(1)
+}
+// HARD GUARD: production takes a typed confirmation — the id, character for character,
+// so a paste of the wrong base can't slip through. Dry runs touch nothing and are allowed.
 const PRODUCTION_BASE = 'gerc53fe9f1e44e5f4a13809d9bd47367ba9d'
 const SCRATCH_BASE = 'dhorj90a2ded0152a4f1d94ae8ce4ece09a5c'
-if (TARGET === PRODUCTION_BASE) { console.error('REFUSING: target is the PRODUCTION base'); process.exit(1) }
-console.log(`topup target: ${TARGET}${TARGET === SCRATCH_BASE ? ' (scratch)' : ' (WARNING: not the expected scratch id)'}`)
-const ENV = Object.fromEntries(
-  readFileSync(join(CW, '.zoho.env'), 'utf8').split('\n')
-    .filter((l) => l.includes('=') && !l.startsWith('#'))
-    .map((l) => [l.slice(0, l.indexOf('=')).trim(), l.slice(l.indexOf('=') + 1).trim()]),
+if (TARGET === PRODUCTION_BASE && !DRY && HATCH !== PRODUCTION_BASE) {
+  console.error('REFUSING: target is the PRODUCTION base — re-run with --production ' + PRODUCTION_BASE + ' to confirm')
+  process.exit(1)
+}
+console.log(
+  `sync target: ${TARGET}` +
+    (TARGET === SCRATCH_BASE ? ' (scratch)' : TARGET === PRODUCTION_BASE ? ' (PRODUCTION)' : ' (WARNING: not a known base id)') +
+    (DRY ? ' — DRY RUN, nothing will be written' : ''),
 )
-const STATE_F = join(ROOT, 'topup-state.json')
-const state = existsSync(STATE_F) ? JSON.parse(readFileSync(STATE_F, 'utf8')) : { tables: {} }
-const save = () => writeFileSync(STATE_F, JSON.stringify(state, null, 2))
+
+const readEnv = (f) =>
+  Object.fromEntries(
+    readFileSync(f, 'utf8').split('\n')
+      .filter((l) => l.includes('=') && !l.startsWith('#'))
+      .map((l) => [l.slice(0, l.indexOf('=')).trim(), l.slice(l.indexOf('=') + 1).trim()]),
+  )
+const ENV = readEnv(join(CW, '.zoho.env'))
+
+// per-base state: the file name and the "base" key inside must agree with the target,
+// so one base's ids can never be served to another
+const STATE_F = join(ROOT, `topup-state.${TARGET.slice(0, 8)}.json`)
+let state
+if (existsSync(STATE_F)) {
+  state = JSON.parse(readFileSync(STATE_F, 'utf8'))
+  if (state.base !== TARGET) {
+    console.error(`REFUSING: ${STATE_F} records base ${state.base ?? '(none)'} but the target is ${TARGET} — a state file only ever describes its own base`)
+    process.exit(1)
+  }
+} else {
+  state = { base: TARGET, tables: {} }
+}
+const save = () => { if (!DRY) writeFileSync(STATE_F, JSON.stringify(state, null, 2)) }
 
 const TOKEN_F = join(CW, '.zoho-token.json')
 let tok = existsSync(TOKEN_F) ? JSON.parse(readFileSync(TOKEN_F, 'utf8')) : null
@@ -42,10 +80,23 @@ async function token() {
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 let lastMut = 0
+let lastRead = 0
+// the writes this script knows how to make — a dry run refuses them at the transport,
+// not by trusting every call site to remember
+const WRITES = new Set(['POST /fields', 'PUT /fields', 'DELETE /fields', 'POST /tables', 'PUT /records', 'DELETE /records'])
 async function api(method, path, params = {}) {
+  if (DRY && WRITES.has(`${method} ${path}`)) throw new Error(`dry run attempted a write: ${method} ${path}`)
+  // reads get their own gentle pace — a dry run sweeps every table's fields, and the
+  // 26-reads/min budget the app's client enforces applies to this key too
+  const isRead = method === 'GET' || path === '/fetchRecordsWithCriteria'
+  if (isRead) {
+    const rgap = 2500 - (Date.now() - lastRead)
+    if (rgap > 0) await sleep(rgap)
+    lastRead = Date.now()
+  }
   const gap = 3600 - (Date.now() - lastMut)
-  if (method !== 'GET' && gap > 0) await sleep(gap)
-  if (method !== 'GET') lastMut = Date.now()
+  if (method !== 'GET' && path !== '/fetchRecordsWithCriteria' && gap > 0) await sleep(gap)
+  if (method !== 'GET' && path !== '/fetchRecordsWithCriteria') lastMut = Date.now()
   const url = new URL('https://tables.zoho.in/api/v1' + path)
   for (const [k, v] of Object.entries(params))
     if (v !== undefined && v !== null) url.searchParams.set(k, typeof v === 'object' ? JSON.stringify(v) : String(v))
@@ -59,6 +110,7 @@ async function api(method, path, params = {}) {
 }
 const fid = (f) => f.fieldID ?? f.fieldid ?? f.id
 const fname = (f) => f.fieldName ?? f.name
+const plan = []
 
 async function fieldsOf(tableId) {
   const fs = (await api('GET', '/fields', { base_id: TARGET, table_id: tableId })).fields.fetched
@@ -75,6 +127,12 @@ async function ensureTextField(tableId, tableName, label) {
   console.log(`  + ${tableName}.${label}`)
   return id
 }
+// present → its id; missing → create it, or in a dry run just record the would-do
+const ensure = async (tableId, tableName, label) => {
+  if (state.tables[tableName].fields[label]) return state.tables[tableName].fields[label]
+  if (DRY) { plan.push(`+ ${tableName}.${label}`); return null }
+  return ensureTextField(tableId, tableName, label)
+}
 
 const listing = (await api('GET', '/tables', { base_id: TARGET })).tables.fetched
 
@@ -88,76 +146,84 @@ for (const t of listing) {
     if (n && !st.fields[n]) st.fields[n] = fid(f)
   }
   save()
-  if (!st.appId) st.appId = await ensureTextField(t.tableID, t.name, 'App ID')
+  st.appId = await ensure(t.tableID, t.name, 'App ID')
   if (!['Counters', 'Config'].includes(t.name)) {
     // tables duplicated from production may already carry Data JSON (Batches, Packing Runs,
     // Ledger do) — reuse that field id instead of creating a duplicate one.
-    st.dataJson = st.fields['Data JSON'] ?? (await ensureTextField(t.tableID, t.name, 'Data JSON'))
+    st.dataJson = st.fields['Data JSON'] ?? (await ensure(t.tableID, t.name, 'Data JSON'))
   }
   save()
   console.log(`= ${t.name}`)
 }
 
-// 2. Sticker Prints table (fork-owned, absent from the base). Resumable via the done flag —
-//    a bare "is it in the listing?" check would skip a half-built table on re-run.
+// 2. Sticker Prints table (fork-owned, absent from a fresh base). Resumable via the done
+//    flag — a bare "is it in the listing?" check would skip a half-built table on re-run.
 if (!state.tables['Sticker Prints']?.done) {
-  let st = state.tables['Sticker Prints']
-  if (!st) {
-    const created = (await api('POST', '/tables', { base_id: TARGET, table_name: 'Sticker Prints' })).tables.created[0]
-    st = state.tables['Sticker Prints'] = { id: created.tableID, fields: {} }
-    save()
-    console.log('+ Sticker Prints table')
-  }
-  const LABELS = ['Doc No', 'Stage', 'Title', 'Printed At', 'Qty']
-  // A fresh POST /tables ships auto-named default fields ("Field N") and ~10 empty starter
-  // records (observed during the base build): claim the first default as the leading column,
-  // drop the other defaults, create the rest.
-  const fs = await fieldsOf(st.id)
-  // don't record the auto-named defaults — they get claimed/renamed or dropped below
-  for (const f of fs) {
-    const n = fname(f)
-    if (n && !st.fields[n] && !/^field/i.test(n)) st.fields[n] = fid(f)
-  }
-  const defaults = fs.filter((f) => /^field/i.test(fname(f) || ''))
-  if (defaults.length) {
-    const prim = defaults[0]
-    await api('PUT', '/fields', { base_id: TARGET, table_id: st.id, field_id: fid(prim), field_name: LABELS[0], type: 23 })
-    delete st.fields[fname(prim)]
-    st.fields[LABELS[0]] = fid(prim)
-    st.primary = fid(prim)
-    save()
-    console.log(`  ~ Sticker Prints.${LABELS[0]} (claimed default ${fname(prim)})`)
-    for (const d of defaults.slice(1)) {
-      await api('DELETE', '/fields', { base_id: TARGET, table_id: st.id, field_id: fid(d) })
-      delete st.fields[fname(d)]
-      console.log(`  - Sticker Prints: dropped default ${fname(d)}`)
+  if (DRY) {
+    if (!state.tables['Sticker Prints'] && !listing.some((t) => t.name === 'Sticker Prints')) {
+      plan.push('+ Sticker Prints table (Doc No, Stage, Title, Printed At, Qty + App ID + Data JSON + starter-row sweep)')
+    } else {
+      plan.push('~ Sticker Prints exists but its state is not done — run without --dry-run to finish it')
     }
-    save()
-  }
-  for (const label of LABELS) {
-    if (st.fields[label]) continue
-    const c = (await api('POST', '/fields', { base_id: TARGET, table_id: st.id, type: 23 })).fields.created[0]
-    await api('PUT', '/fields', { base_id: TARGET, table_id: st.id, field_id: fid(c), field_name: label, type: 23 })
-    st.fields[label] = fid(c)
-    save()
-    console.log(`  + Sticker Prints.${label}`)
-  }
-  st.appId = await ensureTextField(st.id, 'Sticker Prints', 'App ID')
-  st.dataJson = st.fields['Data JSON'] = await ensureTextField(st.id, 'Sticker Prints', 'Data JSON')
-  // best-effort sweep of the starter rows — cosmetic, never fatal
-  try {
-    const r = await api('POST', '/fetchRecordsWithCriteria', { base_id: TARGET, table_id: st.id, count: 100 })
-    const recs = r.records?.fetched ?? r.records?.data ?? []
-    const ids = recs.map((x) => x.recordID ?? x.recordId).filter(Boolean)
-    for (const rid of ids) {
-      await api('DELETE', '/records', { base_id: TARGET, table_id: st.id, record_id: rid })
+  } else {
+    let st = state.tables['Sticker Prints']
+    if (!st) {
+      const created = (await api('POST', '/tables', { base_id: TARGET, table_name: 'Sticker Prints' })).tables.created[0]
+      st = state.tables['Sticker Prints'] = { id: created.tableID, fields: {} }
+      save()
+      console.log('+ Sticker Prints table')
     }
-    if (ids.length) console.log(`  - Sticker Prints: swept ${ids.length} starter records`)
-  } catch (e) {
-    console.log(`  ! Sticker Prints starter-record sweep skipped: ${String(e.message || e).slice(0, 140)}`)
+    const LABELS = ['Doc No', 'Stage', 'Title', 'Printed At', 'Qty']
+    // A fresh POST /tables ships auto-named default fields ("Field N") and ~10 empty starter
+    // records (observed during the base build): claim the first default as the leading column,
+    // drop the other defaults, create the rest.
+    const fs = await fieldsOf(st.id)
+    // don't record the auto-named defaults — they get claimed/renamed or dropped below
+    for (const f of fs) {
+      const n = fname(f)
+      if (n && !st.fields[n] && !/^field/i.test(n)) st.fields[n] = fid(f)
+    }
+    const defaults = fs.filter((f) => /^field/i.test(fname(f) || ''))
+    if (defaults.length) {
+      const prim = defaults[0]
+      await api('PUT', '/fields', { base_id: TARGET, table_id: st.id, field_id: fid(prim), field_name: LABELS[0], type: 23 })
+      delete st.fields[fname(prim)]
+      st.fields[LABELS[0]] = fid(prim)
+      st.primary = fid(prim)
+      save()
+      console.log(`  ~ Sticker Prints.${LABELS[0]} (claimed default ${fname(prim)})`)
+      for (const d of defaults.slice(1)) {
+        await api('DELETE', '/fields', { base_id: TARGET, table_id: st.id, field_id: fid(d) })
+        delete st.fields[fname(d)]
+        console.log(`  - Sticker Prints: dropped default ${fname(d)}`)
+      }
+      save()
+    }
+    for (const label of LABELS) {
+      if (st.fields[label]) continue
+      const c = (await api('POST', '/fields', { base_id: TARGET, table_id: st.id, type: 23 })).fields.created[0]
+      await api('PUT', '/fields', { base_id: TARGET, table_id: st.id, field_id: fid(c), field_name: label, type: 23 })
+      st.fields[label] = fid(c)
+      save()
+      console.log(`  + Sticker Prints.${label}`)
+    }
+    st.appId = await ensureTextField(st.id, 'Sticker Prints', 'App ID')
+    st.dataJson = st.fields['Data JSON'] = await ensureTextField(st.id, 'Sticker Prints', 'Data JSON')
+    // best-effort sweep of the starter rows — cosmetic, never fatal
+    try {
+      const r = await api('POST', '/fetchRecordsWithCriteria', { base_id: TARGET, table_id: st.id, count: 100 })
+      const recs = r.records?.fetched ?? r.records?.data ?? []
+      const ids = recs.map((x) => x.recordID ?? x.recordId).filter(Boolean)
+      for (const rid of ids) {
+        await api('DELETE', '/records', { base_id: TARGET, table_id: st.id, record_id: rid })
+      }
+      if (ids.length) console.log(`  - Sticker Prints: swept ${ids.length} starter records`)
+    } catch (e) {
+      console.log(`  ! Sticker Prints starter-record sweep skipped: ${String(e.message || e).slice(0, 140)}`)
+    }
+    st.done = true
+    save()
   }
-  st.done = true
-  save()
 }
 
 // 3. Config rows: app_revision / app_config — upsert by the string criteria form
@@ -165,16 +231,49 @@ if (!state.tables['Sticker Prints']?.done) {
 const cfg = state.tables['Config']
 const settingId = cfg.fields['Setting']
 const valueId = cfg.fields['Value']
-const seedRow = async (setting, value) => {
-  await api('PUT', '/records', {
-    base_id: TARGET, table_id: cfg.id,
-    data: JSON.stringify({ [settingId]: setting, [valueId]: value }),
-    criteria: `"Setting" = "${setting}"`,
-    is_upsert_needed: true, is_ids_used_in_data: true,
-  })
-  console.log(`= Config row ${setting}`)
+if (DRY) {
+  // the upsert is idempotent, but the drift check should only report what's actually
+  // missing — read Config's rows back and look for the two setting names. Records
+  // come back {recordID, data: {fieldId: value}, …}; the settings live in .data.
+  const r = await api('POST', '/fetchRecordsWithCriteria', { base_id: TARGET, table_id: cfg.id, count: 100 })
+  const recs = r.records?.fetched ?? r.records?.data ?? []
+  const vals = recs.flatMap((x) => Object.values(x?.data ?? x)).filter((v) => v === 'app_revision' || v === 'app_config')
+  for (const s of ['app_revision', 'app_config']) if (!vals.includes(s)) plan.push(`= Config row ${s}`)
+} else {
+  const seedRow = async (setting, value) => {
+    await api('PUT', '/records', {
+      base_id: TARGET, table_id: cfg.id,
+      data: JSON.stringify({ [settingId]: setting, [valueId]: value }),
+      criteria: `"Setting" = "${setting}"`,
+      is_upsert_needed: true, is_ids_used_in_data: true,
+    })
+    console.log(`= Config row ${setting}`)
+  }
+  await seedRow('app_revision', '0')
+  await seedRow('app_config', '{}')
+  save()
 }
-await seedRow('app_revision', '0')
-await seedRow('app_config', '{}')
-save()
-console.log('top-up complete →', STATE_F)
+
+if (DRY) {
+  console.log(`\ndry run against ${TARGET} — nothing was written. ${plan.length} item(s) to sync:`)
+  for (const p of plan) console.log('  ' + p)
+  if (!plan.length) console.log('  (nothing to do — the base is fully synced)')
+  process.exit(0)
+}
+
+console.log('sync complete →', STATE_F)
+
+// regenerate the committed schema so every synced base ships together — the manual
+// step the roadmap's Task 12 prescribed, made automatic so it can't be forgotten.
+// The generated default follows the checkout's .env (the base local dev runs in),
+// falling back to the shell and then to this target when neither names one.
+let dotEnv = {}
+if (existsSync(join(CW, '.env'))) dotEnv = readEnv(join(CW, '.env'))
+const regen = spawnSync('node', [join(ROOT, 'gen-base-schema.mjs')], {
+  env: { ...process.env, ZOHO_BASE_ID: process.env.ZOHO_BASE_ID || dotEnv.ZOHO_BASE_ID || TARGET },
+  stdio: 'inherit',
+})
+if (regen.status !== 0) {
+  console.error('! schema regeneration FAILED — run scripts/zoho/gen-base-schema.mjs by hand before committing')
+  process.exit(1)
+}
