@@ -98,7 +98,7 @@ export function assembleState(schema: typeof T, rows: SnapshotRows): Assembled {
 
 /** Reads every mapped table (App ID + Data JSON only) and assembles the snapshot. */
 export async function readSnapshot(zoho: ZohoClient): Promise<Assembled> {
-  return (await sweepTables(zoho, null, new Set())).snap
+  return (await sweepTables(zoho, null, new Set(), null)).snap
 }
 
 // ---- the substrate cache: rows held across sweeps, deltas off the watermarks ----
@@ -180,11 +180,18 @@ function mergeById(base: ZohoRecord[], incoming: ZohoRecord[], appIdField: strin
  * buckets over the Data JSON, the one criteria form the live probe found
  * working) off the substrate otherwise, merging by App ID. Config reads LAST:
  * it carries the revision the caller is returned and the gate compares against.
+ *
+ * `fast` (non-null) is the own-commit fast path: a Set of the table keys one of
+ * this process's commits touched, proved by the caller to be the ONLY write
+ * between the substrate and the gate. Tables outside the set are copied from
+ * the substrate unread — watermark and clock carried for delta tables — while
+ * Counters and Config still read (every commit writes them).
  */
 async function sweepTables(
   zoho: ZohoClient,
   entry: SweepCache | null,
   forceFull: ReadonlySet<string>,
+  fast: ReadonlySet<string> | null,
 ): Promise<Swept> {
   const schema = T
   const rows: SnapshotRows = {}
@@ -203,6 +210,14 @@ async function sweepTables(
       // order_lines and anything else not in COLLECTIONS is fetched-then-discarded
       // otherwise — a read budget is spent for rows the state can never hold.
       if (!table || !stateKeyFor(supa)) return
+      if (fast !== null && !fast.has(supa) && entry) {
+        rows[supa] = entry.rows[supa] ?? []
+        if (isDeltaKey(supa)) {
+          watermarks[supa] = entry.watermarks[supa]
+          lastFullAt[supa] = entry.lastFullAt[supa] // no read — the clock stands
+        }
+        return
+      }
       if (isDeltaKey(supa)) {
         if (canDelta(supa)) {
           try {
@@ -264,6 +279,11 @@ interface SweepCache {
   watermarks: { ledger?: string; audits?: string }
   /** When each delta table was last full-read — the reconciliation clock. */
   lastFullAt: Partial<Record<DeltaKey, number>>
+  /** When EVERY table's rows were last read whole — a full sweep's timestamp,
+   *  PRESERVED through fast-path installs (they refresh only what they re-read).
+   *  Bounds how long a Zoho-UI hand edit — which moves no revision — can stay
+   *  invisible through a run of own-commit fast paths. */
+  verifiedAt: number
   /** Null after a foreign invalidate: the substrate still deltas, the assembled
    *  state never serves again. */
   snap: Assembled | null
@@ -288,15 +308,16 @@ let lastKnownRevision: { baseId: string; value: string } | null = null
 let pendingHints: { baseId: string; forceFull: Set<string>; touched: Set<string> } | null = null
 
 /**
- * Commits this process applied whose route-level invalidations are still
- * pending, token → base. A marker, not a log: each entry dies the moment its
- * invalidate arrives or a sweep installs past it. More than one can be
- * outstanding because the commit mutex serializes the WRITES, not the route
- * handlers around them — request A's invalidate(T1) can land after request B's
- * commit already minted T2, and T1 must still read as our own, not as a foreign
- * token that would roll lastKnownRevision backwards and force-full both delta
- * tables for nothing. Bounded FIFO — a token that outlives 32 later commits was
- * dropped by its own route long before this matters.
+ * Commits this process applied, token → base. Two things read it: the route's
+ * post-commit invalidate (is this token OURS, and therefore a no-op?) and the
+ * sweep's own-commit fast path (is the gate token ours?). The route's invalidate
+ * does NOT consume a marker — the fast path needs it to survive until a sweep
+ * installs at or past the token, which is what clears entries (plus the FIFO
+ * bound). More than one can be outstanding because the commit mutex serializes
+ * the WRITES, not the route handlers around them — request A's invalidate(T1)
+ * can land after request B's commit already minted T2, and T1 must still read
+ * as our own, not as a foreign token that would roll lastKnownRevision
+ * backwards and force-full both delta tables for nothing.
  */
 const ownTokens = new Map<string, string>()
 const revisionNumberOf = (token: string): number => parseInt(token, 10) || 0
@@ -337,7 +358,8 @@ export function noteRevision(baseId: string, value: string): void {
  * the commit DELETED, or ledger rows it wrote with an `at` under the watermark
  * (PM receipts backdate), would otherwise stay invisible until the
  * reconciliation clock. `touchedTables` is the own-commit fast path's re-sweep
- * set (Fix 2c — stored now, consumed then).
+ * set: when the next sweep's gate is this commit's own token, proved the only
+ * write in between, just those tables (plus Counters and Config) are read.
  */
 export interface CommitHints {
   removedTables: string[]
@@ -349,8 +371,8 @@ export interface CommitHints {
  * Files a commit's hints at its bump. The token is remembered so the route's
  * post-commit invalidate(token) is the no-op it should be: this process's own
  * commit does not spend the substrate — its rows land at `at` = now, ahead of
- * the watermark, where the next delta finds them; only the hints' blind spots
- * need flagging.
+ * the watermark, where the next delta finds them — and so the sweep that
+ * follows can recognize the gate as its own and fast-path off the touched set.
  */
 export function noteCommitApplied(baseId: string, token: string, hints: CommitHints): void {
   ownTokens.set(token, baseId)
@@ -406,10 +428,10 @@ const REVISION_MEMO_TTL_MS = 4_000
  * switch) — forget everything.
  */
 export function invalidateSnapshotCache(nowAt?: string): void {
-  if (nowAt !== undefined && ownTokens.has(nowAt)) {
-    ownTokens.delete(nowAt)
-    return
-  }
+  // the marker is deliberately NOT consumed here: the fast path needs it until a
+  // sweep installs at or past the token. Clearing happens there (and at the
+  // FIFO bound), so the route's invalidate stays a pure no-op for the cache.
+  if (nowAt !== undefined && ownTokens.has(nowAt)) return
   const baseId = cached?.baseId ?? lastKnownRevision?.baseId
   if (nowAt === undefined || !baseId) {
     cached = null
@@ -450,7 +472,23 @@ async function runSweep(zoho: ZohoClient, gate: string): Promise<Assembled> {
   const drained = drainHints(zoho.baseId)
   let installed = false
   try {
-    const built = await sweepTables(zoho, entry, drained.forceFull)
+    // The own-commit fast path's proof, all three parts or nothing: the gate
+    // token is one of this process's outstanding bumps (our commit is the newest
+    // write), its number is EXACTLY the substrate's + 1 (no other commit — ours
+    // or foreign — bumped in between; a foreign commit that did breaks the
+    // arithmetic and the sweep full-reads, catching its collection writes), and
+    // the substrate is inside the reconciliation clock (a Zoho-UI hand edit
+    // moves no revision at all, so freshness is the only bound on how long one
+    // can stay invisible through a run of fast paths).
+    const gateNum = revisionNumberOf(gate)
+    const fast =
+      entry &&
+      ownTokens.has(gate) &&
+      revisionNumberOf(entry.revision) + 1 === gateNum &&
+      Date.now() - entry.verifiedAt < FULL_REREAD_MS
+        ? drained.touched
+        : null
+    const built = await sweepTables(zoho, entry, drained.forceFull, fast)
     if (built.snap.revision === gate) {
       cached = {
         baseId: zoho.baseId,
@@ -458,6 +496,9 @@ async function runSweep(zoho: ZohoClient, gate: string): Promise<Assembled> {
         rows: built.rows,
         watermarks: built.watermarks,
         lastFullAt: built.lastFullAt,
+        // a fast install refreshed only what it re-read — the untouched rows'
+        // read age stands, so the clock keeps ticking from the last FULL sweep
+        verifiedAt: fast !== null && entry ? entry.verifiedAt : Date.now(),
         snap: built.snap,
       }
       // the substrate has caught up with (or passed) every own token at or below

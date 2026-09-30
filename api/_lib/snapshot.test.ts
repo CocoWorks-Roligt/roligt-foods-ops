@@ -216,6 +216,11 @@ describe('delta sweep — the substrate cache deltas off the watermarks', () => 
     recordID: 'z-' + id,
     data: { [AUD.appId]: id, [AUD.dataJson!]: JSON.stringify({ id, at, action: 'posted', actor: 'a@b.c', doc: 'D-1', details: '' }) },
   })
+  const VEND = LIVE_T['Vendors']
+  const venRow = (id: string, name: string): ZohoRecord => ({
+    recordID: 'z-' + id,
+    data: { [VEND.appId]: id, [VEND.dataJson!]: JSON.stringify({ id, name }) },
+  })
 
   /**
    * A fake holding live-schema rows in a mutable store: fetchAll reads the whole
@@ -227,7 +232,7 @@ describe('delta sweep — the substrate cache deltas off the watermarks', () => 
    * return, so a test can move the base mid-sweep.
    */
   const fakeDelta = (opts: {
-    rev: () => number
+    rev: () => string | number
     ledger?: ZohoRecord[]
     audits?: ZohoRecord[]
     onFetchAll?: (tableId: string) => void
@@ -464,6 +469,100 @@ describe('delta sweep — the substrate cache deltas off the watermarks', () => 
     expect(snap.revision).toBe('7')
     expect(f.calls.fetchAll[LED.id] ?? 0).toBe(ledFull) // served the intact snap — no forced full
     expect(f.calls.fetchSince[LED.id] ?? 0).toBe(0)
+  })
+
+  it('the own-commit fast path reads only what the commit touched — the untouched substrate serves the rest', async () => {
+    let rev: string | number = 7
+    const f = fakeDelta({
+      rev: () => rev,
+      ledger: [ledRow('L1', '2026-09-30T08:00:00.000Z')],
+      audits: [audRow('A1', '2026-09-30T08:00:00.000Z')],
+    })
+    f.store[VEND.id] = [venRow('V1', 'Sriram')]
+    const s1 = await readSnapshotCached(f.zoho)
+    expect(s1.state?.vendors?.length).toBe(1)
+    // this process commits the moveStock shape — ledger lines and an audit row,
+    // no collection behind them; vendors and every other master stand untouched
+    noteRevision('base-test', '8:own') // commitChanges notes its bump first
+    noteCommitApplied('base-test', '8:own', { removedTables: [], backdatedLedger: false, touchedTables: ['ledger', 'audits'] })
+    invalidateSnapshotCache('8:own') // the route's invalidate: no-op, the marker survives
+    rev = '8:own'
+    f.store[LED.id]!.push(ledRow('L2', '2026-09-30T08:30:00.000Z', 7))
+    f.store[AUD.id]!.push(audRow('A2', '2026-09-30T08:30:00.000Z'))
+    const s2 = await readSnapshotCached(f.zoho)
+    expect(s2.revision).toBe('8:own')
+    expect(s2.state?.ledger?.length).toBe(2) // the touched delta table still delta'd
+    expect(s2.state?.audits?.length).toBe(2)
+    expect(s2.state?.vendors?.[0]?.name).toBe('Sriram') // the untouched collection served from the substrate
+    expect(f.calls.fetchSince[LED.id]).toBe(1)
+    expect(f.calls.fetchSince[AUD.id]).toBe(1)
+    expect(f.calls.fetchAll[LED.id]).toBe(1) // never full-read again
+    expect(f.calls.fetchAll[VEND.id]).toBe(1) // and vendors was not read at all
+    const s3 = await readSnapshotCached(f.zoho)
+    expect(s3).toBe(s2) // the fast install serves the next caller outright
+  })
+
+  it('two own commits since the substrate break the proof — the sweep full-reads instead', async () => {
+    let rev: string | number = 7
+    const f = fakeDelta({ rev: () => rev, ledger: [ledRow('L1', '2026-09-30T08:00:00.000Z')] })
+    f.store[VEND.id] = [venRow('V1', 'Sriram')]
+    await readSnapshotCached(f.zoho)
+    noteRevision('base-test', '8:a')
+    noteCommitApplied('base-test', '8:a', { removedTables: [], backdatedLedger: false, touchedTables: ['ledger'] })
+    noteRevision('base-test', '9:b')
+    noteCommitApplied('base-test', '9:b', { removedTables: [], backdatedLedger: false, touchedTables: ['ledger'] })
+    invalidateSnapshotCache('9:b')
+    rev = '9:b'
+    const s2 = await readSnapshotCached(f.zoho)
+    expect(s2.revision).toBe('9:b')
+    // gate 9 = substrate 7 + 2: the touched set names one commit's tables, not
+    // the union of two — the middle commit's writes are not proven covered
+    expect(f.calls.fetchAll[VEND.id]).toBe(2)
+  })
+
+  it('a foreign bump between the substrate and our own commit disqualifies the fast path — the arithmetic catches it', async () => {
+    let rev: string | number = 7
+    const f = fakeDelta({ rev: () => rev, ledger: [ledRow('L1', '2026-09-30T08:00:00.000Z')] })
+    f.store[VEND.id] = [venRow('V1', 'Sriram')]
+    await readSnapshotCached(f.zoho)
+    // a colleague's instance committed (8), then ours read THEIR revision and
+    // bumped to 9 — the gate is our own token, but the base moved twice since
+    // the substrate and only one of those moves is ours
+    noteRevision('base-test', '9:own')
+    noteCommitApplied('base-test', '9:own', { removedTables: [], backdatedLedger: false, touchedTables: ['ledger'] })
+    invalidateSnapshotCache('9:own')
+    rev = '9:own'
+    const s2 = await readSnapshotCached(f.zoho)
+    expect(s2.revision).toBe('9:own')
+    expect(f.calls.fetchAll[VEND.id]).toBe(2) // full sweep — the colleague's vendor edit is read
+  })
+
+  it('the reconciliation clock gates the fast path — verifiedAt survives fast installs, so hand edits cannot outlive five minutes', async () => {
+    vi.useFakeTimers()
+    try {
+      let rev: string | number = 7
+      const f = fakeDelta({ rev: () => rev, ledger: [ledRow('L1', '2026-09-30T08:00:00.000Z')] })
+      f.store[VEND.id] = [venRow('V1', 'Sriram')]
+      await readSnapshotCached(f.zoho) // the full sweep — verifiedAt = now
+      const own = (token: string) => {
+        noteRevision('base-test', token)
+        noteCommitApplied('base-test', token, { removedTables: [], backdatedLedger: false, touchedTables: ['ledger'] })
+        rev = token
+      }
+      own('8:one')
+      await readSnapshotCached(f.zoho) // fast — verifiedAt PRESERVED through the install
+      vi.setSystemTime(Date.now() + 4 * 60_000)
+      own('9:two')
+      await readSnapshotCached(f.zoho) // 4min since the last FULL sweep: fast again
+      expect(f.calls.fetchAll[VEND.id]).toBe(1) // still never re-read
+      vi.setSystemTime(Date.now() + 2 * 60_000) // 6min past the last FULL sweep
+      own('10:three')
+      const s = await readSnapshotCached(f.zoho)
+      expect(s.revision).toBe('10:three')
+      expect(f.calls.fetchAll[VEND.id]).toBe(2) // the clock refused the fast path
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('cachedLedgerWatermark: null cold, the watermark once installed, null for another base', async () => {

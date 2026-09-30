@@ -734,4 +734,24 @@ describe('commit hints → the snapshot substrate', () => {
     expect(calls.fetchSince[led.id]).toBe(1) // the delta served this sweep
     expect(calls.fetchAll[led.id]).toBe(1) // and no second full read happened
   })
+
+  it('a real commit arms the fast path — the next sweep reads only the touched tables', async () => {
+    const { zoho, calls } = fakeZoho([revRow('7'), ledSeed('L0', '2026-09-21T08:00:00Z')])
+    await readSnapshotCached(zoho) // the cold full sweep
+    expect(calls.fetchAll[led.id]).toBe(1)
+    expect(calls.fetchAll[T['Vendors'].id]).toBe(1)
+    // commitChanges mints the token, notes it, and files the touched tables —
+    // the fake's keyed upsert lands the revision row too, so the next gate read
+    // returns this process's own token
+    await commitChanges(zoho, admin, NORMAL) // ledger + audits, normally dated
+    // the commit's own link-map enrichment reads vendors once (linkMemo was
+    // cold) — the count AFTER it is the baseline the sweep must not move
+    const vendReads = calls.fetchAll[T['Vendors'].id] ?? 0
+    const snap = await readSnapshotCached(zoho)
+    expect(snap.revision).toMatch(/^8:/)
+    expect(snap.state?.ledger?.length).toBe(2) // the fresh line is there
+    expect(calls.fetchSince[led.id]).toBe(1) // the touched table delta'd
+    expect(calls.fetchAll[led.id]).toBe(1) // never full-read again
+    expect(calls.fetchAll[T['Vendors'].id]).toBe(vendReads) // the fast sweep read it not at all
+  })
 })
