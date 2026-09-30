@@ -6,6 +6,7 @@ import { allowedPages, pageScope, PAGE_CATALOG, type PageRow } from '../lib/page
 import { useSessionPermissions } from '../lib/sessionPermissions'
 import { PAGES } from '../lib/utils'
 import type { ViewId } from '../types'
+import { RouteErrorBoundary } from './ErrorBoundary'
 import {
   CloseIcon,
   DashboardIcon,
@@ -299,16 +300,22 @@ export function Layout() {
         <div className="content">
           {/* Route chunks load on first navigation (see App.tsx); the boundary
               sits inside Layout so the nav, offline bar and header stay mounted
-              while one lands. Same look as the boot gate in App.tsx. */}
-          <Suspense
-            fallback={
-              <div className="empty" style={{ minHeight: '40vh', display: 'grid', placeItems: 'center' }}>
-                Loading…
-              </div>
-            }
-          >
-            <Outlet />
-          </Suspense>
+              while one lands. Same look as the boot gate in App.tsx. The error
+              boundary sits outside the Suspense for the same reason it sits
+              inside Layout: a page that throws is replaced by its card while
+              everything around this div — the nav a way out needs included —
+              keeps rendering. */}
+          <RouteErrorBoundary>
+            <Suspense
+              fallback={
+                <div className="empty" style={{ minHeight: '40vh', display: 'grid', placeItems: 'center' }}>
+                  Loading…
+                </div>
+              }
+            >
+              <Outlet />
+            </Suspense>
+          </RouteErrorBoundary>
         </div>
       </main>
 

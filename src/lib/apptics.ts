@@ -18,7 +18,12 @@ export const APPTICS_CONFIGURED = Boolean(
 )
 
 /** The event vocabulary — a union so a typo at a call site is a compile error. */
-export type AppticsEventName = 'db_commit' | 'db_throttled' | 'session_expired' | 'connectivity'
+export type AppticsEventName =
+  | 'db_commit'
+  | 'db_throttled'
+  | 'session_expired'
+  | 'connectivity'
+  | 'render_error'
 
 let started = false
 let ready = false
