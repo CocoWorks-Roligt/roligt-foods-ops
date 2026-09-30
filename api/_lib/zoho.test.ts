@@ -218,4 +218,102 @@ describe('ZohoClient', () => {
       vi.useRealTimers()
     }
   })
+
+  // ---- the split read budget: sweeps self-restrain, interactive keeps its slots ----
+
+  it('a sweep past its cap waits for its own window while an interactive read walks through', async () => {
+    vi.useFakeTimers()
+    try {
+      const calls: { url: string; init?: RequestInit }[] = []
+      const empty = { body: { records: { fetched: [] } } }
+      const c = new ZohoClient({
+        fetchImpl: fakeFetch(calls, Array.from({ length: 8 }, () => empty)),
+        env: ENV,
+        sweepReadsPerMin: 3,
+      })
+      for (let i = 0; i < 3; i++) await c.fetchAll('T1', { scope: 'sweep' }) // sweep window spent at t0
+      // the 4th sweep read sleeps out its own window — it does NOT throw, and it
+      // does NOT reach the wire yet
+      const fourth = c.fetchAll('T1', { scope: 'sweep' })
+      await Promise.resolve()
+      const before = calls.filter((x) => !x.url.startsWith('https://accounts')).length
+      // an interactive read lands immediately: the global 26 still has 23 slots
+      await c.fetchByKeyIn('T1', 'F', ['K'])
+      expect(calls.filter((x) => !x.url.startsWith('https://accounts')).length).toBe(before + 1)
+      // the window slides and the parked sweep read completes — pacing alone never throws
+      await vi.advanceTimersByTimeAsync(61_000)
+      await fourth
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('sweep reads count against the global 26 too — the shared window is unchanged', async () => {
+    vi.useFakeTimers()
+    try {
+      const calls: { url: string; init?: RequestInit }[] = []
+      const empty = { body: { records: { fetched: [] } } }
+      const c = new ZohoClient({
+        fetchImpl: fakeFetch(calls, Array.from({ length: 27 }, () => empty)),
+        env: ENV,
+        sweepReadsPerMin: 18,
+        maxWaitMs: 1_000,
+      })
+      // 18 sweeps + 8 interactive = the whole global window at t0
+      for (let i = 0; i < 18; i++) await c.fetchAll('T1', { scope: 'sweep' })
+      for (let i = 0; i < 8; i++) await c.fetchAll('T1')
+      vi.setSystemTime(Date.now() + 59_000)
+      // the 27th read — interactive — fails fast exactly as it always did
+      const err: unknown = await c.fetchAll('T1').catch((e) => e)
+      expect(err).toBeInstanceOf(ZohoLockedError)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // ---- fetchSince: the delta read behind the snapshot sweep ----
+
+  it('fetchSince sends the field-ID >= watermark criteria with the params flag, paged by cursor', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const c = new ZohoClient({
+      fetchImpl: fakeFetch(calls, [
+        { body: { records: { fetched: [
+          { recordID: 'r1', data: { FAPP: 'L1' } }, { recordID: 'r2', data: { FAPP: 'L2' } }, { recordID: 'r3', data: { FAPP: 'L3' } },
+        ] } } },
+        { body: { records: { fetched: [] } } },
+      ]),
+      env: ENV,
+      page: 3,
+    })
+    const out = await c.fetchSince('LEDGER', 'Qz8axw', '2026-09-30T08:00:00.000Z', { scope: 'sweep' })
+    expect(out.map((r) => r.data.FAPP)).toEqual(['L1', 'L2', 'L3'])
+    const pages = calls.filter((x) => x.url.includes('/fetchRecordsWithCriteria'))
+    expect(pages).toHaveLength(2) // paged to a short page, like fetchAll
+    const first = new URL(pages[0]!.url)
+    expect(first.searchParams.get('criteria')).toBe('"Qz8axw" >= "2026-09-30T08:00:00.000Z"')
+    // without the flag a field-ID criteria answers HTTP 200 wrapping INTERNAL SERVER
+    // ERROR (pinned live 2026-09-28) — the delta read would look like "no rows"
+    expect(first.searchParams.get('is_ids_used_in_params')).toBe('true')
+    expect(new URL(pages[1]!.url).searchParams.get('reference_record_id')).toBe('r3')
+  })
+
+  it('fetchSince refuses a watermark containing a quote — no silently-broken criteria', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const c = new ZohoClient({ fetchImpl: fakeFetch(calls, []), env: ENV })
+    await expect(c.fetchSince('T1', 'Qz8axw', 'bad"mark')).rejects.toThrow(/quote/)
+    expect(calls.filter((x) => !x.url.startsWith('https://accounts'))).toHaveLength(0)
+  })
+
+  it('fetchSince propagates a wrapped INTERNAL SERVER ERROR as a loud failure, never as empty', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const c = new ZohoClient({
+      fetchImpl: fakeFetch(calls, [
+        { body: { error: { code: 500, message: 'INTERNAL SERVER ERROR' } } }, // HTTP 200 wrapping failure
+      ]),
+      env: ENV,
+    })
+    // a delta read that silently read as "nothing new" would cache a watermark the
+    // rows behind it never reached — the sweep must fail loudly and fall back
+    await expect(c.fetchSince('T1', 'Qz8axw', '2026-09-30T08:00:00.000Z')).rejects.toBeInstanceOf(ZohoApiError)
+  })
 })

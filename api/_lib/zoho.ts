@@ -6,6 +6,9 @@
  *     the plant stops. So every call goes through the budget (26 reads, 17 writes per
  *     minute, under the published 30/20 — never raised) and a lock response becomes
  *     ZohoLockedError, which the commit endpoint surfaces as 503 + Retry-After.
+ *     Reads are split into interactive and sweep pools (see ReadScope): the same
+ *     global 26/min, with sweep reads self-capped at 18/min so the revision poll
+ *     and commit pre-flights always have slots of their own.
  *  2. Writes are upserts keyed by a business key (App ID, Series, Setting), never blind
  *     creates — a retried commit after a partial failure re-writes the same row instead
  *     of duplicating a ledger line.
@@ -33,30 +36,62 @@ export class ZohoLockedError extends Error {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+/**
+ * Which pool a read draws on. `interactive` is everything a person or a poll
+ * waits on — the revision poll, commit pre-flights, admin reads — and it keeps
+ * today's contract exactly (global 26/min, fail fast past maxWaitMs). `sweep` is
+ * the snapshot's full-table reads: they also count against the global 26, but a
+ * sweep read additionally admits into a self-restraint window capped at 18/min,
+ * so interactive traffic is guaranteed at least 8 slots of every rolling minute
+ * no matter how long a sweep runs. A sweep may wait up to 75s for its turn —
+ * long enough that pacing alone (waiting for its own window to slide) never
+ * throws, short enough to answer 503 + Retry-After when interactive traffic
+ * genuinely starves it.
+ */
+export type ReadScope = 'interactive' | 'sweep'
+
 class Budget {
   private hits: number[] = []
   private readonly max: number
   /** Waiting past this is somebody else's next request, not this one's turn. */
   private readonly maxWaitMs: number
-  constructor(max: number, maxWaitMs = 60_000) {
+  /** Sweep self-restraint: null on a budget that is not split (the writes
+   * budget), set on the reads budget. See ReadScope. */
+  private readonly sweepMax: number | null
+  private sweepHits: number[] = []
+  private readonly sweepMaxWaitMs: number
+  constructor(max: number, maxWaitMs = 60_000, sweep: { max: number; maxWaitMs: number } | null = null) {
     this.max = max
     this.maxWaitMs = maxWaitMs
+    this.sweepMax = sweep?.max ?? null
+    this.sweepMaxWaitMs = sweep?.maxWaitMs ?? maxWaitMs
   }
-  async take(): Promise<void> {
+  async take(scope: ReadScope = 'interactive'): Promise<void> {
     for (;;) {
       const now = Date.now()
       this.hits = this.hits.filter((t) => now - t < 60_000)
-      if (this.hits.length < this.max) {
+      if (scope === 'sweep' && this.sweepMax !== null) {
+        this.sweepHits = this.sweepHits.filter((t) => now - t < 60_000)
+      }
+      const globalFull = this.hits.length >= this.max
+      const sweepFull = scope === 'sweep' && this.sweepMax !== null && this.sweepHits.length >= this.sweepMax
+      if (!globalFull && !sweepFull) {
         this.hits.push(now)
+        if (scope === 'sweep' && this.sweepMax !== null) this.sweepHits.push(now)
         return
       }
-      const waitMs = this.hits[0]! + 60_000 - now + 25
+      // the earliest each full window frees a slot (25ms grace past the slide)
+      const waitMs = Math.max(
+        globalFull ? this.hits[0]! + 60_000 - now + 25 : 0,
+        sweepFull ? this.sweepHits[0]! + 60_000 - now + 25 : 0,
+      )
       // Sleeping to the front of the next minute is only honest inside a caller
       // that will still be alive when the wait ends. A serverless function with
       // a platform timeout would be killed mid-sleep, half-applied, with the
       // client none the wiser — better to hand the caller a retryable "busy"
       // (ZohoLockedError already maps to 503 + Retry-After) than a silent death.
-      if (waitMs > this.maxWaitMs) {
+      const patience = scope === 'sweep' ? this.sweepMaxWaitMs : this.maxWaitMs
+      if (waitMs > patience) {
         throw new ZohoLockedError(Math.ceil(waitMs / 1000) + 5)
       }
       await sleep(waitMs)
@@ -75,6 +110,13 @@ interface ClientOpts {
   /** HTTP calls allowed in flight at once; default 6. Caps the burst the pool
    *  can put on the wire — the per-minute budgets stay 26/17 whatever this is. */
   maxInflight?: number
+  /** Sweep reads per minute inside the global read budget; default 18 (so
+   *  interactive traffic is guaranteed the remaining ≥8 of 26). Test override —
+   *  the production cap is a settled number, never raised past 26. */
+  sweepReadsPerMin?: number
+  /** Longest a sweep read may wait for budget; default 75s — past the 60s
+   *  window slide, so pacing alone never throws, but bounded for 503s. */
+  sweepMaxWaitMs?: number
 }
 
 export class ZohoClient {
@@ -98,7 +140,10 @@ export class ZohoClient {
     this.env = opts.env ?? process.env
     this.baseId = opts.baseId ?? this.env.ZOHO_BASE_ID ?? ''
     this.page = opts.page ?? 1000
-    this.reads = new Budget(26, opts.maxWaitMs ?? 60_000)
+    this.reads = new Budget(26, opts.maxWaitMs ?? 60_000, {
+      max: opts.sweepReadsPerMin ?? 18,
+      maxWaitMs: opts.sweepMaxWaitMs ?? 75_000,
+    })
     this.writes = new Budget(17, opts.maxWaitMs ?? 60_000)
     this.maxInflight = opts.maxInflight ?? 6
   }
@@ -164,9 +209,10 @@ export class ZohoClient {
     method: 'GET' | 'POST' | 'PUT' | 'DELETE',
     path: string,
     params: Record<string, string | number | boolean | undefined>,
+    scope: ReadScope = 'interactive',
   ): Promise<unknown> {
     const run = async () => {
-      await (kind === 'read' ? this.reads : this.writes).take()
+      await (kind === 'read' ? this.reads.take(scope) : this.writes.take())
       await this.acquire()
       try {
         return await this.transact(method, path, params)
@@ -231,17 +277,71 @@ export class ZohoClient {
    * `field_ids` is refused with 400 BAD REQUEST in every shape tried (JSON array
    * string and comma list, 2026-09-22 against the scratch base) while the same call
    * without it returns 200 — so callers pick their fields out of `data` by field id.
+   * `scope` decides which read pool the pages draw on — a snapshot sweep passes
+   * 'sweep' so its bulk reads cannot starve the poll and the pre-flights.
    */
-  async fetchAll(tableId: string): Promise<ZohoRecord[]> {
+  async fetchAll(tableId: string, opts: { scope?: ReadScope } = {}): Promise<ZohoRecord[]> {
     const out: ZohoRecord[] = []
     let cursor: string | undefined
     for (;;) {
-      const j = (await this.call('read', 'POST', '/fetchRecordsWithCriteria', {
-        base_id: this.baseId,
-        table_id: tableId,
-        count: this.page,
-        ...(cursor ? { reference_record_id: cursor } : {}),
-      })) as Record<string, any>
+      const j = (await this.call(
+        'read',
+        'POST',
+        '/fetchRecordsWithCriteria',
+        {
+          base_id: this.baseId,
+          table_id: tableId,
+          count: this.page,
+          ...(cursor ? { reference_record_id: cursor } : {}),
+        },
+        opts.scope,
+      )) as Record<string, any>
+      const page = recordsFrom(j)
+      out.push(...page)
+      if (page.length < this.page) return out
+      cursor = page[page.length - 1]!.recordID
+    }
+  }
+
+  /**
+   * The rows whose Time column sits at or past a watermark — the delta read behind
+   * the snapshot sweep, so a 100,000-line ledger costs one read instead of a
+   * hundred. Same transport and paging as fetchAll; the criteria is the one form
+   * the live probe pinned for field-ID criteria (`>=` range form probed against
+   * the scratch base before this shipped — see the probe notes in the repo docs),
+   * with `is_ids_used_in_params: true` because without it Zoho parses the criteria
+   * as field NAMES and answers HTTP 200 wrapping INTERNAL SERVER ERROR. The
+   * watermark is the max `at` already held (`>=` so a row landing exactly on the
+   * watermark re-merges — the merge is idempotent by App ID).
+   */
+  async fetchSince(
+    tableId: string,
+    timeFieldId: string,
+    sinceISO: string,
+    opts: { scope?: ReadScope } = {},
+  ): Promise<ZohoRecord[]> {
+    // same guard as upsertByKey: a quote or backslash in the watermark would break
+    // the criteria silently — matching nothing, or worse, everything
+    if (/["\\]/.test(sinceISO)) {
+      throw new ZohoApiError('fetchSince', 0, `watermark must not contain quotes or backslashes: ${sinceISO.slice(0, 60)}`)
+    }
+    const out: ZohoRecord[] = []
+    let cursor: string | undefined
+    for (;;) {
+      const j = (await this.call(
+        'read',
+        'POST',
+        '/fetchRecordsWithCriteria',
+        {
+          base_id: this.baseId,
+          table_id: tableId,
+          count: this.page,
+          criteria: `"${timeFieldId}" >= "${sinceISO}"`,
+          is_ids_used_in_params: true,
+          ...(cursor ? { reference_record_id: cursor } : {}),
+        },
+        opts.scope,
+      )) as Record<string, any>
       const page = recordsFrom(j)
       out.push(...page)
       if (page.length < this.page) return out
