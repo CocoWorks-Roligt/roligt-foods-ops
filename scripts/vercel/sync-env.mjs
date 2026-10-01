@@ -3,8 +3,10 @@
  * Mirrors the checkout's env into a Vercel environment — one command instead of a
  * morning of `vercel env add` by hand, with the plant's rules baked in: only the
  * BFF's own keys ever sync, the local-harness flags and the Supabase keys never do,
- * Apptics stays out of Production, and Production itself takes a typed
- * `--production production` and refuses to run half-configured.
+ * Production Apptics arrives only from an explicit --from file (the local mirror
+ * carries the Development identifier and must never reach Production), and
+ * Production itself takes a typed `--production production` and refuses to run
+ * half-configured.
  *
  * usage: node scripts/vercel/sync-env.mjs <development|preview|production>
  *          [--dry-run] [--from <file>] [--replace] [--production production]
@@ -62,7 +64,10 @@ if (FROM) {
   for (const f of ['.env', '.env.local']) if (existsSync(join(ROOT, f))) Object.assign(src, readEnv(join(ROOT, f)))
 }
 
-const names = [...BFF_KEYS, ...OPTIONAL_KEYS, ...(TARGET === 'production' ? [] : APPTICS_KEYS)]
+// Production Apptics has its own identifier (aaID), minted in the console under the
+// Production environment — the one in .env.local is Development's. So the mirror
+// never carries Apptics into Production; only a deliberate --from file may.
+const names = [...BFF_KEYS, ...OPTIONAL_KEYS, ...(TARGET === 'production' && !FROM ? [] : APPTICS_KEYS)]
 for (const k of REFUSED_KEYS) if (src[k]) console.log(`  ! ${k} present in source — REFUSED, it never leaves this checkout`)
 for (const k of Object.keys(src)) if (REFUSED_PATTERN.test(k)) console.log(`  ! ${k} present in source — REFUSED (Supabase retirement is manual)`)
 
