@@ -447,8 +447,10 @@ function RolesDialog({
   onSave: (body: { action: 'set-roles'; membershipId: string; roleSlugs: string[] }) => void
 }) {
   // Chips, not a Select: a membership can carry several roles, and the whole
-  // point of the multiple-roles setting is composing them.
-  const [held, setHeld] = useState<Set<string>>(new Set(user.roles))
+  // point of the multiple-roles setting is composing them. Seeded with only the
+  // roles this dialog offers — an operator-tier membership carries the default
+  // `member` slug, which has no chip and must not ride along on every save.
+  const [held, setHeld] = useState<Set<string>>(new Set(user.roles.filter((s) => roleSlugs.includes(s))))
   const toggle = (slug: string) => {
     setHeld((prev) => {
       const next = new Set(prev)

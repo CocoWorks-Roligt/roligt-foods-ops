@@ -64,23 +64,56 @@ export async function listOrgUsers(): Promise<AdminUserRow[]> {
 }
 
 /** Creates the user and their org membership in one action. No password —
- *  the person sets their own through a link minted right after (below). */
+ *  the person sets their own through a link minted right after (below).
+ *
+ *  Idempotent by design: the two calls can die between them (the 2026-10-05
+ *  production 502 — the user was created, the membership was refused), and the
+ *  half-created user is invisible in the member list yet blocks every retry
+ *  with "Could not create user." So a refused createUser adopts the existing
+ *  user by email, and a membership that already exists is kept rather than
+ *  duplicated — WorkOS accepts a second membership for the same user+org
+ *  (pinned against Staging 2026-10-05), so a blind create would stack one per
+ *  retry. */
 export async function createUserWithRoles(input: {
   email: string
   name?: string
   roleSlugs: string[]
 }): Promise<AdminUserRow['userId']> {
-  const user = await workos.userManagement.createUser({
-    email: input.email,
-    ...(input.name ? { name: input.name } : {}),
-  })
-  await workos.userManagement.createOrganizationMembership({
+  let userId: string
+  try {
+    const user = await workos.userManagement.createUser({
+      email: input.email,
+      ...(input.name ? { name: input.name } : {}),
+    })
+    userId = user.id
+  } catch (e) {
+    // A 4xx refusal is usually "the email already exists", but it could be
+    // anything — adopt the user only when the email resolves to exactly them.
+    const status = (e as { status?: number }).status
+    if (typeof status !== 'number' || status < 400 || status >= 500) throw e
+    const existing = (await workos.userManagement.listUsers({ email: input.email })).data.find(
+      (u) => u.email.toLowerCase() === input.email.toLowerCase(),
+    )
+    if (!existing) throw e
+    userId = existing.id
+  }
+  const memberships = await workos.userManagement.listOrganizationMemberships({
     organizationId: orgId(),
-    userId: user.id,
-    roleSlugs: input.roleSlugs,
+    userId,
   })
+  if (!memberships.data.length) {
+    await workos.userManagement.createOrganizationMembership({
+      organizationId: orgId(),
+      userId,
+      // An explicit empty array is refused (422 "The role is invalid." — the
+      // other half of the 2026-10-05 502, pinned against Staging); omitting the
+      // key gives the environment's default role instead, which carries no page
+      // permissions — the picker's "No role — the day's work only" tier.
+      ...(input.roleSlugs.length ? { roleSlugs: input.roleSlugs } : {}),
+    })
+  }
   invalidateMemberMirror()
-  return user.id
+  return userId
 }
 
 /**
@@ -137,7 +170,13 @@ export async function createPasswordResetLink(email: string): Promise<{ url: str
 }
 
 export async function setUserRoles(membershipId: string, roleSlugs: string[]): Promise<void> {
-  await workos.userManagement.updateOrganizationMembership(membershipId, { roleSlugs })
+  await workos.userManagement.updateOrganizationMembership(membershipId, {
+    // Empty is the operator tier, but the update call refuses an empty array
+    // just like the create does (422 "The role is invalid.", pinned against
+    // Staging 2026-10-05) — the tier is the environment's default `member`
+    // role, which is assignable and carries no page permissions.
+    roleSlugs: roleSlugs.length ? roleSlugs : ['member'],
+  })
 }
 
 export async function deactivateUser(membershipId: string): Promise<void> {
