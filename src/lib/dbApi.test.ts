@@ -200,10 +200,13 @@ describe('chunkChanges', () => {
     expect(chunks.reduce((a, c) => a + Object.keys(c.counters).length, 0)).toBe(2)
   })
 
-  it('keeps a ledger-heavy diff in one queue when rows cannot vouch for every tail chunk', () => {
-    // one collection row, 20 ledger lines: the tail needs two chunks but only
-    // one exists to vouch — fall back to the single queue (an admin diff; the
-    // UI never produces this shape)
+  it('re-sends a landed voucher row when the tail needs more chunks than it has collection rows', () => {
+    // one collection row, 21 tail writes — the ordinary shape of a single
+    // document whose ledger outgrew it (a packing run, a many-line dispatch).
+    // The tail needs two chunks but only one distinct voucher exists, so the
+    // same GRN opens both: its second send is an idempotent no-op server-side
+    // (the row landed with chunk 1), so nothing is written twice and a scoped
+    // caller's chunk 2 is not the ledger-only commit the BFF would 403.
     const changes: StateChanges = {
       tables: [
         { table: 'grns', upsert: grnRows(1), remove: [] },
@@ -213,9 +216,41 @@ describe('chunkChanges', () => {
       empty: false,
     }
     const chunks = chunkChanges(changes)
-    const rows = chunks.reduce((a, c) => a + c.tables.reduce((b, t) => b + t.upsert.length + t.remove.length, 0), 0)
-    expect(rows).toBe(21)
-    // counters and config still ride the final chunk, after every row
+    expect(chunks).toHaveLength(2)
+    for (const chunk of chunks) {
+      expect(writeCost(chunk)).toBeLessThanOrEqual(12)
+      expect(rowsIn(chunk, 'grns')).toBe(1) // the voucher opens every chunk
+    }
+    expect(chunks.reduce((a, c) => a + rowsIn(c, 'ledger'), 0)).toBe(20)
+    // counters travel after every row they number
     expect(Object.keys(chunks[chunks.length - 1]!.counters)).toEqual(['grn'])
+  })
+
+  it('never drops the counters when rows land on an exact chunk boundary', () => {
+    // the fallback shape (no collection row can vouch): 12 rows is exactly one
+    // chunk, and the counters used to be assigned to the fresh remainder chunk
+    // the final flush refused to push (used === 0) — every minted number
+    // silently dropped while saveDb reported ok
+    const changes: StateChanges = {
+      tables: [{ table: 'ledger', upsert: ledgerRows(12), remove: [] }],
+      counters: { grn: 2, 'period:grn': 'YYYY:2026' },
+      empty: false,
+    }
+    const chunks = chunkChanges(changes)
+    for (const chunk of chunks) expect(writeCost(chunk)).toBeLessThanOrEqual(12)
+    expect(chunks.reduce((a, c) => a + Object.keys(c.counters).length, 0)).toBe(2)
+    expect(chunks[chunks.length - 1]!.counters).toEqual({ grn: 2, 'period:grn': 'YYYY:2026' })
+  })
+
+  it('never drops a config change on an exact boundary either — it rides its own final chunk', () => {
+    const changes: StateChanges = {
+      tables: [{ table: 'ledger', upsert: ledgerRows(24), remove: [] }],
+      counters: {},
+      config: { testCategories: [] },
+      empty: false,
+    }
+    const chunks = chunkChanges(changes)
+    expect(chunks.map(writeCost)).toEqual([12, 12, 1])
+    expect(chunks[2]!.config).toEqual({ testCategories: [] })
   })
 })

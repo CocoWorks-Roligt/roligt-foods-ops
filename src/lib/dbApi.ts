@@ -119,8 +119,12 @@ export type SaveResult =
  * Chunks must also be legal on their own: the BFF lets a scoped caller write
  * ledger lines, audit rows and counters only in a commit that also carries a
  * collection row whose page they hold (the ride-along gate in api/_lib/commit.ts),
- * so the last collection rows are held back to open the tail chunks one each —
- * the queue never ends in ledger-only commits an operator would be refused for.
+ * so collection rows are held back to open the tail chunks — the queue never
+ * ends in ledger-only commits an operator would be refused for. One document's
+ * save often carries a ledger too long for the collection rows it has, so the
+ * reserved rows wrap and vouch again: an already-landed row re-sent as a
+ * voucher is skipped server-side as an idempotent no-op, costing a read, never
+ * a write.
  */
 const WRITES_PER_COMMIT = 12
 
@@ -146,10 +150,7 @@ export function chunkChanges(changes: StateChanges, size = WRITES_PER_COMMIT): S
   // gate vouches for are exactly the collection rows at the front
   const gateRows = items.filter((i) => GATE_TABLES.has(i.table))
   const rides = items.filter((i) => !GATE_TABLES.has(i.table))
-  // each tail chunk carries rides/counters/config plus one reserved collection
-  // row, so its ride-along share is at most size − 1 writes
-  const tailChunks = Math.max(1, Math.ceil((rides.length + tailWrites) / (size - 1)))
-  const spread = gateRows.length >= tailChunks
+  const tail = rides.length + tailWrites
 
   const chunks: StateChanges[] = []
   let current: StateChanges = { tables: [], counters: {}, empty: true }
@@ -175,41 +176,68 @@ export function chunkChanges(changes: StateChanges, size = WRITES_PER_COMMIT): S
     used++
   }
 
-  if (!spread) {
-    // not enough collection rows to vouch for the tail: keep the pre-spread
-    // shape — one queue, rows in order, counters and config riding the final
-    // chunk. Ledger-heavy diffs like this do not come out of the UI, and a fat
-    // last chunk still converges: every write is a keyed upsert, so a retry
-    // after a mid-chunk throttle re-sends the same keys and only writes what
-    // has not landed.
+  if (tail === 0) {
+    // nothing rides behind the rows — plain chunking
     for (const item of items) {
       addRow(item)
       if (used >= size) flush()
     }
-    current.counters = changes.counters
-    current.config = changes.config
+    flush()
+    return chunks
+  }
+
+  if (gateRows.length === 0) {
+    // Nothing can vouch for a tail here — a masters save (masters tables carry
+    // no page) or a ledger-only diff from an unscoped caller. One queue, rows
+    // in order, and the tail writes charged against the same budget as they
+    // join: assigned-but-uncharged they used to meet a final flush that pushed
+    // nothing when the rows landed on an exact chunk boundary — silently
+    // dropping every minted counter and any config change (a routine 12-row
+    // dispatch hit exactly this shape, and the next device re-issued its
+    // number into a 409).
+    for (const item of items) {
+      addRow(item)
+      if (used >= size) flush()
+    }
+    for (const key of counterKeys) {
+      current.counters[key] = changes.counters[key]!
+      used++
+      if (used >= size) flush()
+    }
+    if (changes.config) {
+      current.config = changes.config
+      used++
+    }
     flush()
     return chunks.length ? chunks : [changes]
   }
 
+  // Voucher layout: every tail chunk opens with a collection row so the
+  // ride-along gate admits it. One document's save often carries a ledger too
+  // long for the collection rows it has (a packing run's 14 consume and output
+  // lines behind one packing_runs row), so the reserved pool wraps — a voucher
+  // re-sent after its chunk landed is skipped server-side as an idempotent
+  // no-op (the row already matches what is stored). Chunks POST strictly in
+  // order, so a wrapped voucher has always landed before it vouches again.
+  const tailChunks = Math.max(1, Math.ceil(tail / (size - 1)))
+  const voucherCount = Math.min(tailChunks, gateRows.length)
+  const frontCount = gateRows.length - voucherCount
+
   // front: pure collection rows at full size
-  const frontCount = gateRows.length - tailChunks
   for (const item of gateRows.slice(0, frontCount)) {
     addRow(item)
     if (used >= size) flush()
   }
   flush()
 
-  // tail: each chunk opens with one reserved collection row (the gate's
-  // voucher), then its share of the ride rows, counter keys and — in the very
-  // last chunk, after everything else — the config
-  const total = rides.length + tailWrites
-  const share = (i: number) => Math.floor(total / tailChunks) + (i < total % tailChunks ? 1 : 0)
+  // tail: each chunk opens with its voucher, then its share of the ride rows,
+  // counter keys and — in the very last chunk, after everything else — the config
+  const share = (i: number) => Math.floor(tail / tailChunks) + (i < tail % tailChunks ? 1 : 0)
   let rideIdx = 0
   let counterIdx = 0
   let configTaken = false
   for (let c = 0; c < tailChunks; c++) {
-    addRow(gateRows[frontCount + c]!)
+    addRow(gateRows[frontCount + (c % voucherCount)]!)
     for (let s = 0; s < share(c); s++) {
       if (rideIdx < rides.length) addRow(rides[rideIdx++]!)
       else if (counterIdx < counterKeys.length) {
