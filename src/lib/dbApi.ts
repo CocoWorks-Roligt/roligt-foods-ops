@@ -9,6 +9,7 @@
  * credential, refreshed server-side by the BFF on any data request.
  */
 import { diffState, type StateChanges } from './sync'
+import { COLLECTIONS } from './tables'
 import type { AppState } from '../types'
 import { notifyUnauthorized } from './authEvents'
 import { WORKOS_CONFIGURED, getDevRole } from './authMode'
@@ -104,68 +105,125 @@ export type SaveResult =
 
 /**
  * Splits a diff into commits the write budget can carry. Zoho allows roughly 17
- * writes a minute, so a first-run seed or an offline catch-up (a hundred-odd
- * rows in one POST) can never land as a single request — the function would sit
- * in the budget's wait and die at the platform timeout with rows half-written.
- * Each chunk is an independent keyed-upsert commit, so a failure partway is
- * retried as the same writes, never as duplicates.
+ * writes a minute and the BFF fails fast at 45 s of budget wait, so a first-run
+ * seed or an offline catch-up (a hundred-odd rows in one POST) can never land
+ * as a single request. Each chunk is an independent keyed-upsert commit, so a
+ * failure partway is retried as the same writes, never as duplicates.
+ *
+ * The budget counts every Zoho write, not just rows: each moved counter is one
+ * write and the config one more, so they are charged against the same 12 as the
+ * rows. A 12-row chunk with a morning of minted numbers riding free is really a
+ * 30-write commit that cannot fit one budget minute — the 2026-10-05 catch-up
+ * queue that would not drain.
+ *
+ * Chunks must also be legal on their own: the BFF lets a scoped caller write
+ * ledger lines, audit rows and counters only in a commit that also carries a
+ * collection row whose page they hold (the ride-along gate in api/_lib/commit.ts),
+ * so the last collection rows are held back to open the tail chunks one each —
+ * the queue never ends in ledger-only commits an operator would be refused for.
  */
 const WRITES_PER_COMMIT = 12
 
-function chunkChanges(changes: StateChanges, size = WRITES_PER_COMMIT): StateChanges[] {
-  const rowWrites = changes.tables.reduce((a, t) => a + t.upsert.length + t.remove.length, 0)
-  if (rowWrites <= size) return [changes]
+/** Tables whose rows satisfy the ride-along gate — a collection with a page. */
+const GATE_TABLES = new Set(COLLECTIONS.filter((c) => c.page).map((c) => c.table))
+
+type RowItem =
+  | { kind: 'upsert'; table: string; row: Record<string, unknown>; expect?: Record<string, unknown> | null }
+  | { kind: 'remove'; table: string; id: string }
+
+export function chunkChanges(changes: StateChanges, size = WRITES_PER_COMMIT): StateChanges[] {
+  const counterKeys = Object.keys(changes.counters)
+  const tailWrites = counterKeys.length + (changes.config ? 1 : 0)
+  const items: RowItem[] = []
+  for (const change of changes.tables) {
+    for (const row of change.upsert)
+      items.push({ kind: 'upsert', table: change.table, row, expect: change.expect?.[String(row.id)] })
+    for (const id of change.remove) items.push({ kind: 'remove', table: change.table, id })
+  }
+  if (items.length + tailWrites <= size) return [changes]
+
+  // diffState emits collections first, then ledger, then audits — the rows the
+  // gate vouches for are exactly the collection rows at the front
+  const gateRows = items.filter((i) => GATE_TABLES.has(i.table))
+  const rides = items.filter((i) => !GATE_TABLES.has(i.table))
+  // each tail chunk carries rides/counters/config plus one reserved collection
+  // row, so its ride-along share is at most size − 1 writes
+  const tailChunks = Math.max(1, Math.ceil((rides.length + tailWrites) / (size - 1)))
+  const spread = gateRows.length >= tailChunks
 
   const chunks: StateChanges[] = []
   let current: StateChanges = { tables: [], counters: {}, empty: true }
   let used = 0
   const flush = () => {
     if (used > 0) {
-      // counters and config are one write each and always travel in the final
-      // chunk, after every row they number
       current.empty = false
       chunks.push(current)
       current = { tables: [], counters: {}, empty: true }
       used = 0
     }
   }
-  for (const change of changes.tables) {
-    const rows = [
-      ...change.upsert.map((row) => ({ kind: 'upsert' as const, row })),
-      ...change.remove.map((id) => ({ kind: 'remove' as const, id })),
-    ]
-    let batch: typeof rows = []
-    const drain = () => {
-      if (!batch.length) return
-      const table: typeof change = { table: change.table, upsert: [], remove: [] }
-      for (const r of batch) {
-        if (r.kind === 'upsert') {
-          table.upsert.push(r.row)
-          const expected = change.expect?.[String(r.row.id)]
-          if (expected) (table.expect ??= {})[String(r.row.id)] = expected
-        } else table.remove.push(r.id)
-      }
+  const addRow = (item: RowItem) => {
+    let table = current.tables.find((t) => t.table === item.table)
+    if (!table) {
+      table = { table: item.table, upsert: [], remove: [] }
       current.tables.push(table)
-      used += batch.length
-      batch = []
     }
-    for (const r of rows) {
-      batch.push(r)
-      if (batch.length >= size) {
-        drain()
-        flush()
-      }
+    if (item.kind === 'upsert') {
+      table.upsert.push(item.row)
+      if (item.expect) (table.expect ??= {})[String(item.row.id)] = item.expect
+    } else table.remove.push(item.id)
+    used++
+  }
+
+  if (!spread) {
+    // not enough collection rows to vouch for the tail: keep the pre-spread
+    // shape — one queue, rows in order, counters and config riding the final
+    // chunk. Ledger-heavy diffs like this do not come out of the UI, and a fat
+    // last chunk still converges: every write is a keyed upsert, so a retry
+    // after a mid-chunk throttle re-sends the same keys and only writes what
+    // has not landed.
+    for (const item of items) {
+      addRow(item)
+      if (used >= size) flush()
     }
-    drain()
+    current.counters = changes.counters
+    current.config = changes.config
+    flush()
+    return chunks.length ? chunks : [changes]
+  }
+
+  // front: pure collection rows at full size
+  const frontCount = gateRows.length - tailChunks
+  for (const item of gateRows.slice(0, frontCount)) {
+    addRow(item)
+    if (used >= size) flush()
   }
   flush()
-  if (!chunks.length) return [changes] // counters/config only — one commit
-  chunks[chunks.length - 1]!.counters = changes.counters
-  chunks[chunks.length - 1]!.config = changes.config
-  chunks[chunks.length - 1]!.empty =
-    !chunks[chunks.length - 1]!.tables.length &&
-    !Object.keys(changes.counters).length &&
-    !changes.config
+
+  // tail: each chunk opens with one reserved collection row (the gate's
+  // voucher), then its share of the ride rows, counter keys and — in the very
+  // last chunk, after everything else — the config
+  const total = rides.length + tailWrites
+  const share = (i: number) => Math.floor(total / tailChunks) + (i < total % tailChunks ? 1 : 0)
+  let rideIdx = 0
+  let counterIdx = 0
+  let configTaken = false
+  for (let c = 0; c < tailChunks; c++) {
+    addRow(gateRows[frontCount + c]!)
+    for (let s = 0; s < share(c); s++) {
+      if (rideIdx < rides.length) addRow(rides[rideIdx++]!)
+      else if (counterIdx < counterKeys.length) {
+        const key = counterKeys[counterIdx++]!
+        current.counters[key] = changes.counters[key]!
+        used++
+      } else if (changes.config && !configTaken) {
+        current.config = changes.config
+        configTaken = true
+        used++
+      }
+    }
+    flush()
+  }
   return chunks
 }
 
