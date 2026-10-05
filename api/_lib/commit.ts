@@ -42,6 +42,100 @@ export class Forbidden extends Error {
   }
 }
 
+/** A well-formed request whose payload is not a legal StateChanges — refused
+ *  with a 400 before any Zoho call, unlike Forbidden (403) and Conflict (409). */
+export class Malformed extends Error {}
+
+/** Every table a commit may write. `vendor_types` and `order_lines` sit in
+ *  TABLE_FOR with no CollectionSpec, so a change naming them used to slip past
+ *  both permission loops untouched — ungated writes to live base tables. */
+const WRITABLE_TABLES = new Set<string>([...COLLECTIONS.map((c) => c.table), 'ledger', 'audits'])
+
+/**
+ * Pure shape validation, run before the throttle and any Zoho call. The commit
+ * endpoint is authenticated but its callers are browsers, and a crafted body
+ * used to die in two expensive places instead: a missing `counters` threw a
+ * TypeError in step 5 AFTER the row writes had landed (a partial commit with no
+ * revision bump, re-thrown on every retry), and a body naming every table in
+ * TABLE_FOR spent one pre-flight read per table against the plant's shared
+ * 26-reads-a-minute budget. Returns the refusal reason, or null when the shape
+ * is one the honest client emits.
+ */
+export function validateChanges(changes: StateChanges): string | null {
+  if (!Array.isArray(changes.tables)) return 'changes.tables must be an array.'
+  if (changes.tables.length > 12) return 'A commit carries at most 12 table changes.'
+  let rows = 0
+  for (const change of changes.tables) {
+    if (!change || typeof change.table !== 'string' || !WRITABLE_TABLES.has(change.table))
+      return `changes.tables names a table this app does not write (${String(change?.table)}.)`
+    const { upsert, remove } = change
+    if (!Array.isArray(upsert) || !Array.isArray(remove)) return 'upsert and remove must be arrays.'
+    rows += upsert.length + remove.length
+    const seen = new Set<string>()
+    for (const row of upsert) {
+      if (!row || typeof row !== 'object') return 'upsert rows must be objects.'
+      const id = (row as { id?: unknown }).id
+      // a missing id stringifies to the literal key 'undefined' downstream —
+      // a garbage row every device then syncs
+      if (typeof id !== 'string' || !id.trim() || id === 'undefined') return 'upsert rows must carry a non-empty string id.'
+      if (seen.has(id)) return `Duplicate row id ${id} in one commit.`
+      seen.add(id)
+    }
+    for (const id of remove) if (typeof id !== 'string' || !id.trim()) return 'removes must be non-empty strings.'
+    const expect = (change as { expect?: unknown }).expect
+    if (expect !== undefined && (expect === null || typeof expect !== 'object' || Array.isArray(expect)))
+      return 'expect must be an object.'
+  }
+  if (rows > 16) return 'A commit carries at most 16 rows.'
+  const counters = changes.counters
+  if (!counters || typeof counters !== 'object' || Array.isArray(counters)) return 'changes.counters must be an object.'
+  const counterKeys = Object.keys(counters)
+  if (counterKeys.length > 16) return 'Too many counter keys in one commit.'
+  for (const key of counterKeys) {
+    if (!/^[A-Za-z0-9_.:-]{1,64}$/.test(key)) return `Bad counter key ${key}.`
+    const value = (counters as Record<string, unknown>)[key]
+    if (key.startsWith('period:')) {
+      if (typeof value !== 'string' || value.length > 64) return `Counter ${key} must be a short string.`
+    } else if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1e9) {
+      return `Counter ${key} must be a non-negative number.`
+    }
+  }
+  const config = changes.config
+  if (config !== undefined && (config === null || typeof config !== 'object' || Array.isArray(config)))
+    return 'changes.config must be an object.'
+  return null
+}
+
+/** The date tokens a numbering pattern may carry, evaluated on the local clock —
+ *  the same values src/lib/numbering.ts's DATE_TOKENS produce (a plant files by
+ *  the date on its own wall). Spelled out here because numbering.ts's import
+ *  graph is client code the api build cannot carry verbatim. */
+const PERIOD_TOKENS: Record<string, (d: Date) => string> = {
+  YYYY: (d) => String(d.getFullYear()),
+  YY: (d) => String(d.getFullYear()).slice(-2),
+  YYYYMMDD: (d) =>
+    `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`,
+  MM: (d) => String(d.getMonth() + 1).padStart(2, '0'),
+  DD: (d) => String(d.getDate()).padStart(2, '0'),
+}
+
+/**
+ * Whether a claimed `period:*` value is the series' real current period: every
+ * token it names must read the same off the local clock, the way the honest
+ * client computes it when it mints. A forged 'x', a stale 'YYYY:2025' in 2026
+ * and a future 'YYYY:9999' all fail — and each unlocks a backwards counter
+ * move whose re-issued numbers overwrite the original documents.
+ */
+const isCurrentPeriod = (claimed: string): boolean => {
+  if (!/^[A-Za-z]+:[0-9A-Za-z-]+(\|[A-Za-z]+:[0-9A-Za-z-]+)*$/.test(claimed)) return false
+  const now = new Date()
+  return claimed.split('|').every((part) => {
+    const colon = part.indexOf(':')
+    const read = PERIOD_TOKENS[part.slice(0, colon)]
+    return read !== undefined && read(now) === part.slice(colon + 1)
+  })
+}
+
 /** One row the commit would have clobbered; the client adopts the winning version. */
 export interface RowConflict {
   table: string
@@ -218,6 +312,10 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
   const holdsAny = (perm: string | readonly string[]) =>
     typeof perm === 'string' ? held.has(perm) : perm.some((p) => held.has(p))
   for (const change of changes.tables) {
+    // fail closed: a TABLE_FOR name with no CollectionSpec used to slip both
+    // permission loops untouched — vendor_types and order_lines were writable
+    // by any signed-in caller
+    if (!WRITABLE_TABLES.has(change.table)) throw new Forbidden(change.table)
     const spec = COLLECTIONS.find((c) => c.table === change.table)
     if (spec?.writePermission && !holdsAny(spec.writePermission)) throw new Forbidden(change.table)
   }
@@ -255,7 +353,10 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
     const ledgerWrites = changes.tables.some(
       (t) => t.table === 'ledger' && (t.upsert?.length || t.remove?.length),
     )
-    const counterWrites = Object.keys(changes.counters || {}).some((k) => !k.startsWith('period:'))
+    // counters — the running numbers and the period:* rows that gate their
+    // resets alike — need a document behind them: a period row is numbering
+    // state, and rewriting it resets a series plant-wide
+    const counterWrites = Object.keys(changes.counters || {}).length > 0
     // One honest exception: moving stock between rooms is the Storage page's own
     // job, and it posts ledger lines and an audit row while owning no collection
     // row to hang them on — so that page stands in for one. A holder may upsert
@@ -441,6 +542,15 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
   // counters went stale (its poll is skipped while it holds unsaved work), and
   // writing it would re-issue numbers — the one exception is a genuine period
   // reset, which arrives together with the new `period:*` value and must land.
+  //
+  // A period claim that is not the series' CURRENT period moves nothing — not
+  // the period row, and not the counter the reset rule would have unlocked.
+  // Anything else re-issues numbers whose upserts overwrite the original
+  // documents while their ledger lines dangle: a forged value ('x') used to
+  // pass the mere String-inequality reset rule and rewind the series. The
+  // claim is checked token by token against the local clock, exactly how the
+  // honest client computes it; an echo of what is already stored always stays
+  // legal, whatever the clock says.
   const counters = T['Counters']
   const configTable = T['Config']
   const seriesKeys = Object.keys(changes.counters).filter((k) => !k.startsWith('period:'))
@@ -452,13 +562,24 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
       if (series) storedNext.set(series, Number(r.data[counters.fields['Next']]) || 0)
     }
   }
+  const unlocksReset = (series: string): boolean => {
+    const periodKey = `period:${series}`
+    const newPeriod = changes.counters[periodKey]
+    return (
+      newPeriod !== undefined &&
+      String(newPeriod) !== (storedConfig.get(periodKey) ?? '') &&
+      isCurrentPeriod(String(newPeriod))
+    )
+  }
   for (const [series, value] of Object.entries(changes.counters)) {
     if (series.startsWith('period:')) {
       const stored = storedConfig.get(series)
-      if (stored !== undefined && stored === String(value)) continue // unchanged — nothing to write
+      const claimed = String(value)
+      if (stored !== undefined && stored === claimed) continue // unchanged — nothing to write
+      if (!isCurrentPeriod(claimed)) continue // not this period: forged, stale or from the future — write nothing
       await zoho.upsertByKey(configTable.id, configTable.fields['Setting'], series, {
         [configTable.fields['Setting']]: series,
-        [configTable.fields['Value']]: String(value),
+        [configTable.fields['Value']]: claimed,
       })
       wrote = true
       continue
@@ -467,12 +588,8 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
     const stored = storedNext.get(series)
     if (stored !== undefined) {
       if (incoming === stored) continue // unchanged — nothing to write
-      if (incoming < stored) {
-        const periodKey = `period:${series}`
-        const newPeriod = changes.counters[periodKey]
-        const periodReset =
-          newPeriod !== undefined && String(newPeriod) !== (storedConfig.get(periodKey) ?? '')
-        if (!periodReset) continue // stale regression: the insert gate and the next sync heal it
+      if (incoming < stored && !unlocksReset(series)) {
+        continue // stale regression: the insert gate and the next sync heal it
       }
     }
     await zoho.upsertByKey(counters.id, counters.fields['Series'], series, {

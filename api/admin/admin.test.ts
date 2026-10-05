@@ -135,7 +135,10 @@ function fakeRes() {
 }
 
 function fakeReq(body: unknown, method = 'POST'): VercelRequest {
-  return { headers: {}, url: '/', method, body } as unknown as VercelRequest
+  // GETs carry no body — only a body-carrying request meets the content-type gate
+  const headers: Record<string, string> =
+    body === null || body === undefined ? {} : { 'content-type': 'application/json' }
+  return { headers, url: '/', method, body } as unknown as VercelRequest
 }
 
 /** A member row for the org list — the server resolves every target from these. */
@@ -166,6 +169,20 @@ describe('admin gate', () => {
       const res = fakeRes()
       await handler(fakeReq({ action: 'create', email: 'x@y.co' }), res)
       expect(res.status).toHaveBeenCalledWith(403)
+    }
+    expect(mode.calls).toEqual([])
+    expect(writes).toEqual([])
+  })
+
+  it('refuses a non-JSON body on both mutating endpoints — a form-stitched CSRF never parses', async () => {
+    withCallerAdmin()
+    for (const handler of [usersHandler, rolesHandler]) {
+      const res = fakeRes()
+      await handler(
+        { headers: { 'content-type': 'text/plain' }, url: '/', method: 'POST', body: '{"action":"' } as unknown as VercelRequest,
+        res,
+      )
+      expect(res.status).toHaveBeenCalledWith(415)
     }
     expect(mode.calls).toEqual([])
     expect(writes).toEqual([])

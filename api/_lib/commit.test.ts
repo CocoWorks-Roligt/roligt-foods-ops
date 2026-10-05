@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { commitChanges, Conflict, Forbidden } from './commit.js'
+import { commitChanges, Conflict, Forbidden, validateChanges } from './commit.js'
 import { invalidateSnapshotCache, readSnapshotCached } from './snapshot.js'
 import { T } from './baseSchema.js'
 import { ZohoApiError, ZohoLockedError } from './zoho.js'
@@ -397,7 +397,7 @@ describe('commitChanges', () => {
     await commitChanges(zoho, admin, {
       empty: false,
       tables: [{ table: 'grns', upsert: [{ id: 'GRN-2026-0002', data: { id: 'GRN-2026-0002' } }], remove: [] }],
-      counters: { grn: 2, 'period:grn': 'YYYY:2026' },
+      counters: { grn: 2, 'period:grn': `YYYY:${new Date().getFullYear()}` },
     })
     const counterRows = ops.upserts.filter((u) => u.table === T['Counters'].id)
     expect(counterRows.some((u) => u.key === 'grn')).toBe(true)
@@ -405,7 +405,7 @@ describe('commitChanges', () => {
     const configRows = ops.upserts.filter((u) => u.table === T['Config'].id)
     const period = configRows.find((u) => u.key === 'period:grn')
     expect(period).toBeDefined()
-    expect(period!.values[T['Config'].fields['Value']]).toBe('YYYY:2026')
+    expect(period!.values[T['Config'].fields['Value']]).toBe(`YYYY:${new Date().getFullYear()}`)
   })
 
   it('deletes removed rows by resolving App IDs to record IDs', async () => {
@@ -503,6 +503,10 @@ describe('commitChanges', () => {
   })
 
   it('lets a genuine period reset move the counter backwards', async () => {
+    // clock-agnostic: the claim is whatever this year computes to, the stored
+    // row the year before — a real rollover whenever the suite runs
+    const thisYear = `YYYY:${new Date().getFullYear()}`
+    const lastYear = `YYYY:${new Date().getFullYear() - 1}`
     const existing: ZohoRecord[] = [
       {
         recordID: 'z-c1',
@@ -518,15 +522,78 @@ describe('commitChanges', () => {
         data: {
           __table: T['Config'].id,
           [T['Config'].fields['Setting']]: 'period:challan',
-          [T['Config'].fields['Value']]: 'YYYY:2025',
+          [T['Config'].fields['Value']]: lastYear,
         },
       },
     ]
     const { zoho, ops } = fakeZoho(existing)
-    await commitChanges(zoho, admin, { ...CHANGES, tables: [], counters: { challan: 1, 'period:challan': 'YYYY:2026' } })
+    await commitChanges(zoho, admin, { ...CHANGES, tables: [], counters: { challan: 1, 'period:challan': thisYear } })
     const counter = ops.upserts.find((u) => u.key === 'challan')!
     expect(counter).toBeDefined()
     expect(counter.values[T['Counters'].fields['Next']]).toBe('1')
+    const period = ops.upserts.find((u) => u.key === 'period:challan')!
+    expect(period.values[T['Config'].fields['Value']]).toBe(thisYear)
+  })
+
+  it('refuses to rewind a counter on a forged period value — the claim must be the real current period', async () => {
+    // the kill chain this closes: counters {grn: 1, 'period:grn': 'x'} used to
+    // pass the mere String-inequality reset rule, write the junk period row and
+    // rewind Next to 1 — every device then re-issued numbers whose upserts
+    // OVERWROTE the original documents while their ledger lines dangled
+    const existing: ZohoRecord[] = [
+      {
+        recordID: 'z-c1',
+        data: {
+          __table: T['Counters'].id,
+          [T['Counters'].fields['Series']]: 'grn',
+          [T['Counters'].fields['Next']]: 5,
+        },
+      },
+      {
+        recordID: 'z-p1',
+        data: {
+          __table: T['Config'].id,
+          [T['Config'].fields['Setting']]: 'period:grn',
+          [T['Config'].fields['Value']]: `YYYY:${new Date().getFullYear()}`,
+        },
+      },
+    ]
+    const { zoho, ops } = fakeZoho(existing)
+    // a forged value, a stale one and a future one all move nothing — the
+    // commit is admitted (the rows are legal), the numbering is not touched
+    for (const claim of ['x', `YYYY:${new Date().getFullYear() - 1}`, 'YYYY:9999', 'NOTS:1|ATOKEN:2']) {
+      ops.upserts.length = 0
+      await commitChanges(zoho, admin, { ...CHANGES, tables: [], counters: { grn: 1, 'period:grn': claim } })
+      expect(ops.upserts.filter((u) => u.key === 'grn' || u.key === 'period:grn')).toEqual([])
+    }
+  })
+
+  it('gates period:* counter keys like any counter — a scoped caller needs the document behind them', async () => {
+    const { zoho } = fakeZoho()
+    await expect(
+      commitChanges(zoho, labTester, { ...CHANGES, tables: [], counters: { 'period:grn': `YYYY:${new Date().getFullYear()}` } }),
+    ).rejects.toMatchObject(new Forbidden('ledger'))
+  })
+
+  it('fails closed on a table with no permission spec of its own', async () => {
+    // vendor_types and order_lines sit in TABLE_FOR but outside COLLECTIONS:
+    // both permission loops used to skip them silently, leaving two live base
+    // tables writable by any signed-in caller
+    const { zoho, ops } = fakeZoho()
+    await expect(
+      commitChanges(zoho, admin, {
+        ...CHANGES,
+        tables: [{ table: 'vendor_types', upsert: [{ id: 'VT-1', data: {} }], remove: [] }],
+      }),
+    ).rejects.toMatchObject(new Forbidden('vendor_types'))
+    await expect(
+      commitChanges(zoho, admin, {
+        ...CHANGES,
+        tables: [{ table: 'order_lines', upsert: [], remove: ['OL-1'] }],
+      }),
+    ).rejects.toMatchObject(new Forbidden('order_lines'))
+    expect(ops.upserts).toEqual([])
+    expect(ops.deletes).toEqual([])
   })
 
   it('mints a distinct revision token on every commit — no two writes ever compare equal', async () => {
@@ -816,5 +883,80 @@ describe('commit hints → the snapshot substrate', () => {
     expect(calls.fetchSince[led.id]).toBe(1) // the touched table delta'd
     expect(calls.fetchAll[led.id]).toBe(1) // never full-read again
     expect(calls.fetchAll[T['Vendors'].id]).toBe(vendReads) // the fast sweep read it not at all
+  })
+})
+
+describe('validateChanges — the pure shape gate before any Zoho call', () => {
+  // invalid shapes are the point here; the cast is the test's permission slip
+  const v = (c: unknown) => validateChanges(c as Parameters<typeof validateChanges>[0])
+
+  it('admits every honest shape, counters-only and period keys included', () => {
+    expect(v(CHANGES)).toBeNull()
+    expect(v({ empty: false, tables: [], counters: {} })).toBeNull()
+    expect(v({ ...CHANGES, tables: [], counters: { grn: 2, 'period:grn': 'x-any-string-passes-shape' } })).toBeNull()
+    expect(v({ ...CHANGES, tables: [], counters: {}, config: { tolerances: { lab: 5 } } })).toBeNull()
+    // an expect map on a change is the sync client's own honest shape
+    expect(v({ ...CHANGES, tables: [{ ...CHANGES.tables[0], expect: {} }] })).toBeNull()
+  })
+
+  it('refuses payloads that are not the honest shape at all', () => {
+    expect(v({ nope: true })).toBe('changes.tables must be an array.')
+    expect(v({ tables: 'nope', counters: {} })).toBe('changes.tables must be an array.')
+    // a missing counters used to throw in step 5 — after the row writes landed
+    expect(v({ tables: [], empty: false })).toBe('changes.counters must be an object.')
+    expect(v({ tables: [], counters: [] })).toBe('changes.counters must be an object.')
+  })
+
+  it('refuses tables the app does not write, before any pre-flight read is spent', () => {
+    // every TABLE_FOR name a crafted body could reach for, incl. the two live
+    // ones the permission loops used to skip silently
+    for (const table of ['vendor_types', 'order_lines', 'Counters', 'Config', 'nope_table']) {
+      expect(v({ tables: [{ table, upsert: [], remove: [] }], counters: {} })).toContain('does not write')
+    }
+    expect(v({ tables: [{ table: 'grns', upsert: 'nope', remove: [] }], counters: {} })).toBe(
+      'upsert and remove must be arrays.',
+    )
+  })
+
+  it('caps the commit: 12 table changes, 16 rows — a body cannot name the whole base', () => {
+    const filler = (table: string) => ({ table, upsert: [], remove: [] })
+    expect(v({ tables: Array.from({ length: 12 }, () => filler('grns')), counters: {} })).toBeNull()
+    expect(v({ tables: Array.from({ length: 13 }, () => filler('grns')), counters: {} })).toContain('12 table changes')
+    const row = { id: 'X', data: {} }
+    expect(v({ tables: [{ table: 'grns', upsert: Array.from({ length: 16 }, (_, i) => ({ ...row, id: `G${i}` })), remove: [] }], counters: {} })).toBeNull()
+    expect(v({ tables: [{ table: 'grns', upsert: Array.from({ length: 17 }, (_, i) => ({ ...row, id: `G${i}` })), remove: [] }], counters: {} })).toContain('16 rows')
+  })
+
+  it('refuses garbage row ids — blank, undefined, duplicated — that would key garbage rows', () => {
+    // a missing id stringifies to the literal key 'undefined' downstream
+    expect(v({ tables: [{ table: 'grns', upsert: [{ data: {} }], remove: [] }], counters: {} })).toContain('non-empty string id')
+    expect(v({ tables: [{ table: 'grns', upsert: [{ id: 'undefined', data: {} }], remove: [] }], counters: {} })).toContain('non-empty string id')
+    expect(v({ tables: [{ table: 'grns', upsert: [{ id: '  ', data: {} }], remove: [] }], counters: {} })).toContain('non-empty string id')
+    expect(v({ tables: [{ table: 'grns', upsert: [{ id: 'A', data: {} }, { id: 'A', data: {} }], remove: [] }], counters: {} })).toBe('Duplicate row id A in one commit.')
+    // the same id under two tables is fine — different rows of different shapes
+    expect(v({ tables: [{ table: 'grns', upsert: [{ id: 'A', data: {} }], remove: [] }, { table: 'ledger', upsert: [{ id: 'A', data: {} }], remove: [] }], counters: {} })).toBeNull()
+    expect(v({ tables: [{ table: 'grns', upsert: [], remove: [''] }], counters: {} })).toContain('removes must be non-empty strings')
+    expect(v({ tables: [{ table: 'grns', upsert: [], remove: [42] }], counters: {} })).toContain('removes must be non-empty strings')
+    expect(v({ tables: [{ table: 'grns', upsert: [{ id: 'A', data: {} }], remove: [], expect: 'nope' }], counters: {} })).toBe('expect must be an object.')
+  })
+
+  it('checks counter keys and values — the numbering is not a dumping ground', () => {
+    expect(v({ tables: [], counters: { 'bad key!': 1 } })).toContain('Bad counter key')
+    expect(v({ tables: [], counters: { ['x'.repeat(65)]: 1 } })).toContain('Bad counter key')
+    expect(v({ tables: [], counters: { grn: '2' } })).toContain('non-negative number')
+    expect(v({ tables: [], counters: { grn: -1 } })).toContain('non-negative number')
+    expect(v({ tables: [], counters: { grn: Number.NaN } })).toContain('non-negative number')
+    expect(v({ tables: [], counters: { grn: 1e10 } })).toContain('non-negative number')
+    expect(v({ tables: [], counters: { 'period:grn': 2026 } })).toContain('short string')
+    expect(v({ tables: [], counters: { 'period:grn': 'x'.repeat(65) } })).toContain('short string')
+    const many: Record<string, number> = {}
+    for (let i = 0; i < 17; i++) many[`k${i}`] = i
+    expect(v({ tables: [], counters: many })).toContain('Too many counter keys')
+  })
+
+  it('refuses a config that is not a plain object', () => {
+    expect(v({ tables: [], counters: {}, config: 'nope' })).toBe('changes.config must be an object.')
+    expect(v({ tables: [], counters: {}, config: [] })).toBe('changes.config must be an object.')
+    expect(v({ tables: [], counters: {}, config: null })).toBe('changes.config must be an object.')
   })
 })

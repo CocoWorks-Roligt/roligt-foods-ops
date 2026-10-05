@@ -86,7 +86,20 @@ export default async function (req: VercelRequest, res: VercelResponse) {
       return
     }
 
-    const body = (typeof req.body === 'string' ? JSON.parse(req.body) : req.body) as Body
+    // same CSRF second line as the commit route: a text/plain form-stitched
+    // body never reaches the parser
+    const contentType = String(req.headers['content-type'] ?? '')
+    if (!contentType.toLowerCase().startsWith('application/json')) {
+      res.status(415).json({ error: 'Requests must be application/json.' })
+      return
+    }
+    let body: Body
+    try {
+      body = (typeof req.body === 'string' ? JSON.parse(req.body) : req.body) as Body
+    } catch {
+      res.status(400).json({ error: 'Malformed request body.' })
+      return
+    }
     const action = body?.action
     /** Fields only some actions answer with — the minted link, when one was. */
     const extra: Record<string, string> = {}

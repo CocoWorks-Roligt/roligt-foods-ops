@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { ZohoLockedError } from './_lib/zoho.js'
 import { authenticate, AuthError } from './_lib/auth.js'
-import { commitChanges, Conflict, Forbidden } from './_lib/commit.js'
+import { commitChanges, Conflict, Forbidden, Malformed, validateChanges } from './_lib/commit.js'
 import { admitCommit } from './_lib/commitThrottle.js'
 import { invalidateSnapshotCache } from './_lib/snapshot.js'
 import { zoho } from './_lib/shared.js'
@@ -12,9 +12,32 @@ export default async function (req: VercelRequest, res: VercelResponse) {
   try {
     const { caller, setCookies } = await authenticate(toWebRequest(req))
     if (setCookies) res.setHeader('Set-Cookie', setCookies)
-    const body = (typeof req.body === 'string' ? JSON.parse(req.body) : req.body) as { changes?: StateChanges }
+    // CSRF, second line: the session cookie's SameSite=Lax is the first, and a
+    // legacy WebView that ignores it can stitch valid JSON through a
+    // text/plain form (Vercel hands text/plain through as a string body, which
+    // the parse below would happily take). An HTML form can only send
+    // urlencoded, multipart or text/plain; a cross-origin fetch that does send
+    // application/json triggers a preflight this origin never grants — so
+    // requiring the content-type closes the vector.
+    const contentType = String(req.headers['content-type'] ?? '')
+    if (!contentType.toLowerCase().startsWith('application/json')) {
+      res.status(415).json({ error: 'Commit payloads must be application/json.' })
+      return
+    }
+    let body: { changes?: StateChanges }
+    try {
+      body = (typeof req.body === 'string' ? JSON.parse(req.body) : req.body) as { changes?: StateChanges }
+    } catch {
+      res.status(400).json({ error: 'Malformed commit payload.' })
+      return
+    }
     if (!body?.changes?.tables) {
       res.status(400).json({ error: 'Malformed commit payload.' })
+      return
+    }
+    const invalid = validateChanges(body.changes)
+    if (invalid) {
+      res.status(400).json({ error: invalid })
       return
     }
     // The shared Zoho budget is not one device's to drain: a tight retry loop on
@@ -41,6 +64,10 @@ export default async function (req: VercelRequest, res: VercelResponse) {
   } catch (e) {
     if (e instanceof AuthError) {
       res.status(401).json({ error: e.message })
+      return
+    }
+    if (e instanceof Malformed) {
+      res.status(400).json({ error: e.message })
       return
     }
     if (e instanceof Forbidden) {

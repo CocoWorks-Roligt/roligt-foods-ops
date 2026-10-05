@@ -95,8 +95,13 @@ function fakeRes() {
   return res as unknown as VercelResponse & { status: ReturnType<typeof vi.fn>; json: ReturnType<typeof vi.fn>; setHeader: ReturnType<typeof vi.fn> }
 }
 
-function fakeReq(body: unknown): VercelRequest {
-  return { headers: {}, url: '/', method: 'POST', body } as unknown as VercelRequest
+function fakeReq(body: unknown, headers: Record<string, string> = {}): VercelRequest {
+  return {
+    headers: { 'content-type': 'application/json', ...headers },
+    url: '/',
+    method: 'POST',
+    body,
+  } as unknown as VercelRequest
 }
 
 describe('handlers', () => {
@@ -190,6 +195,36 @@ describe('handlers', () => {
     const res = fakeRes()
     await commit(fakeReq({ nope: true }), res)
     expect(res.status).toHaveBeenCalledWith(400)
+  })
+
+  it('refuses a body that is not application/json — a form-stitched CSRF never reaches the parser', async () => {
+    // text/plain is the one enctype a form can use whose body survives the
+    // platform's pre-parsing as a string; the route must not JSON.parse it
+    const res = fakeRes()
+    await commit(fakeReq('{"changes":{"tables":[],"p":', { 'content-type': 'text/plain' }), res)
+    expect(res.status).toHaveBeenCalledWith(415)
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.stringContaining('application/json') }))
+    const none = fakeRes()
+    await commit(fakeReq({ changes: { tables: [], counters: {}, empty: false } }, { 'content-type': '' }), none)
+    expect(none.status).toHaveBeenCalledWith(415)
+  })
+
+  it('rejects an unparsable string body with 400, not a 500 from JSON.parse', async () => {
+    const res = fakeRes()
+    await commit(fakeReq('{"changes":', { 'content-type': 'application/json' }), res)
+    expect(res.status).toHaveBeenCalledWith(400)
+  })
+
+  it('rejects a payload naming a table the app does not write with 400 — before any Zoho read', async () => {
+    const res = fakeRes()
+    await commit(
+      fakeReq({
+        changes: { empty: false, tables: [{ table: 'vendor_types', upsert: [{ id: 'VT-1', data: {} }], remove: [] }], counters: {} },
+      }),
+      res,
+    )
+    expect(res.status).toHaveBeenCalledWith(400)
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.stringContaining('vendor_types') }))
   })
 
   it('maps Forbidden to 403 with the table named', async () => {
