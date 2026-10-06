@@ -14,7 +14,9 @@
 
 // Extension is explicit: this file is also compiled by the nodenext api build (the
 // BFF's commit writer imports its StateChanges type), where extensionless imports
-// do not resolve.
+// do not resolve. And the extension is .js, not .ts: a value import spelled .ts
+// needs allowImportingTsExtensions, which the deploy-time function build's own
+// compiler options do not carry — .js resolves under bundler and nodenext alike.
 import {
   AUDIT_TABLE,
   COLLECTIONS,
@@ -22,7 +24,7 @@ import {
   auditToRow,
   ledgerToRow,
   type CollectionSpec,
-} from './tables.ts'
+} from './tables.js'
 import type { AppState } from '../types.ts'
 
 export interface TableChange {

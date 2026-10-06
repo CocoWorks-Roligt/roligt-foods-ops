@@ -27,14 +27,14 @@ const mode = vi.hoisted(() => ({
   refuseEnsure: false,
 }))
 
-vi.mock('../_lib/auth.ts', () => ({
+vi.mock('./auth.ts', () => ({
   authenticate: vi.fn(async () => ({
     caller: { email: 'who@roligt.local', permissions: mode.permissions },
   })),
   AuthError: class AuthError extends Error {},
 }))
 
-vi.mock('../_lib/workosAdmin.ts', () => ({
+vi.mock('./workosAdmin.ts', () => ({
   listOrgUsers: vi.fn(async () => mode.orgUsers),
   listRoles: vi.fn(async () => mode.roles),
   listPermissionSlugs: vi.fn(async () => mode.permissionSlugs),
@@ -83,8 +83,8 @@ vi.mock('../_lib/workosAdmin.ts', () => ({
 /** The writes writeAdminAudit makes, recorded off the stubbed wire. */
 const writes = vi.hoisted(() => [] as { url: string; body: string }[])
 
-vi.mock('../_lib/shared.ts', async () => {
-  const { ZohoClient } = await vi.importActual<typeof import('../_lib/zoho.ts')>('../_lib/zoho.ts')
+vi.mock('./shared.ts', async () => {
+  const { ZohoClient } = await vi.importActual<typeof import('./zoho.ts')>('./zoho.ts')
   const fetchImpl = async (url: string | URL, init?: RequestInit) => {
     const full = String(url)
     if (full.startsWith('https://accounts.zoho.in')) {
@@ -96,7 +96,7 @@ vi.mock('../_lib/shared.ts', async () => {
   return { zoho: new ZohoClient({ fetchImpl, env: {} as Record<string, string | undefined> }) }
 })
 
-vi.mock('../_lib/snapshot.ts', () => ({
+vi.mock('./snapshot.ts', () => ({
   invalidateSnapshotCache: vi.fn(),
   cachedRevision: vi.fn(() => null),
   // readRevision/noteRevision ride the same mocked module for the real commit
@@ -105,10 +105,10 @@ vi.mock('../_lib/snapshot.ts', () => ({
   noteRevision: vi.fn(),
 }))
 
-const usersHandler = (await import('./users.ts')).default
-const rolesHandler = (await import('./roles.ts')).default
-const { T } = await import('../_lib/baseSchema.ts')
-const { invalidateSnapshotCache } = await import('../_lib/snapshot.ts')
+const usersHandler = (await import('../admin/users.ts')).default
+const rolesHandler = (await import('../admin/roles.ts')).default
+const { T } = await import('./baseSchema.ts')
+const { invalidateSnapshotCache } = await import('./snapshot.ts')
 
 // the two Administration pages — the caller needs both to drive both handlers
 const ADMIN = ['page.admin-users', 'page.admin-roles']

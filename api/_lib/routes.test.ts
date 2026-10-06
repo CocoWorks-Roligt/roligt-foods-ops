@@ -20,7 +20,7 @@ const world = vi.hoisted(() => ({
   devHosts: ['localhost', '127.0.0.1'],
 }))
 
-vi.mock('../_lib/session.ts', () => ({
+vi.mock('./session.ts', () => ({
   workosConfigured: () => world.configured,
   createSignInUrl: vi.fn(async (_req: unknown, opts: { returnPathname: string; organizationId?: string }) => {
     world.capturedSignIn = opts
@@ -34,7 +34,7 @@ vi.mock('../_lib/session.ts', () => ({
   signOutUrl: vi.fn(async () => ({ logoutUrl: world.signOut.logoutUrl, setCookies: ['wos-session=; Max-Age=0'] })),
 }))
 
-vi.mock('../_lib/auth.ts', () => ({
+vi.mock('./auth.ts', () => ({
   authenticate: vi.fn(async () => {
     if (world.auth.error) throw new (class AuthError extends Error {})(world.auth.error)
     return { caller: world.auth.caller, ...(world.auth.setCookies.length ? { setCookies: world.auth.setCookies } : {}) }
@@ -46,10 +46,10 @@ vi.mock('../_lib/auth.ts', () => ({
   devCaller: () => ({ email: 'dev@roligt.local', permissions: ['masters.manage'] }),
 }))
 
-const start = (await import('./start.ts')).default
-const callback = (await import('./callback.ts')).default
-const signout = (await import('./signout.ts')).default
-const session = (await import('./session.ts')).default
+const start = (await import('../auth/start.ts')).default
+const callback = (await import('../auth/callback.ts')).default
+const signout = (await import('../auth/signout.ts')).default
+const session = (await import('../auth/session.ts')).default
 
 beforeEach(() => {
   world.configured = true

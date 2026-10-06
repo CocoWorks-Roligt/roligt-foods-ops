@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { T } from './_lib/baseSchema.js'
-import { __resetCommitThrottle } from './_lib/commitThrottle.js'
+import { T } from './baseSchema.js'
+import { __resetCommitThrottle } from './commitThrottle.js'
 
 /**
  * Handler-level tests: the Retry-After plumbing, the status-code mapping and the
@@ -21,7 +21,7 @@ const mode = vi.hoisted(() => ({
   existing: null as { key: string; appId: string; fields: Record<string, string> } | null,
 }))
 
-vi.mock('./_lib/auth.ts', () => ({
+vi.mock('./auth.ts', () => ({
   authenticate: vi.fn(async () => ({
     caller: { email: 'who@roligt.local', permissions: mode.permissions },
     ...(mode.setCookies ? { setCookies: mode.setCookies } : {}),
@@ -29,8 +29,8 @@ vi.mock('./_lib/auth.ts', () => ({
   AuthError: class AuthError extends Error {},
 }))
 
-vi.mock('./_lib/shared.ts', async () => {
-  const { ZohoClient, ZohoLockedError } = await vi.importActual<typeof import('./_lib/zoho.ts')>('./_lib/zoho.ts')
+vi.mock('./shared.ts', async () => {
+  const { ZohoClient, ZohoLockedError } = await vi.importActual<typeof import('./zoho.ts')>('./zoho.ts')
   const fetchImpl = async (url: string) => {
     if (url.startsWith('https://accounts.zoho.in')) {
       return new Response(JSON.stringify({ access_token: 'tok', expires_in: 3600 }), { status: 200 })
@@ -51,8 +51,8 @@ vi.mock('./_lib/shared.ts', async () => {
   return { zoho: new ZohoClient({ fetchImpl, env: {} as Record<string, string | undefined> }) }
 })
 
-vi.mock('./_lib/snapshot.ts', async () => {
-  const { ZohoLockedError } = await vi.importActual<typeof import('./_lib/zoho.ts')>('./_lib/zoho.ts')
+vi.mock('./snapshot.ts', async () => {
+  const { ZohoLockedError } = await vi.importActual<typeof import('./zoho.ts')>('./zoho.ts')
   const guard = async <A,>(v: A): Promise<A> => {
     if (mode.locked) throw new ZohoLockedError(mode.retryAfterSec)
     return v
@@ -71,11 +71,11 @@ vi.mock('./_lib/snapshot.ts', async () => {
   }
 })
 
-const commit = (await import('./commit.ts')).default
-const snapshot = (await import('./snapshot.ts')).default
-const revision = (await import('./revision.ts')).default
-const { zoho } = await import('./_lib/shared.ts')
-const { ZohoClient } = await import('./_lib/zoho.ts')
+const commit = (await import('../commit.ts')).default
+const snapshot = (await import('../snapshot.ts')).default
+const revision = (await import('../revision.ts')).default
+const { zoho } = await import('./shared.ts')
+const { ZohoClient } = await import('./zoho.ts')
 
 beforeEach(() => {
   mode.locked = false
