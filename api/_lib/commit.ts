@@ -182,26 +182,41 @@ export function columnsByFieldId(
 
 async function linkMaps(zoho: ZohoClient) {
   const grab = async (base: string) => zoho.fetchAll(T[base].id)
-  return buildLinkMaps(await grab('Vendors'), await grab('Purchase Products'), await grab('Storage Locations'), await grab('Items'), {
-    vendors: T['Vendors'], purchaseProducts: T['Purchase Products'], storageLocations: T['Storage Locations'], items: T['Items'],
-  })
+  return buildLinkMaps(
+    {
+      vendors: await grab('Vendors'),
+      purchaseProducts: await grab('Purchase Products'),
+      storageLocations: await grab('Storage Locations'),
+      items: await grab('Items'),
+      customers: await grab('Customers'),
+      products: await grab('Products'),
+      batches: await grab('Batches'),
+      staff: await grab('Staff'),
+    },
+    {
+      vendors: T['Vendors'], purchaseProducts: T['Purchase Products'], storageLocations: T['Storage Locations'], items: T['Items'],
+      customers: T['Customers'], products: T['Products'], batches: T['Batches'], staff: T['Staff'],
+    },
+  )
 }
 
 /**
  * The last link maps this process built, with the revision they were read at.
  *
- * A commit spends four reads on masters for column enrichment, and enrichment is
- * best-effort by contract (only App ID and Data JSON are load-bearing) — but the
- * masters only ever change through a commit, and every commit bumps the revision
- * last, so maps read at revision R are exactly what a fresh read at R would return.
- * The revision a commit already reads (the config gate below) answers whether the
- * memo still stands; a commit that itself wrote a master table drops it. Same
- * argument, same shape as the snapshot cache — and four reads back per commit.
+ * A commit spends eight reads on masters for column enrichment (the four the fork
+ * started with, plus customers, products, batches and staff for the Plan 2 link
+ * columns), and enrichment is best-effort by contract (only App ID and Data JSON
+ * are load-bearing) — but the masters only ever change through a commit, and every
+ * commit bumps the revision last, so maps read at revision R are exactly what a
+ * fresh read at R would return. The revision a commit already reads (the config
+ * gate below) answers whether the memo still stands; a commit that itself wrote a
+ * master table drops it. Same argument, same shape as the snapshot cache — and
+ * eight reads back per commit.
  */
 let linkMemo: { revision: string; maps: Awaited<ReturnType<typeof linkMaps>> } | null = null
 
 /** The base tables whose rows feed link maps — a commit touching any of them spends the memo. */
-const LINK_TABLES = new Set(['Vendors', 'Purchase Products', 'Storage Locations', 'Items'])
+const LINK_TABLES = new Set(['Vendors', 'Purchase Products', 'Storage Locations', 'Items', 'Customers', 'Products', 'Batches', 'Staff'])
 
 async function linkMapsCached(zoho: ZohoClient, revision: string) {
   if (linkMemo && linkMemo.revision === revision) return linkMemo.maps
