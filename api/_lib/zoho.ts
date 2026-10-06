@@ -47,8 +47,23 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
  * long enough that pacing alone (waiting for its own window to slide) never
  * throws, short enough to answer 503 + Retry-After when interactive traffic
  * genuinely starves it.
+ *
+ * `cold` is the first sweep of a process, when there is no substrate to delta
+ * off and no interactive traffic of this process's own to protect: it counts
+ * against the global 26 and records into the sweep window (so the next sweep
+ * still paces itself) but is not refused by the 18/min self-cap. A cold sweep is
+ * 26 reads; admitted at sweep pace that is 18 instant reads plus eight more
+ * spaced out over the following minute — the ~60s cold GET /api/snapshot pinned
+ * on the dev log, 2026-10-06. Burst, the same 26 reads land in a few seconds.
+ * The steady-state contract is untouched: once per process, the global window is
+ * never exceeded, and an interactive call landing in that one minute waits for
+ * the window to slide exactly as it waits behind any other sweep — or, when even
+ * that wait would outlive maxWaitMs (the shared client's 45s), fails fast into
+ * 503 + Retry-After, the answer the poll swallows and the save queue already
+ * retries on. The burst's back edge is at most ~15s of refused reads, once per
+ * process; the cold start it replaces was ~60s of Loading for everyone.
  */
-export type ReadScope = 'interactive' | 'sweep'
+export type ReadScope = 'interactive' | 'sweep' | 'cold'
 
 class Budget {
   private hits: number[] = []
@@ -70,14 +85,16 @@ class Budget {
     for (;;) {
       const now = Date.now()
       this.hits = this.hits.filter((t) => now - t < 60_000)
-      if (scope === 'sweep' && this.sweepMax !== null) {
+      // sweep and cold both draw on the sweep window — only their admission differs
+      const sweepScoped = scope !== 'interactive' && this.sweepMax !== null
+      if (sweepScoped) {
         this.sweepHits = this.sweepHits.filter((t) => now - t < 60_000)
       }
       const globalFull = this.hits.length >= this.max
       const sweepFull = scope === 'sweep' && this.sweepMax !== null && this.sweepHits.length >= this.sweepMax
       if (!globalFull && !sweepFull) {
         this.hits.push(now)
-        if (scope === 'sweep' && this.sweepMax !== null) this.sweepHits.push(now)
+        if (sweepScoped) this.sweepHits.push(now)
         return
       }
       // the earliest each full window frees a slot (25ms grace past the slide)
@@ -90,7 +107,7 @@ class Budget {
       // a platform timeout would be killed mid-sleep, half-applied, with the
       // client none the wiser — better to hand the caller a retryable "busy"
       // (ZohoLockedError already maps to 503 + Retry-After) than a silent death.
-      const patience = scope === 'sweep' ? this.sweepMaxWaitMs : this.maxWaitMs
+      const patience = scope === 'interactive' ? this.maxWaitMs : this.sweepMaxWaitMs
       if (waitMs > patience) {
         throw new ZohoLockedError(Math.ceil(waitMs / 1000) + 5)
       }

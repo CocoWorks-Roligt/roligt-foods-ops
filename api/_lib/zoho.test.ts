@@ -271,6 +271,56 @@ describe('ZohoClient', () => {
     }
   })
 
+  it('a cold burst rides past the sweep cap but never past the global 26 — and the sweep window still learned', async () => {
+    vi.useFakeTimers()
+    try {
+      const calls: { url: string; init?: RequestInit }[] = []
+      const empty = { body: { records: { fetched: [] } } }
+      const c = new ZohoClient({
+        fetchImpl: fakeFetch(calls, Array.from({ length: 7 }, () => empty)),
+        env: ENV,
+        sweepReadsPerMin: 3,
+      })
+      // the cold sweep's shape: a whole table set burst in parallel, past the
+      // self-cap that would otherwise park reads 4+ for a minute — the ~60s
+      // cold GET /api/snapshot this exists to skip (pinned on the dev log,
+      // 2026-10-06)
+      await Promise.all(Array.from({ length: 6 }, () => c.fetchAll('T1', { scope: 'cold' })))
+      const wire = calls.filter((x) => !x.url.startsWith('https://accounts'))
+      expect(wire).toHaveLength(6) // every cold read reached the wire, zero timer slides
+      // the burst was not free: it recorded into the sweep window, so the next
+      // WARM sweep still paces itself — once per process, not a new hole
+      const paced = c.fetchAll('T1', { scope: 'sweep' })
+      await Promise.resolve()
+      expect(calls.filter((x) => !x.url.startsWith('https://accounts'))).toHaveLength(6)
+      await vi.advanceTimersByTimeAsync(61_000)
+      await paced
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('26 cold reads spend the whole global window — the 27th read fails fast exactly as before', async () => {
+    vi.useFakeTimers()
+    try {
+      const calls: { url: string; init?: RequestInit }[] = []
+      const empty = { body: { records: { fetched: [] } } }
+      const c = new ZohoClient({
+        fetchImpl: fakeFetch(calls, Array.from({ length: 27 }, () => empty)),
+        env: ENV,
+        maxWaitMs: 1_000,
+      })
+      // a cold sweep is exactly 26 reads — one per mapped table plus Counters
+      // plus Config — which is precisely the global burst capacity
+      for (let i = 0; i < 26; i++) await c.fetchAll('T1', { scope: 'cold' })
+      vi.setSystemTime(Date.now() + 59_000)
+      const err: unknown = await c.fetchAll('T1').catch((e) => e)
+      expect(err).toBeInstanceOf(ZohoLockedError) // `cold` bought pace, never headroom
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   // ---- fetchSince: the delta read behind the snapshot sweep ----
   // `contains` on the Data JSON column keyed by hour buckets — the only criteria form
   // the live probe found working (scripts/zoho/probe-since.mjs, 2026-09-30). Every

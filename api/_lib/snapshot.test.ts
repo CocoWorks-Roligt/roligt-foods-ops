@@ -9,7 +9,7 @@ import {
   readRevisionMemoized,
   readSnapshotCached,
 } from './snapshot.js'
-import { T as LIVE_T } from './baseSchema.js'
+import { TABLE_FOR, T as LIVE_T } from './baseSchema.js'
 import type { ZohoClient, ZohoRecord } from './zoho.js'
 
 const T = {
@@ -169,17 +169,26 @@ describe('readSnapshotCached', () => {
   it('serves the cached snapshot while the revision stands — one criteria read per ask, not a 26-read sweep', async () => {
     let rev = 7
     const { zoho, fetchAll, fetchByKeyIn } = fakeZoho(() => rev)
+    const config = LIVE_T['Config']
     const first = await readSnapshotCached(zoho)
     expect(first.revision).toBe('7')
+    // the cold sweep's whole shape: exactly 26 reads — one per mapped table,
+    // Counters, and ONE Config read that leads the sweep as the gate. No
+    // criteria gate read at all: 26 + 1 is one read over the global window's
+    // minute, the read that used to park ~60s on every cold start.
+    expect(fetchAll.mock.calls.length).toBe(26)
+    expect(fetchAll.mock.calls.filter((c) => c[0] === config.id)).toHaveLength(1)
+    expect(fetchAll.mock.calls[0]![0]).toBe(config.id) // Config read FIRST — it is the gate
+    expect(fetchByKeyIn.mock.calls.length).toBe(0) // no criteria gate on a cold call
     const afterSweep = fetchAll.mock.calls.length
     const second = await readSnapshotCached(zoho)
     expect(second).toBe(first)
     expect(fetchAll.mock.calls.length).toBe(afterSweep) // no table was re-swept
-    // two gate reads total: the cold call gates BEFORE its sweep too — a sweep
-    // may only install under a token read up front (fix 8's torn-cache rule)
-    expect(fetchByKeyIn.mock.calls.length).toBe(2)
+    // the warm serve's one criteria read — a warm sweep gates on a token read
+    // up front (fix 8's torn-cache rule); the cold sweep gates on its own
+    // leading Config read instead
+    expect(fetchByKeyIn.mock.calls.length).toBe(1)
     expect(fetchByKeyIn.mock.calls[0]![2]).toEqual(['app_revision'])
-    expect(fetchByKeyIn.mock.calls[1]![2]).toEqual(['app_revision'])
   })
 
   it('sweeps again once the revision moves', async () => {
@@ -395,27 +404,71 @@ describe('delta sweep — the substrate cache deltas off the watermarks', () => 
     }
   })
 
-  it('a commit landing mid-sweep is returned but cached nowhere — the next call re-sweeps, the one after serves', async () => {
+  it('a commit landing mid-WARM-sweep is returned but cached nowhere — the next call re-sweeps, the one after serves', async () => {
     let rev = 7
     const flip = { on: false }
     const f = fakeDelta({
       rev: () => rev,
       ledger: [ledRow('L1', '2026-09-30T08:00:00.000Z')],
       onFetchAll: (tableId) => {
-        if (tableId === LED.id && flip.on) rev = 8 // the base moves mid-sweep
+        // the "commit" lands inside the sweep's vendors read — collections
+        // full-read on every sweep, so this always fires mid-batch (ledger
+        // deltas on a warm sweep and would never pass through here)
+        if (tableId === VEND.id && flip.on) rev = 9
       },
     })
+    await readSnapshotCached(f.zoho) // the cold sweep installs under 7
+    rev = 8 // someone commits before the next call — its gate reads 8…
     flip.on = true
-    const s1 = await readSnapshotCached(f.zoho) // gated on 7, read the config at 8
-    expect(s1.revision).toBe('8') // the caller still gets the freshest plant
+    const s1 = await readSnapshotCached(f.zoho) // gated on 8, read the config at 9
+    expect(s1.revision).toBe('9') // the caller still gets the freshest plant
     const ledFull = f.calls.fetchAll[LED.id]
+    const deltas = f.calls.fetchSince[LED.id] ?? 0
     const s2 = await readSnapshotCached(f.zoho) // nothing was installed — re-sweep
-    expect(s2.revision).toBe('8')
+    expect(s2.revision).toBe('9')
     expect(s2.state?.ledger?.length).toBe(1)
-    expect(f.calls.fetchAll[LED.id]).toBe(ledFull + 1) // the torn sweep cached nothing
+    expect(f.calls.fetchSince[LED.id]).toBe(deltas + 1) // a real sweep ran again
     const s3 = await readSnapshotCached(f.zoho)
     expect(s3).toBe(s2) // now it serves
-    expect(f.calls.fetchAll[LED.id]).toBe(ledFull + 1) // zero table reads
+    expect(f.calls.fetchSince[LED.id]).toBe(deltas + 1) // zero reads — served whole
+    expect(f.calls.fetchAll[LED.id]).toBe(ledFull) // and ledger never full-read again
+  })
+
+  it('a commit landing mid-COLD-sweep installs under the stale token — the very next gate re-sweeps and the plant corrects', async () => {
+    // The cold trade, pinned: the burst has no 27th read to catch a commit that
+    // lands inside its few seconds, so the substrate installs under the
+    // pre-commit token its leading Config read observed. That token is stale,
+    // and the NEXT gate read — a client's 20s poll at the latest — sees the
+    // revision has moved and re-sweeps. One bounded stale serve, once per
+    // process, instead of every cold start parking a minute for the window.
+    let rev: string | number = 7
+    const flip = { on: false }
+    const f = fakeDelta({
+      rev: () => rev,
+      ledger: [ledRow('L1', '2026-09-30T08:00:00.000Z')],
+      onFetchAll: (tableId) => {
+        // the "commit" lands inside the vendors read — ahead of ledger in
+        // TABLE_FOR, so ledger genuinely reads after it and sees its row
+        if (tableId === VEND.id && flip.on) {
+          rev = '8:late'
+          f.store[LED.id]!.push(ledRow('L2', '2026-09-30T08:40:00.000Z', 7))
+        }
+      },
+    })
+    expect(Object.keys(TABLE_FOR).indexOf('vendors')).toBeLessThan(Object.keys(TABLE_FOR).indexOf('ledger'))
+    flip.on = true
+    const s1 = await readSnapshotCached(f.zoho) // cold: gate = the leading Config read, still 7
+    expect(s1.revision).toBe('7') // installed under the pre-commit token
+    expect(s1.state?.ledger?.length).toBe(2) // the mid-sweep commit's row IS visible
+    const ledFull = f.calls.fetchAll[LED.id] ?? 0
+    const s2 = await readSnapshotCached(f.zoho) // the gate reads 8:late ≠ 7 — re-sweep
+    expect(s2.revision).toBe('8:late')
+    expect(s2.state?.ledger?.length).toBe(2)
+    expect(f.calls.fetchAll[VEND.id]).toBe(2) // a real re-sweep: collections full-read
+    expect(f.calls.fetchSince[LED.id] ?? 0).toBe(1) // ledger delta'd off the fresh watermark
+    expect(f.calls.fetchAll[LED.id]).toBe(ledFull) // no full re-read needed
+    const s3 = await readSnapshotCached(f.zoho)
+    expect(s3).toBe(s2) // corrected and serving
   })
 
   it('invalidate semantics: own token keeps the substrate deltaing, foreign never serves the stale snap, bare forgets', async () => {
