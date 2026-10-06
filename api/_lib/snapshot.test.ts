@@ -158,7 +158,9 @@ describe('readSnapshotCached', () => {
       tableId === config.id && values.includes('app_revision') ? [revisionRow()] : [],
     )
     return {
-      zoho: { baseId: 'base-test', fetchAll, fetchByKeyIn } as unknown as ZohoClient,
+      // canBurstSweep false = the sweep window is busy: every warm serve here
+      // takes the paced criteria-gate path of today's contract
+      zoho: { baseId: 'base-test', fetchAll, fetchByKeyIn, canBurstSweep: () => false } as unknown as ZohoClient,
       fetchAll,
       fetchByKeyIn,
     }
@@ -245,6 +247,10 @@ describe('delta sweep — the substrate cache deltas off the watermarks', () => 
     ledger?: ZohoRecord[]
     audits?: ZohoRecord[]
     onFetchAll?: (tableId: string) => void
+    /** True = the sweep window reads empty (a minute without sweep reads): warm
+     *  serves take the burst gate — full-Config gate, seeded sweep. The fake is
+     *  a stub; the window semantics themselves are pinned in zoho.test.ts. */
+    burst?: boolean
   }) => {
     const store: Record<string, ZohoRecord[]> = {
       [LED.id]: opts.ledger ? [...opts.ledger] : [],
@@ -286,10 +292,17 @@ describe('delta sweep — the substrate cache deltas off the watermarks', () => 
       tableId === CFG.id && values.includes('app_revision') ? [revRow()] : [],
     )
     return {
-      zoho: { baseId: 'base-test', fetchAll, fetchSince, fetchByKeyIn } as unknown as ZohoClient,
+      zoho: {
+        baseId: 'base-test',
+        fetchAll,
+        fetchSince,
+        fetchByKeyIn,
+        canBurstSweep: () => !!opts.burst,
+      } as unknown as ZohoClient,
       store,
       calls,
       failSince,
+      fetchByKeyIn,
     }
   }
 
@@ -469,6 +482,111 @@ describe('delta sweep — the substrate cache deltas off the watermarks', () => 
     expect(f.calls.fetchAll[LED.id]).toBe(ledFull) // no full re-read needed
     const s3 = await readSnapshotCached(f.zoho)
     expect(s3).toBe(s2) // corrected and serving
+  })
+
+  it('a QUIET warm re-sweep bursts: the full-Config gate seeds the sweep — no criteria read, no trailing Config, 26 reads total', async () => {
+    // The production report this pins: the first snapshot after clearing cookies
+    // on a warm instance took ~2 minutes (63.6s on the quiet dev log) because a
+    // re-sweep is 27 reads — criteria gate plus 26 sweep reads — one over the
+    // global window, the read that parked a minute. When the sweep window is
+    // empty the gate IS the Config fetch and its rows seed the sweep: 25
+    // burst-scope reads plus the gate is exactly 26, all instant.
+    let rev: string | number = 7
+    const f = fakeDelta({
+      rev: () => rev,
+      ledger: [ledRow('L1', '2026-09-30T08:00:00.000Z')],
+      burst: true,
+    })
+    const s1 = await readSnapshotCached(f.zoho) // cold sweep — canBurstSweep is not consulted
+    expect(s1.revision).toBe('7')
+    const cfgReadsAfterCold = f.calls.fetchAll[CFG.id] ?? 0 // 1: the cold leading gate
+    rev = '8:moved'
+    f.store[LED.id]!.push(ledRow('L2', '2026-09-30T08:45:00.000Z', 7))
+    const s2 = await readSnapshotCached(f.zoho)
+    expect(s2.revision).toBe('8:moved')
+    expect(s2.state?.ledger?.length).toBe(2)
+    // no criteria gate at all on the quiet path…
+    expect(f.fetchByKeyIn.mock.calls.length).toBe(0)
+    // …and Config was touched exactly once more — the gate fetch that SEEDED the
+    // sweep. No trailing re-read inside it: gate + sweep = 26 reads, the window.
+    expect(f.calls.fetchAll[CFG.id]).toBe(cfgReadsAfterCold + 1)
+    // a real re-sweep happened: collections full-read, the delta table delta'd
+    expect(f.calls.fetchAll[VEND.id]).toBe(2)
+    expect(f.calls.fetchSince[LED.id]).toBe(1)
+    // and the next serve is the gate-only cost: one Config fetch, revision
+    // stands, the burst's install serves whole
+    const ledFull = f.calls.fetchAll[LED.id] ?? 0
+    const s3 = await readSnapshotCached(f.zoho)
+    expect(s3).toBe(s2)
+    expect(f.calls.fetchAll[CFG.id]).toBe(cfgReadsAfterCold + 2)
+    expect(f.calls.fetchAll[VEND.id]).toBe(2)
+    expect(f.calls.fetchAll[LED.id]).toBe(ledFull)
+  })
+
+  it('a commit landing inside a QUIET re-sweep installs under the stale gate token — the next gate re-sweeps and corrects', async () => {
+    // The warm twin of the cold trade above: the seeded Config IS the gate, so
+    // the install's revision equals it by construction and a mid-sweep commit
+    // is not detected — the substrate caches under the pre-commit token and the
+    // NEXT gate (a client's 20s poll at the latest) sees the move and re-sweeps.
+    let rev: string | number = 7
+    const flip = { on: false }
+    const f = fakeDelta({
+      rev: () => rev,
+      ledger: [ledRow('L1', '2026-09-30T08:00:00.000Z')],
+      burst: true,
+      onFetchAll: (tableId) => {
+        // the "commit" lands inside the sweep's vendors read — ahead of ledger
+        // in TABLE_FOR, so ledger's delta genuinely reads after it
+        if (tableId === VEND.id && flip.on) {
+          rev = '9:late'
+          f.store[LED.id]!.push(ledRow('L2', '2026-09-30T08:40:00.000Z', 7))
+        }
+      },
+    })
+    await readSnapshotCached(f.zoho) // the cold sweep installs under 7
+    rev = 8
+    flip.on = true
+    const s1 = await readSnapshotCached(f.zoho) // gate read 8; the commit lands mid-batch
+    expect(s1.revision).toBe('8') // single observation: installed under the now-stale gate
+    expect(s1.state?.ledger?.length).toBe(2) // the mid-sweep row IS visible to the caller
+    flip.on = false
+    const s2 = await readSnapshotCached(f.zoho) // the gate reads 9:late ≠ 8 — re-sweep
+    expect(s2.revision).toBe('9:late')
+    expect(s2.state?.ledger?.length).toBe(2)
+    expect(f.calls.fetchAll[VEND.id]).toBe(3) // cold + burst + the corrective re-sweep
+    const s3 = await readSnapshotCached(f.zoho)
+    expect(s3).toBe(s2) // corrected and serving
+  })
+
+  it('the own-commit fast path under a QUIET gate refuses the seed — its trailing Config read stays the second observation', async () => {
+    // The fast sweep is a handful of reads, so the 27-read arithmetic that
+    // forces the seed on a FULL re-sweep does not apply to it: it re-reads
+    // Config as its own trailing observation exactly as it always did, and only
+    // its gate changed shape (a full fetch instead of a criteria row).
+    let rev: string | number = 7
+    const f = fakeDelta({
+      rev: () => rev,
+      ledger: [ledRow('L1', '2026-09-30T08:00:00.000Z')],
+      audits: [audRow('A1', '2026-09-30T08:00:00.000Z')],
+      burst: true,
+    })
+    f.store[VEND.id] = [venRow('V1', 'Sriram')]
+    await readSnapshotCached(f.zoho) // cold: 1 Config read
+    noteRevision('base-test', '8:own')
+    noteCommitApplied('base-test', '8:own', { removedTables: [], backdatedLedger: false, touchedTables: ['ledger', 'audits'] })
+    invalidateSnapshotCache('8:own')
+    rev = '8:own'
+    f.store[LED.id]!.push(ledRow('L2', '2026-09-30T08:30:00.000Z', 7))
+    f.store[AUD.id]!.push(audRow('A2', '2026-09-30T08:30:00.000Z'))
+    const s2 = await readSnapshotCached(f.zoho)
+    expect(s2.revision).toBe('8:own')
+    expect(s2.state?.ledger?.length).toBe(2)
+    expect(f.calls.fetchSince[LED.id]).toBe(1) // the touched delta table still delta'd
+    expect(f.calls.fetchAll[VEND.id]).toBe(1) // untouched: served from the substrate
+    // cold leading read + the burst gate + the fast sweep's trailing read
+    expect(f.calls.fetchAll[CFG.id]).toBe(3)
+    const s3 = await readSnapshotCached(f.zoho)
+    expect(s3).toBe(s2) // the fast install serves the next caller outright
   })
 
   it('invalidate semantics: own token keeps the substrate deltaing, foreign never serves the stale snap, bare forgets', async () => {

@@ -321,6 +321,30 @@ describe('ZohoClient', () => {
     }
   })
 
+  it('canBurstSweep: true only while the sweep window is empty — the window a burst fills is the cooldown', async () => {
+    vi.useFakeTimers()
+    try {
+      const calls: { url: string; init?: RequestInit }[] = []
+      const empty = { body: { records: { fetched: [] } } }
+      const c = new ZohoClient({
+        fetchImpl: fakeFetch(calls, Array.from({ length: 3 }, () => empty)),
+        env: ENV,
+        sweepReadsPerMin: 3,
+      })
+      expect(c.canBurstSweep()).toBe(true) // a fresh process — its first sweep may burst
+      await c.fetchAll('T1') // INTERACTIVE — interactive reads never cool the burst down
+      expect(c.canBurstSweep()).toBe(true)
+      await c.fetchAll('T1', { scope: 'sweep' })
+      expect(c.canBurstSweep()).toBe(false) // a sweep read is in the window
+      await vi.advanceTimersByTimeAsync(61_000)
+      expect(c.canBurstSweep()).toBe(true) // the window slid clean again
+      await c.fetchAll('T1', { scope: 'cold' })
+      expect(c.canBurstSweep()).toBe(false) // a burst fills the window too — back-to-back sweeps pace
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   // ---- fetchSince: the delta read behind the snapshot sweep ----
   // `contains` on the Data JSON column keyed by hour buckets — the only criteria form
   // the live probe found working (scripts/zoho/probe-since.mjs, 2026-09-30). Every

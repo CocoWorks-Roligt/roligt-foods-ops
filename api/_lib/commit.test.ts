@@ -53,6 +53,8 @@ function fakeZoho(existing: ZohoRecord[] = []) {
       const i = existing.findIndex((r) => r.data.__table === tableId && r.recordID === recordId)
       if (i >= 0) existing.splice(i, 1)
     },
+    // busy sweep window: these tests' warm serves take the paced criteria-gate path
+    canBurstSweep: () => false,
   } as unknown as ZohoClient
   return { zoho, ops, calls }
 }

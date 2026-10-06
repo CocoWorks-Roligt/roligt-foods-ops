@@ -48,20 +48,24 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
  * throws, short enough to answer 503 + Retry-After when interactive traffic
  * genuinely starves it.
  *
- * `cold` is the first sweep of a process, when there is no substrate to delta
- * off and no interactive traffic of this process's own to protect: it counts
- * against the global 26 and records into the sweep window (so the next sweep
- * still paces itself) but is not refused by the 18/min self-cap. A cold sweep is
- * 26 reads; admitted at sweep pace that is 18 instant reads plus eight more
- * spaced out over the following minute — the ~60s cold GET /api/snapshot pinned
- * on the dev log, 2026-10-06. Burst, the same 26 reads land in a few seconds.
- * The steady-state contract is untouched: once per process, the global window is
- * never exceeded, and an interactive call landing in that one minute waits for
- * the window to slide exactly as it waits behind any other sweep — or, when even
- * that wait would outlive maxWaitMs (the shared client's 45s), fails fast into
+ * `cold` is burst admission: a sweep read the 18/min self-cap will not refuse.
+ * It still counts against the global 26 and still records into the sweep window,
+ * so the next sweep paces itself — pace was bought, never headroom. The name is
+ * the first sweep of a process (no substrate to delta off, no interactive
+ * traffic of this process's own to protect), but any sweep may burst when its
+ * sweep window is EMPTY (see canBurstSweep) — a re-sweep after a minute without
+ * sweep reads rides the same admission, and the window the burst fills IS the
+ * cooldown: back-to-back sweeps pace themselves exactly as before. A sweep is 26
+ * reads; admitted at sweep pace that is 18 instant reads plus eight more spaced
+ * out over the following minute — the ~60s GET /api/snapshot pinned on the dev
+ * log, 2026-10-06, for cold starts and post-commit re-sweeps alike (the warm
+ * re-sweep measured 63.6s the same day). Burst, the same 26 reads land in a few
+ * seconds. An interactive call landing in that one minute waits for the window
+ * to slide exactly as it waits behind any other sweep — or, when even that wait
+ * would outlive maxWaitMs (the shared client's 45s), fails fast into
  * 503 + Retry-After, the answer the poll swallows and the save queue already
  * retries on. The burst's back edge is at most ~15s of refused reads, once per
- * process; the cold start it replaces was ~60s of Loading for everyone.
+ * burst; the minute of Loading it replaces was everyone's, every time.
  */
 export type ReadScope = 'interactive' | 'sweep' | 'cold'
 
@@ -114,6 +118,17 @@ class Budget {
       await sleep(waitMs)
     }
   }
+
+  /** Whether a sweep starting now may burst (ReadScope 'cold'): the sweep
+   *  window holds no hit from the last minute. The window a burst fills is the
+   *  cooldown, so consecutive sweeps pace themselves — only interactive reads
+   *  never cool it down. */
+  canBurst(): boolean {
+    if (this.sweepMax === null) return false
+    const now = Date.now()
+    this.sweepHits = this.sweepHits.filter((t) => now - t < 60_000)
+    return this.sweepHits.length === 0
+  }
 }
 
 interface ClientOpts {
@@ -163,6 +178,14 @@ export class ZohoClient {
     })
     this.writes = new Budget(17, opts.maxWaitMs ?? 60_000)
     this.maxInflight = opts.maxInflight ?? 6
+  }
+
+  /** True when a sweep starting now may burst — a minute with no sweep-scope
+   *  reads (the process's first sweep, or a re-sweep after a quiet minute). The
+   *  snapshot cache asks this to pick its gate shape; the burst it allows is
+   *  still capped by the global 26 exactly as any sweep is. */
+  canBurstSweep(): boolean {
+    return this.reads.canBurst()
   }
 
   private async accessToken(): Promise<string> {

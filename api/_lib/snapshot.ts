@@ -190,13 +190,20 @@ function mergeById(base: ZohoRecord[], incoming: ZohoRecord[], appIdField: strin
  * capacity, all admitted at once through the `cold` scope. A separate criteria
  * gate would make it 27: one read over the window, which is precisely the read
  * that used to park for ~60s and turn every cold start into a minute of
- * Loading.
+ * Loading. A QUIET warm re-sweep (a minute without sweep reads — the burst
+ * gate readSnapshotCached just made) takes the same shape one level over: its
+ * gate was a full Config fetch, and `seedConfig` hands those rows in here, so
+ * the batch is 25 burst-scope reads — gate plus sweep is exactly 26 again, and
+ * no Config read of either kind happens inside the sweep.
  *
  * `fast` (non-null) is the own-commit fast path: a Set of the table keys one of
  * this process's commits touched, proved by the caller to be the ONLY write
  * between the substrate and the gate. Tables outside the set are copied from
  * the substrate unread — watermark and clock carried for delta tables — while
- * Counters and Config still read (every commit writes them).
+ * Counters and Config still read (every commit writes them). The fast path
+ * never takes the seed: its trailing Config read is the second observation its
+ * installs have always been proved by, and its reads are few enough that the
+ * 27-read arithmetic that forces the seed on a full re-sweep does not apply.
  */
 async function sweepTables(
   zoho: ZohoClient,
@@ -204,12 +211,16 @@ async function sweepTables(
   forceFull: ReadonlySet<string>,
   fast: ReadonlySet<string> | null,
   cold = false,
+  seedConfig: ZohoRecord[] | null = null,
 ): Promise<Swept> {
   const schema = T
   const rows: SnapshotRows = {}
   const watermarks: { ledger?: string; audits?: string } = {}
   const lastFullAt: Partial<Record<DeltaKey, number>> = {}
-  const scope: ReadScope = cold ? 'cold' : 'sweep'
+  // burst-shaped: cold (leading Config fetch) or seeded (the gate's own Config
+  // rows) — rides the 'cold' scope and skips the trailing read either way
+  const useSeed = seedConfig !== null && fast === null
+  const scope: ReadScope = cold || useSeed ? 'cold' : 'sweep'
   const canDelta = (key: DeltaKey) =>
     !!entry &&
     entry.baseId === zoho.baseId &&
@@ -219,6 +230,8 @@ async function sweepTables(
 
   if (cold) {
     rows.config = await zoho.fetchAll(schema['Config'].id, { scope })
+  } else if (useSeed) {
+    rows.config = seedConfig
   }
   await Promise.all([
     ...Object.entries(TABLE_FOR).map(async ([supa, base]) => {
@@ -262,7 +275,7 @@ async function sweepTables(
       rows.counters = await zoho.fetchAll(schema['Counters'].id, { scope })
     })(),
   ])
-  if (!cold) {
+  if (!cold && !useSeed) {
     rows.config = await zoho.fetchAll(schema['Config'].id, { scope })
   }
   return { snap: assembleState(schema, rows), rows, watermarks, lastFullAt }
@@ -272,10 +285,12 @@ async function sweepTables(
  * The last sweep's substrate, keyed by the revision token it gated on.
  *
  * A sweep is 26 read calls — one per table — against the client's budget of 26
- * reads a minute. A cold sweep now lands all 26 in one burst (the `cold` scope,
- * zoho.ts); a WARM re-sweep still admits at sweep pace (18/min), so without
- * this cache a reload after every revision bump would spend a minute waiting
- * for the budget window to slide. Nothing in the base changes except through a
+ * reads a minute. A cold sweep lands all 26 in one burst (the `cold` scope,
+ * zoho.ts), and so does a QUIET warm re-sweep (a minute without sweep reads —
+ * the gate seeds the sweep's Config, readSnapshotCached); a warm re-sweep into
+ * a busy sweep window still admits at sweep pace (18/min), so without this
+ * cache a reload after every revision bump would spend a minute waiting for
+ * the budget window to slide. Nothing in the base changes except through a
  * commit, and every commit bumps the revision row last, so a snapshot read at
  * revision R is exactly what a fresh sweep at R would return. One revision read
  * answers whether the cache still stands.
@@ -495,7 +510,38 @@ export async function readSnapshotCached(zoho: ZohoClient): Promise<Assembled> {
   // WARM: the gate is read BEFORE any sweep this call may start. A warm entry
   // could gate on its own token, but installing a sweep under a token that was
   // never read up front is exactly the torn-cache window fix 8 exists to close,
-  // so every warm sweep gates on a token read in its own call.
+  // so every warm sweep gates on a token read in its own call. Two gate shapes,
+  // on the sweep window's state:
+  //
+  // QUIET (a minute without sweep reads — canBurstSweep): the gate is a FULL
+  // Config fetch, and if the revision moved, those same rows SEED the re-sweep's
+  // Config (sweepTables' seedConfig) — the batch is 25 burst-scope reads, so
+  // gate plus sweep is exactly the global 26, every one of them instant. A
+  // criteria gate plus a full re-sweep is 27 reads, one over the window: the
+  // read that parked ~60s and painted every post-commit reload as a minute of
+  // Loading (63.6s on the dev log, 2026-10-06; ~2min in production where the
+  // instance's own polls chain the parked reads). The trade is
+  // single-observation — the seeded Config IS the gate, there is no trailing
+  // re-read — so a commit landing inside the sweep's few seconds installs under
+  // the stale token and self-heals at the next gate, a client's 20s poll at the
+  // latest: the same bound the cold sweep carries. The revision poll keeps its
+  // criteria read either way (readRevisionMemoized) — a full Config fetch on
+  // the 20s heartbeat would be waste, and this gate is a snapshot-call cost.
+  //
+  // BUSY (a sweep ran inside the last minute): the criteria gate and the paced
+  // sweep with its trailing Config keep today's two-observation rule whole.
+  if (zoho.canBurstSweep()) {
+    const cfgRows = await zoho.fetchAll(T['Config'].id)
+    const gate = revisionOfRows(cfgRows)
+    noteRevision(zoho.baseId, gate)
+    if (gate === entry.revision && entry.snap) return entry.snap
+    if (!sweeping) {
+      sweeping = runSweep(zoho, gate, cfgRows).finally(() => {
+        sweeping = null
+      })
+    }
+    return sweeping
+  }
   const gate = await readRevision(zoho)
   if (gate === entry.revision && entry.snap) return entry.snap
   if (!sweeping) {
@@ -507,8 +553,14 @@ export async function readSnapshotCached(zoho: ZohoClient): Promise<Assembled> {
 }
 
 /** One sweep, installed only under the token it gated on. `gate === null` is
- *  the cold sweep: it gated on its own leading Config read instead. */
-async function runSweep(zoho: ZohoClient, gate: string | null): Promise<Assembled> {
+ *  the cold sweep: it gated on its own leading Config read instead. A non-null
+ *  gate with `seedConfig` is the quiet warm re-sweep — the gate was a full
+ *  Config fetch and those rows seed the sweep's Config. */
+async function runSweep(
+  zoho: ZohoClient,
+  gate: string | null,
+  seedConfig: ZohoRecord[] | null = null,
+): Promise<Assembled> {
   const entry = cached && cached.baseId === zoho.baseId ? cached : null
   const drained = drainHints(zoho.baseId)
   let installed = false
@@ -530,15 +582,17 @@ async function runSweep(zoho: ZohoClient, gate: string | null): Promise<Assemble
       Date.now() - entry.verifiedAt < FULL_REREAD_MS
         ? drained.touched
         : null
-    const built = await sweepTables(zoho, entry, drained.forceFull, fast, gate === null)
-    // COLD installs under its own leading Config token. There was no up-front
-    // gate to compare a trailing read against — that comparison costs a 27th
-    // read, one over the global window, which is the minute the burst exists to
-    // skip — so a commit landing inside the sweep's few seconds is not DETECTED
-    // here: the substrate installs under the pre-commit token, the next gate
-    // read (a client's 20s poll at the latest) sees the token has moved and
-    // re-sweeps to the committed plant. One bounded stale serve, once per
-    // process. Warm sweeps keep the two-observation rule untouched: the
+    const built = await sweepTables(zoho, entry, drained.forceFull, fast, gate === null, seedConfig)
+    // BURST installs (cold, or a seeded quiet re-sweep) are single-observation:
+    // the assembled revision comes from the same Config rows the gate observed
+    // — the leading read on cold, the seeded rows on a quiet re-sweep — so the
+    // equality below holds by construction. A second, trailing observation
+    // costs a 27th read, one over the global window, the read that used to park
+    // ~60s; skipping it means a commit landing inside the sweep's few seconds
+    // is not DETECTED here: the substrate installs under the pre-commit token,
+    // the next gate read (a client's 20s poll at the latest) sees the token has
+    // moved and re-sweeps to the committed plant. One bounded stale serve, once
+    // per burst. Paced warm sweeps keep the two-observation rule untouched: the
     // trailing Config read must still equal the gate or nothing is installed.
     const installUnder = gate ?? built.snap.revision
     if (built.snap.revision === installUnder) {
@@ -576,6 +630,18 @@ async function runSweep(zoho: ZohoClient, gate: string | null): Promise<Assemble
   }
 }
 
+/** The app_revision token out of Config rows — the parse the gates and
+ *  assembleState share. */
+function revisionOfRows(rows: ZohoRecord[]): string {
+  const cfg = T['Config']
+  for (const r of rows) {
+    if (String(r.data[cfg.fields['Setting']] ?? '') === 'app_revision') {
+      return String(r.data[cfg.fields['Value']] ?? '') || '0'
+    }
+  }
+  return '0'
+}
+
 /** Reads just the revision token (one row) — the gate every snapshot re-read hangs on. */
 export async function readRevision(zoho: ZohoClient): Promise<string> {
   const cfg = T['Config']
@@ -583,16 +649,13 @@ export async function readRevision(zoho: ZohoClient): Promise<string> {
   // app_config's whole JSON blob, which a revision gate has no business pulling
   // down the wire every 20 seconds per client. The criteria form and its
   // is_ids_used_in_params flag are fetchByKeyIn's, pinned live (see zoho.ts).
+  // (The QUIET warm snapshot gate is the one exception that reads Config whole —
+  // see readSnapshotCached — because a sweep may follow and its Config rows seed
+  // the sweep; the poll never passes here more than once per 20s per client.)
   const rows = await zoho.fetchByKeyIn(cfg.id, cfg.fields['Setting'], ['app_revision'])
-  for (const r of rows) {
-    if (String(r.data[cfg.fields['Setting']]) === 'app_revision') {
-      const value = String(r.data[cfg.fields['Value']] ?? '') || '0'
-      noteRevision(zoho.baseId, value)
-      return value
-    }
-  }
-  noteRevision(zoho.baseId, '0')
-  return '0'
+  const value = revisionOfRows(rows)
+  noteRevision(zoho.baseId, value)
+  return value
 }
 
 /** The poll route's read — memoized for a few seconds and shared by concurrent pollers. */
