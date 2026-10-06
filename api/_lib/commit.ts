@@ -25,7 +25,8 @@ import { ZohoApiError } from './zoho.js'
 import type { ZohoClient, ZohoRecord } from './zoho.js'
 import type { TableRef } from './baseSchema.js'
 import { T, TABLE_FOR } from './baseSchema.js'
-import { columnsFor, ledgerColumns, auditColumns, buildLinkMaps } from './mappers.js'
+import { columnsFor, ledgerColumns, auditColumns, buildLinkMaps, mergeLinkRows, type LinkTableKey } from './mappers.js'
+import { FIXED_VENDOR_TYPES } from '../../src/lib/vendorTypes.js'
 import { COLLECTIONS } from '../../src/lib/tables.js'
 import type { StateChanges } from '../../src/lib/sync.js'
 import { TABLE_WRITE_PERMISSION, CONFIG_KEY_WRITE_PERMISSION, isAdminPermissions } from '../../src/lib/permissions.js'
@@ -185,6 +186,7 @@ async function linkMaps(zoho: ZohoClient) {
   return buildLinkMaps(
     {
       vendors: await grab('Vendors'),
+      vendorTypes: await grab('Vendor Types'),
       purchaseProducts: await grab('Purchase Products'),
       storageLocations: await grab('Storage Locations'),
       items: await grab('Items'),
@@ -194,7 +196,7 @@ async function linkMaps(zoho: ZohoClient) {
       staff: await grab('Staff'),
     },
     {
-      vendors: T['Vendors'], purchaseProducts: T['Purchase Products'], storageLocations: T['Storage Locations'], items: T['Items'],
+      vendors: T['Vendors'], vendorTypes: T['Vendor Types'], purchaseProducts: T['Purchase Products'], storageLocations: T['Storage Locations'], items: T['Items'],
       customers: T['Customers'], products: T['Products'], batches: T['Batches'], staff: T['Staff'],
     },
   )
@@ -203,9 +205,9 @@ async function linkMaps(zoho: ZohoClient) {
 /**
  * The last link maps this process built, with the revision they were read at.
  *
- * A commit spends eight reads on masters for column enrichment (the four the fork
- * started with, plus customers, products, batches and staff for the Plan 2 link
- * columns), and enrichment is best-effort by contract (only App ID and Data JSON
+ * A commit spends nine reads on masters for column enrichment (the four the fork
+ * started with, plus customers, products, batches, staff and vendor types for the
+ * Plan 2 link columns), and enrichment is best-effort by contract (only App ID and Data JSON
  * are load-bearing) — but the masters only ever change through a commit, and every
  * commit bumps the revision last, so maps read at revision R are exactly what a
  * fresh read at R would return. The revision a commit already reads (the config
@@ -216,7 +218,22 @@ async function linkMaps(zoho: ZohoClient) {
 let linkMemo: { revision: string; maps: Awaited<ReturnType<typeof linkMaps>> } | null = null
 
 /** The base tables whose rows feed link maps — a commit touching any of them spends the memo. */
-const LINK_TABLES = new Set(['Vendors', 'Purchase Products', 'Storage Locations', 'Items', 'Customers', 'Products', 'Batches', 'Staff'])
+const LINK_TABLES = new Set(['Vendor Types', 'Vendors', 'Purchase Products', 'Storage Locations', 'Items', 'Customers', 'Products', 'Batches', 'Staff'])
+
+/** The link-table keys a client table name feeds — the same-commit fixup refreshes
+ *  maps for exactly the link tables the commit itself wrote rows into. Vendor
+ *  Types is absent: no client collection writes it, the seed below is its only
+ *  writer and refreshes its map itself. */
+const LINK_KEY_FOR: Partial<Record<string, LinkTableKey>> = {
+  vendors: 'vendors',
+  purchase_products: 'purchaseProducts',
+  storage_locations: 'storageLocations',
+  items: 'items',
+  customers: 'customers',
+  products: 'products',
+  batches: 'batches',
+  staff: 'staff',
+}
 
 async function linkMapsCached(zoho: ZohoClient, revision: string) {
   if (linkMemo && linkMemo.revision === revision) return linkMemo.maps
@@ -255,8 +272,25 @@ function storedPayload(table: TableRef, stored: ZohoRecord): Record<string, unkn
   }
 }
 
-const jsonEq = (a: Record<string, unknown>, b: Record<string, unknown>) =>
-  JSON.stringify(a) === JSON.stringify(b)
+/**
+ * Canonical JSON equality: keys sorted, recursively. The client's migrate
+ * rebuilds each state document in its own key order, while a row's Data JSON
+ * keeps the order its creator first wrote it in — so two serializations of the
+ * SAME document can differ in key order alone, and that difference must never
+ * read as a conflict or as a change (a purchase-product edit 409'd forever
+ * against its own base on the scratch base, 2026-10-06: `status` sat last in
+ * the stored JSON, mid-object in the client's rebuilt copy). Values coming off
+ * JSON.parse never hold undefined, so the undefined arm is unreachable in
+ * practice and harmless anyway.
+ */
+const canonicalJson = (v: unknown): string => {
+  if (v === null || typeof v !== 'object') return v === undefined ? 'null' : JSON.stringify(v)
+  if (Array.isArray(v)) return `[${v.map(canonicalJson).join(',')}]`
+  const record = v as Record<string, unknown>
+  return `{${Object.keys(record).sort().map((k) => `${JSON.stringify(k)}:${canonicalJson(record[k])}`).join(',')}}`
+}
+
+const jsonEq = (a: unknown, b: unknown): boolean => canonicalJson(a) === canonicalJson(b)
 
 /** The leading integer of a revision token ('7:ab3' → 7) — 0 for anything unparseable. */
 const revisionNumberOf = (rev: string | undefined): number => parseInt(String(rev ?? ''), 10) || 0
@@ -418,7 +452,7 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
     // change too (a partial payload must not read as "leave the rest alone" —
     // the write replaces the whole row, so it would wipe what it omits).
     for (const key of new Set([...Object.keys(changes.config), ...Object.keys(stored)])) {
-      if (JSON.stringify(stored[key]) === JSON.stringify(changes.config[key])) continue
+      if (jsonEq(stored[key], changes.config[key])) continue // key order alone is not a change
       const gate =
         (CONFIG_KEY_WRITE_PERMISSION as Record<string, readonly string[] | undefined>)[key] ??
         [TABLE_WRITE_PERMISSION.app_config]
@@ -487,12 +521,61 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
   // and the revision never moves.
   let wrote = false
 
+  // 3b. seed the fixed vendor types this commit's vendors reference but the base
+  // lacks. The types are app constants (src/lib/vendorTypes.ts): no page edits
+  // them and the client's diff always sees both sides holding the same list, so
+  // no device can ever write them up — without this, a fresh base's Vendor Types
+  // table stays empty forever and the Vendors 'Vendor Type' link column has no
+  // row to point at (the gap the scratch-base eyeball caught, 2026-10-06).
+  // Keyed upserts by App ID: idempotent, one write per type per base lifetime.
+  // An id the app does not know as fixed is left alone — its link stays empty
+  // and the Data JSON keeps the claim.
+  const seededTypes: string[] = []
+  {
+    const referenced = new Set<string>()
+    for (const change of changes.tables) {
+      if (change.table !== 'vendors') continue
+      for (const row of change.upsert) {
+        const t = String(((row as { data?: { vendorTypeId?: unknown } }).data ?? {}).vendorTypeId ?? '')
+        if (t) referenced.add(t)
+      }
+    }
+    const table = T['Vendor Types']
+    for (const id of referenced) {
+      if (links.vendorTypes.has(id)) continue
+      const doc = FIXED_VENDOR_TYPES.find((v) => v.id === id)
+      if (!doc) continue
+      await zoho.upsertByKey(table.id, table.appId, id, {
+        [table.appId]: id,
+        ...(table.dataJson ? { [table.dataJson]: JSON.stringify(doc) } : {}),
+        ...columnsByFieldId(table, columnsFor('vendorTypes', doc as unknown as Record<string, unknown>, links)),
+      })
+      wrote = true
+      seededTypes.push(id)
+    }
+    if (seededTypes.length) {
+      // the fresh record ids the seeded rows carry — the vendor rows below link
+      // to them, and the maps were read before the rows existed
+      const rows = await zoho.fetchByKeyIn(table.id, table.appId, seededTypes)
+      mergeLinkRows(links, 'vendorTypes', rows, table)
+    }
+  }
+
   // 4. collection rows — { id, data } upserts; ledger and audits arrive flat. Audits are
   // the one insert-only table: an upsert naming an existing id is SKIPPED — a
   // crafted commit cannot rewrite history, and a retried commit re-posting its own
   // audit rows is a no-op for them (new ids still write normally). Audit actors
   // are stamped from the authenticated caller; the payload's claim about who did
-  // it is not evidence.
+  // it is not evidence. Every row that actually lands is queued for the
+  // same-commit link fixup below (4b).
+  const fixupQueue: {
+    changeTable: string
+    table: (typeof T)[string]
+    appId: string
+    values: Record<string, unknown>
+    spec: (typeof COLLECTIONS)[number] | null
+    payload: Record<string, unknown>
+  }[] = []
   for (const change of changes.tables) {
     const base = TABLE_FOR[change.table]
     if (!base) throw new Error(`unknown table ${change.table}`)
@@ -525,6 +608,17 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
       }
       await zoho.upsertByKey(table.id, table.appId, appId, values)
       wrote = true
+      // audits carry no links — everything else may need the 4b pass
+      if (change.table !== 'audits') {
+        fixupQueue.push({
+          changeTable: change.table,
+          table,
+          appId,
+          values,
+          spec,
+          payload: spec ? ((row as { data?: Record<string, unknown> }).data ?? {}) : row,
+        })
+      }
     }
 
     for (const id of change.remove) {
@@ -545,6 +639,43 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
         if (!(e instanceof ZohoApiError)) throw e
         console.warn(`[commit] ${change.table} ${id} vanished before its delete landed — skipped`)
       }
+    }
+  }
+
+  // 4b. same-commit link fixup. The link maps were read before any row landed, so
+  // a carrier whose target was written by THIS commit went out with its link
+  // column empty — a raw-material save creates the item and its purchase product
+  // in one state update, and before this pass the Item column stayed empty until
+  // somebody happened to re-save the product, which nobody ever does (the
+  // scratch-base eyeball, 2026-10-06). The rows this commit just wrote are the
+  // missing map entries: read their record ids back, refresh the maps, and
+  // re-send only the rows whose link columns gained values. Masters are never
+  // removed (only deactivated), so a remove can never orphan a map entry
+  // mid-commit. All of it — the reads and the re-sends — goes through the same
+  // write-budget waiter every other Zoho call waits behind.
+  if (fixupQueue.length) {
+    const writtenTargets = new Map<string, { key: LinkTableKey; table: (typeof T)[string]; appIds: string[] }>()
+    for (const item of fixupQueue) {
+      const key = LINK_KEY_FOR[item.changeTable]
+      if (!key) continue
+      const entry = writtenTargets.get(item.changeTable) ?? { key, table: item.table, appIds: [] }
+      entry.appIds.push(item.appId)
+      writtenTargets.set(item.changeTable, entry)
+    }
+    for (const { key, table, appIds } of writtenTargets.values()) {
+      mergeLinkRows(links, key, await zoho.fetchByKeyIn(table.id, table.appId, appIds), table)
+    }
+    for (const item of fixupQueue) {
+      const fresh = item.spec
+        ? columnsByFieldId(item.table, columnsFor(item.spec.key, item.payload, links))
+        : columnsByFieldId(item.table, ledgerColumns(item.payload, links))
+      const gained: Record<string, string> = {}
+      for (const [fid, v] of Object.entries(fresh)) {
+        if (item.values[fid] === undefined && v !== undefined) gained[fid] = v
+      }
+      if (!Object.keys(gained).length) continue
+      await zoho.upsertByKey(item.table.id, item.table.appId, item.appId, { ...item.values, ...gained })
+      wrote = true
     }
   }
 
@@ -657,11 +788,12 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
     touchedTables: changes.tables.filter((t) => t.upsert.length > 0 || t.remove.length > 0).map((t) => t.table),
   })
   // Link-memo upkeep: this commit moved the base to `token`. If it wrote a master
-  // table the memo's maps are spent — drop them. If it did not, the maps still
-  // describe the base as of `token` (our own writes changed nothing they hold),
-  // so the memo rides forward and the next commit skips its four reads.
+  // table — or seeded a vendor type, a write the client's table list cannot name —
+  // the memo's maps are spent: drop them. If it did not, the maps still describe
+  // the base as of `token` (our own writes changed nothing they hold), so the memo
+  // rides forward and the next commit skips its nine reads.
   if (linkMemo) {
-    if (changes.tables.some((t) => LINK_TABLES.has(TABLE_FOR[t.table] ?? ''))) linkMemo = null
+    if (seededTypes.length || changes.tables.some((t) => LINK_TABLES.has(TABLE_FOR[t.table] ?? ''))) linkMemo = null
     else linkMemo = { revision: token, maps: linkMemo.maps }
   }
   return { token, wrote: true }

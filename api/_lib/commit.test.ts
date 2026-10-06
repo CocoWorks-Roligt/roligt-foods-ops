@@ -387,6 +387,106 @@ describe('commitChanges', () => {
     expect('Actor' in audit.values).toBe(false)
   })
 
+  it('links a carrier to a master written in the SAME commit — the same-commit fixup', async () => {
+    const { zoho, ops } = fakeZoho()
+    // the raw-material save's exact shape: the item and its purchase product land
+    // together, and the link maps were read before either existed
+    await commitChanges(zoho, admin, {
+      empty: false,
+      tables: [
+        { table: 'items', upsert: [{ id: 'RM-PP-0001', data: { id: 'RM-PP-0001', name: 'Tender Coconut', type: 'Raw Material', uom: 'Nos', lotControlled: true, reorder: 0, costMethod: 'Lot Actual' } }], remove: [] },
+        { table: 'purchase_products', upsert: [{ id: 'PP-0001', data: { id: 'PP-0001', name: 'Tender Coconut', category: 'Farm Produce', uom: 'Nos', description: '', vendorIds: [], itemId: 'RM-PP-0001', status: 'Active' } }], remove: [] },
+        // a ledger line names its item BY NAME — the merge must key names too
+        { table: 'ledger', upsert: [{ id: 'L1', type: 'in', doc: 'GRN-2026-0001', item: 'Tender Coconut', item_type: 'Raw Material', lot: 'LOT-1', status: 'In Stock', qty_in: 90, qty_out: 0, unit_cost: 35, at: '2026-10-06T08:00:00Z', uom: 'Nos' }], remove: [] },
+      ],
+      counters: {},
+    })
+    const itemsRow = (await zoho.fetchAll(T['Items'].id)).find((r) => String(r.data[T['Items'].appId]) === 'RM-PP-0001')!
+    expect(itemsRow).toBeTruthy()
+    // the purchase product is written twice: once without the Item link, once —
+    // after the maps learned this commit's own rows — with it
+    const ppTable = T['Purchase Products']
+    const ppWrites = ops.upserts.filter((u) => u.table === ppTable.id && u.key === 'PP-0001')
+    expect(ppWrites).toHaveLength(2)
+    expect(ppWrites[0]!.values[ppTable.fields['Item']]).toBeUndefined()
+    expect(ppWrites[1]!.values[ppTable.fields['Item']]).toBe(itemsRow.recordID)
+    // the re-send carries the whole row, not just the link
+    expect(ppWrites[1]!.values[ppTable.appId]).toBe('PP-0001')
+    expect(String(ppWrites[1]!.values[ppTable.dataJson!])).toContain('Tender Coconut')
+    // the ledger line gains its Item link off the NAME key
+    const ledgerTable = T['Ledger']
+    const lWrites = ops.upserts.filter((u) => u.table === ledgerTable.id && u.key === 'L1')
+    expect(lWrites).toHaveLength(2)
+    expect(lWrites[1]!.values[ledgerTable.fields['Item']]).toBe(itemsRow.recordID)
+  })
+
+  it('does not re-send rows whose links all resolved on the first write', async () => {
+    // GRN naming an item that already exists — no fixup writes expected
+    const existing = [(() => {
+      const t = T['Items']
+      return { recordID: 'z-item-1', data: { __table: t.id, [t.appId]: 'RM-PP-0001', [t.dataJson!]: JSON.stringify({ id: 'RM-PP-0001', name: 'Tender Coconut' }) } }
+    })()]
+    const { zoho: z2, ops: ops2 } = fakeZoho(existing)
+    await commitChanges(z2, admin, {
+      empty: false,
+      tables: [
+        { table: 'grns', upsert: [{ id: 'GRN-2026-0002', data: { id: 'GRN-2026-0002', lot: 'LOT-2', farmerId: 'V-1', purchaseProductId: 'PP-0001', itemId: 'RM-PP-0001', location: 'Cold Room A', total: 100, accepted: 90, status: 'Posted' } }], remove: [] },
+      ],
+      counters: { grn: 2 },
+    })
+    const grnTable = T['GRNs']
+    const grnWrites = ops2.upserts.filter((u) => u.table === grnTable.id && u.key === 'GRN-2026-0002')
+    expect(grnWrites).toHaveLength(1)
+    // and no ledger/table rows were re-sent at all beyond the single writes
+    const rowWrites = ops2.upserts.filter((u) => u.key !== 'grn' && u.key !== 'app_revision')
+    expect(rowWrites).toHaveLength(1)
+  })
+
+  it('the first vendors commit seeds the fixed vendor types and links the column', async () => {
+    const { zoho, ops } = fakeZoho()
+    const commitVendors = () =>
+      commitChanges(zoho, admin, {
+        empty: false,
+        tables: [
+          { table: 'vendors', upsert: [{ id: 'VEN-00001', data: { id: 'VEN-00001', name: 'Mandya Green Farms', vendorTypeId: 'VT-FARMER', phone: '+91 98450 12345', area: 'Mandya', payment: '15 days', status: 'Active' } }], remove: [] },
+        ],
+        counters: {},
+      })
+    await commitVendors()
+    const vt = T['Vendor Types']
+    const seed = ops.upserts.filter((u) => u.table === vt.id)
+    expect(seed).toHaveLength(1)
+    expect(seed[0]!.key).toBe('VT-FARMER')
+    expect(seed[0]!.values[vt.fields['Name']]).toBe('Farmer')
+    expect(seed[0]!.values[vt.fields['Source Kind']]).toBe('Farmer')
+    expect(seed[0]!.values[vt.fields['Description']]).toBe('Produce suppliers')
+    expect(seed[0]!.values[vt.appId]).toBe('VT-FARMER')
+    // the vendor's own write carries the Vendor Type link to the seeded row
+    const vendors = T['Vendors']
+    const vendorWrite = ops.upserts.find((u) => u.table === vendors.id && u.key === 'VEN-00001')!
+    const seededRec = (await zoho.fetchAll(vt.id)).find((r) => String(r.data[vt.appId]) === 'VT-FARMER')!
+    expect(vendorWrite.values[vendors.fields['Vendor Type']]).toBe(seededRec.recordID)
+    // the second vendors commit does not seed again — the row is in the maps now
+    await commitVendors()
+    expect(ops.upserts.filter((u) => u.table === vt.id)).toHaveLength(1)
+  })
+
+  it('a vendor type id the app does not know as fixed is never seeded', async () => {
+    const { zoho, ops } = fakeZoho()
+    await commitChanges(zoho, admin, {
+      empty: false,
+      tables: [
+        { table: 'vendors', upsert: [{ id: 'VEN-00002', data: { id: 'VEN-00002', name: 'Odd One', vendorTypeId: 'VT-WEIRD', status: 'Active' } }], remove: [] },
+      ],
+      counters: {},
+    })
+    const vt = T['Vendor Types']
+    expect(ops.upserts.filter((u) => u.table === vt.id)).toHaveLength(0)
+    const vendors = T['Vendors']
+    const vendorWrite = ops.upserts.find((u) => u.table === vendors.id && u.key === 'VEN-00002')!
+    expect(vendorWrite.values[vendors.fields['Vendor Type']]).toBeUndefined()
+  })
+
   it('stores period:* counters in Config, not Counters — Next is a number field that drops strings', async () => {
     // A period value is a STRING ('YYYY:2026'). Written to the Counters table's Next
     // column (a number field), Zoho silently drops it; it reads back empty, nextId's
@@ -467,6 +567,45 @@ describe('commitChanges', () => {
       ],
     })
     expect(ops.upserts.some((u) => u.key === 'GRN-1')).toBe(true)
+  })
+
+  it('key order alone is never a conflict — the client rebuilds docs in its own order', async () => {
+    // the live 409 of 2026-10-06: a purchase product's stored Data JSON keeps
+    // CREATION order (…, vendorIds, itemId, status), while migrate rebuilds the
+    // client's copy with status mid-object — stringified equality read the
+    // client's own base as changed by another device, and every edit 409'd
+    const creation = { id: 'PP-0001', name: 'Tender Coconut', category: 'Farm Produce', uom: 'Kg', description: '', vendorIds: ['VEN-00001'], itemId: 'RM-PP-0001', status: 'Active' }
+    const rebuilt = { id: 'PP-0001', name: 'Tender Coconut', category: 'Farm Produce', uom: 'Kg', description: '', status: 'Active', vendorIds: ['VEN-00001'], itemId: 'RM-PP-0001' }
+    const t = T['Purchase Products']
+    const { zoho, ops } = fakeZoho([
+      { recordID: 'z-pp', data: { __table: t.id, [t.appId]: 'PP-0001', [t.dataJson!]: JSON.stringify(creation) } },
+    ])
+    // the edit: new content, expect = the rebuilt-order base — must be admitted
+    await commitChanges(zoho, admin, {
+      empty: false,
+      tables: [{
+        table: 'purchase_products',
+        upsert: [{ id: 'PP-0001', data: { ...rebuilt, description: 'links verified' } }],
+        remove: [],
+        expect: { 'PP-0001': { data: rebuilt } },
+      }],
+      counters: {},
+    })
+    expect(ops.upserts.some((u) => u.key === 'PP-0001')).toBe(true)
+    // and the same content back in creation order is an idempotent skip — a
+    // reordering alone is not a difference worth a write or a revision bump
+    ops.upserts.length = 0
+    const again = await commitChanges(zoho, admin, {
+      empty: false,
+      tables: [{
+        table: 'purchase_products',
+        upsert: [{ id: 'PP-0001', data: { ...creation, description: 'links verified' } }],
+        remove: [],
+        expect: { 'PP-0001': { data: creation } },
+      }],
+      counters: {},
+    })
+    expect(again.wrote).toBe(false)
   })
 
   it("refuses an insert whose minted code already exists — two devices can't post one number", async () => {

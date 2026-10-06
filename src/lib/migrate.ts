@@ -1,4 +1,4 @@
-import type { AppState, BomLine, BulkOutputLine, StorageType, Vendor, VendorType } from '../types'
+import type { AppState, BomLine, BulkOutputLine, StorageType, Vendor } from '../types'
 import { batchInputQty, mainOutput, usableYield } from './batches'
 import { batchDisposition } from './posting'
 import { stockIdFor } from './stockIds'
@@ -23,22 +23,10 @@ function inferPackType(name = '', bom: BomLine[] = []) {
   return 'Pack'
 }
 
-export const FIXED_VENDOR_TYPES: VendorType[] = [
-  {
-    id: 'VT-FARMER',
-    name: 'Farmer',
-    sourceKind: 'Farmer',
-    description: 'Produce suppliers',
-    status: 'Active',
-  },
-  {
-    id: 'VT-VENDOR',
-    name: 'Vendor',
-    sourceKind: 'Vendor',
-    description: 'Material and packing suppliers',
-    status: 'Active',
-  },
-]
+// The list itself lives in its own leaf module — the BFF's commit path imports
+// it to seed the base's Vendor Types table and must not pull this file's graph.
+export { FIXED_VENDOR_TYPES } from './vendorTypes'
+import { FIXED_VENDOR_TYPES } from './vendorTypes'
 
 /** Map any legacy type id/name to Farmer or Vendor. */
 export function normalizeVendorTypeId(typeIdOrName?: string): 'VT-FARMER' | 'VT-VENDOR' {

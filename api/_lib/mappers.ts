@@ -12,9 +12,15 @@
  * on purpose: attachment columns (probed live 2026-10-06 — a string there makes
  * Zoho silently drop every field AFTER it in the same upsert, so Dispatches.POD
  * is never written; a real attachment write contract is still future work), the
- * Order Lines child table (orders keep their lines in Data JSON until a
- * split-on-write lands), and columns no doc field feeds (a Dispatch records no
- * location of its own; a Lab report carries no decision field). Choice columns
+ * child tables the app keeps inside their parents' Data JSON (Order Lines, BOM
+ * Lines, Melange Components — a split-on-write is future work, and Test
+ * Categories has no collection at all: its link columns on Test Parameters and
+ * Lab Reports stay empty, and the category KEY the mapper writes there is
+ * dropped by Zoho as a non-record-id — the Data JSON keeps it), and columns no
+ * doc field feeds (a Dispatch records no location of its own; a Lab report
+ * carries no decision field). The fixed Vendor Types rows are app constants the
+ * client can never write (its diff never sees them change), so the commit path
+ * seeds them — see api/_lib/commit.ts. Choice columns
  * carry no option list here on purpose: the same probe showed Zoho auto-adds an
  * unmatched label as a new option and leaves the following fields alone, so the
  * mapper just writes the label and the base grows its own options.
@@ -22,7 +28,7 @@
 import type { ZohoRecord } from './zoho.js'
 import type { TableRef } from './baseSchema.js'
 import type {
-  Grn, LedgerEntry, Vendor, PurchaseProduct, StorageLocation, Item,
+  Grn, LedgerEntry, Vendor, VendorType, PurchaseProduct, StorageLocation, Item,
   Customer, Product, Melange, TestParameter, StaffMember, Batch, PackingRun,
   Order, QcRecord, Dispatch, StockIssue, LabReport, ShiftAssignment,
   AttendanceRecord, ProductionPlan, StickerTemplate, StickerPrint,
@@ -42,11 +48,12 @@ export function rowToDoc(table: TableRef, r: ZohoRecord): Record<string, unknown
 
 /** The tables whose rows feed link maps — every one buildLinkMaps reads. */
 export type LinkTableKey =
-  | 'vendors' | 'purchaseProducts' | 'storageLocations' | 'items'
+  | 'vendors' | 'vendorTypes' | 'purchaseProducts' | 'storageLocations' | 'items'
   | 'customers' | 'products' | 'batches' | 'staff'
 
 export interface LinkMaps {
   vendors: Map<string, string>              // vendor app id → zoho record id
+  vendorTypes: Map<string, string>          // vendor type app id (VT-FARMER…) → zoho record id
   purchaseProducts: Map<string, string>
   storageLocations: Map<string, string>    // keyed by BOTH app id and ledger name
   items: Map<string, string>               // keyed by BOTH app id and item name
@@ -70,6 +77,7 @@ export function buildLinkMaps(
     new Map(rs.map((r) => [String(r.data[table.appId] ?? ''), r.recordID]))
   const maps: LinkMaps = {
     vendors: byAppId(rows.vendors, t.vendors),
+    vendorTypes: byAppId(rows.vendorTypes, t.vendorTypes),
     purchaseProducts: byAppId(rows.purchaseProducts, t.purchaseProducts),
     storageLocations: byAppId(rows.storageLocations, t.storageLocations),
     items: byAppId(rows.items, t.items),
@@ -97,6 +105,31 @@ export function buildLinkMaps(
   return maps
 }
 
+/** The link tables keyed by name as well as app id — mergeLinkRows must key new
+ *  rows exactly the way buildLinkMaps did, or a carrier that references its
+ *  target by NAME (a ledger line's item, a dispatch's sku) still misses it. */
+const NAME_KEYED: Partial<Record<LinkTableKey, 'name'>> = {
+  storageLocations: 'name', items: 'name', customers: 'name', products: 'name',
+}
+
+/** Fold rows a commit itself just wrote into maps built before those rows
+ *  existed — the same-commit link fixup's refresh (see commit.ts step 4b). */
+export function mergeLinkRows(
+  maps: LinkMaps,
+  key: LinkTableKey,
+  rows: ZohoRecord[],
+  table: TableRef,
+): void {
+  for (const r of rows) {
+    const appId = String(r.data[table.appId] ?? '')
+    if (!appId) continue
+    maps[key].set(appId, r.recordID)
+    if (!NAME_KEYED[key] || !table.dataJson) continue
+    const doc = rowToDoc(table, r) as { name?: string } | null
+    if (doc?.name) maps[key].set(doc.name, r.recordID)
+  }
+}
+
 const s = (v: unknown): string | undefined => (v === undefined || v === null ? undefined : String(v))
 const n = (v: unknown): string | undefined => (v === undefined || v === null ? undefined : String(v))
 const link = (m: Map<string, string>, id: unknown) => {
@@ -111,15 +144,24 @@ export function columnsFor(
   links: LinkMaps,
 ): Record<string, string | undefined> {
   switch (key) {
+    case 'vendorTypes': {
+      const vt = doc as unknown as VendorType
+      return { Name: s(vt.name), 'Source Kind': s(vt.sourceKind), Description: s(vt.description), Status: s(vt.status) }
+    }
     case 'vendors': {
       const v = doc as unknown as Vendor
       // Phone fields (type 17) silently DROP strings containing spaces — the probe
       // pinned it. Send digits only; the Data JSON keeps the original number.
-      return { Name: s(v.name), Phone: v.phone ? v.phone.replace(/\D/g, '') : undefined, Area: s(v.area), 'Payment Terms': s(v.payment), Status: s(v.status), Email: s(v.email), Notes: s(v.notes) }
+      return { Name: s(v.name), Phone: v.phone ? v.phone.replace(/\D/g, '') : undefined, Area: s(v.area), 'Payment Terms': s(v.payment), Status: s(v.status), Email: s(v.email), Notes: s(v.notes), 'Vendor Type': link(links.vendorTypes, v.vendorTypeId) }
     }
     case 'purchaseProducts': {
       const p = doc as unknown as PurchaseProduct
-      return { Name: s(p.name), 'Default UOM': s(p.uom), Item: link(links.items, p.itemId) }
+      // A multi-link column takes comma-joined record ids — probed live against
+      // the scratch base 2026-10-06: the pair landed and Zoho filled the Vendors
+      // 'Link to Purchase Products' mirror from this forward side alone.
+      // Unresolvable ids drop out rather than spoil the write.
+      const linked = (p.vendorIds ?? []).map((id) => links.vendors.get(id)).filter((v): v is string => !!v)
+      return { Name: s(p.name), 'Default UOM': s(p.uom), Item: link(links.items, p.itemId), 'Linked Vendors': linked.length ? linked.join(',') : undefined }
     }
     case 'storageLocations': {
       const l = doc as unknown as StorageLocation
@@ -154,8 +196,10 @@ export function columnsFor(
     }
     case 'testParameters': {
       const tp = doc as unknown as TestParameter
-      // Category is the category KEY (a short string like 'micro'); the Data JSON
-      // keeps it and the column takes it as plain text, best-effort.
+      // Category is the category KEY (a short string like 'micro'). The column is
+      // a LINK to Test Categories, a table with no collection and no rows, so
+      // Zoho drops the text — the Data JSON keeps the key and the column stays
+      // empty, same family as the other never-filled columns in the header note.
       return { Name: s(tp.name), Method: s(tp.method), Unit: s(tp.unit), Category: s(tp.category) }
     }
     case 'staff': {

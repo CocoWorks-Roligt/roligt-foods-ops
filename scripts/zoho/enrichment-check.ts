@@ -2,13 +2,16 @@
  * Live check of the Plan 2 column enrichment, two passes:
  *
  *   pass 1 — commits one clearly-marked TEST document per table through the REAL
- *            commit path. Masters and their children land together, so the link
- *            columns are EXPECTED empty here: link maps are built before the
- *            writes, and the targets do not exist yet.
- *   pass 2 — re-saves only the link-carrying rows (batch, product, dispatch,
- *            shift) with a marker field and an `expect` of what pass 1 stored —
- *            exactly the shape the honest client sends on an edit. The maps now
- *            hold the masters, so the link columns must fill.
+ *            commit path, all rows in ONE commit. Masters and their carriers
+ *            land together, and the SAME-COMMIT LINK FIXUP must resolve every
+ *            link column right there (a probe straight after the commit reads
+ *            the carriers back and proves it) — the maps were built before any
+ *            row existed, so this is exactly the raw-material-save shape that
+ *            used to leave Purchase Products' Item column empty forever.
+ *   pass 2 — re-saves the link-carrying rows (batch, product, dispatch, shift,
+ *            vendor, purchase product) with a marker field and an `expect` of
+ *            what pass 1 stored — exactly the shape the honest client sends on
+ *            an edit. The links must survive the edit unchanged.
  *
  * Then reads every row back and prints what actually landed in the real columns,
  * choice labels resolved off the live field metadata, link values cross-checked
@@ -55,11 +58,16 @@ const admin: Caller = { email: 'enrichment-check@roligt.local', permissions: [..
 
 // One TEST doc per table, shaped exactly as the app writes them. Links cross rows:
 // dispatch → customer (id), batch (id), product (name); batch → location (name);
-// product → item (name); shift → staff (id).
+// product → item (name); shift → staff (id); purchase product → item (id) and
+// BOTH of its vendors (multi-link, comma-joined) — the raw-material save's exact
+// shape; vendor → the fixed vendor type (seeded by the commit itself when the
+// base lacks it).
 const DOCS: Record<string, Record<string, unknown>> = {
   storage_locations: { id: 'TEST-LOC-1', name: 'Test Freezer', label: 'Test Freezer', holds: 'enrichment check rows', type: 'Cold Room', status: 'Active' },
   items: { id: 'TEST-ITEM-1', name: 'Test Coconut Water', type: 'Raw', uom: 'Litre', lotControlled: true, reorder: 10, costMethod: 'FIFO' },
   customers: { id: 'TEST-CUST-1', name: 'Test Hotel', shipTo: '12 Test Lane', gst: '29TESTGST1234F1Z5', status: 'Active', phone: '+91 98450 11122', email: 'test@example.in', contactPerson: 'Test Person', notes: 'column enrichment check' },
+  vendors: { id: 'TEST-VEN-1', name: 'Test Farm', vendorTypeId: 'VT-VENDOR', phone: '+91 98450 11133', area: 'Test Area', payment: '15 days', status: 'Active' },
+  purchase_products: { id: 'TEST-PP-1', name: 'Test Tender Coconut', category: 'Farm Produce', uom: 'Nos', description: '', vendorIds: ['TEST-VEN-1'], itemId: 'TEST-ITEM-1', status: 'Active' },
   products: { id: 'TEST-PROD-1', name: 'Test 250ml BiB', type: 'BiB', size: 250, unit: 'ml', packVolume: 0.25, shelfLifeDays: 365, mrp: 40, bulkItem: 'Test Coconut Water' },
   batches: { id: 'TEST-BTH-1', date: '2026-10-06', kind: 'Extraction', spoiled: 3, costPerL: 18.5, status: 'Released', location: 'Test Freezer' },
   dispatches: { id: 'TEST-DSP-1', customerId: 'TEST-CUST-1', customerName: 'Test Hotel', batchId: 'TEST-BTH-1', sku: 'Test 250ml BiB', qty: 10, expiry: '2027-10-06', challan: 'TEST-CH-1', vehicle: 'TEST-KA-01', dispatchTime: '2026-10-06T08:30:00.000Z', status: 'Dispatched', pod: 'Test POD' },
@@ -69,15 +77,44 @@ const DOCS: Record<string, Record<string, unknown>> = {
 }
 // pass 2 re-saves these with a marker (the doc must genuinely change or the
 // idempotent skip leaves the columns as pass 1 wrote them)
-const LINK_CARRYING = ['batches', 'products', 'dispatches', 'shifts']
+const LINK_CARRYING = ['batches', 'products', 'dispatches', 'shifts', 'vendors', 'purchase_products']
 
-console.log('\n── pass 1: create every TEST row (links expected empty — targets do not exist yet)')
+console.log('\n── pass 1: create every TEST row in ONE commit — the same-commit fixup must resolve every link now')
 const pass1 = await commitChanges(zoho, admin, {
   empty: false,
   tables: Object.entries(DOCS).map(([table, doc]) => ({ table, upsert: [{ id: String(doc.id), data: doc }], remove: [] })),
   counters: {},
 } as StateChanges)
 console.log(`pass 1 ${pass1.wrote ? 'wrote' : 'wrote NOTHING'} — revision ${pass1.token}`)
+
+// The fixup probe: read the same-commit carriers straight back. Before the fixup
+// these columns sat empty until somebody re-saved the row — the scratch-base
+// eyeball that caught it (Purchase Products' Item, 2026-10-06).
+{
+  let fixupFails = 0
+  const probe = async (baseName: string, appId: string, column: string, wantTable: string, wantId: string) => {
+    const t = T[baseName]
+    const rows = await zoho.fetchAll(t.id)
+    const row = rows.find((r) => String(r.data[t.appId]) === appId)
+    const want = (await zoho.fetchAll(T[TABLE_FOR[wantTable]!].id)).find((r) => String(r.data[T[TABLE_FOR[wantTable]!].appId]) === wantId)
+    const got = row ? String(row.data[t.fields[column]!] ?? '') : ''
+    const ok = !!row && !!want && (got === want.recordID || got.includes(want.recordID))
+    console.log(`    ${fixupFails === 0 && ok ? '✓' : '✗'} ${baseName}.${column} → ${wantTable}:${wantId} ${ok ? '' : `(got ${JSON.stringify(got)})`}`)
+    if (!ok) fixupFails++
+  }
+  console.log('── fixup probe: same-commit links resolved by pass 1 alone')
+  await probe('Purchase Products', 'TEST-PP-1', 'Item', 'items', 'TEST-ITEM-1')
+  await probe('Purchase Products', 'TEST-PP-1', 'Linked Vendors', 'vendors', 'TEST-VEN-1')
+  await probe('Vendors', 'TEST-VEN-1', 'Vendor Type', 'vendor_types', 'VT-VENDOR')
+  await probe('Dispatches', 'TEST-DSP-1', 'Customer', 'customers', 'TEST-CUST-1')
+  await probe('Batches', 'TEST-BTH-1', 'Location', 'storage_locations', 'TEST-LOC-1')
+  if (fixupFails) {
+    console.log(`✗ ${fixupFails} same-commit link(s) did not resolve`)
+    process.exitCode = 1
+  } else {
+    console.log('✓ every same-commit link resolved without a re-save')
+  }
+}
 
 console.log('\n── pass 2: re-save the link-carrying rows, expect = what pass 1 stored')
 const pass2 = await commitChanges(zoho, admin, {
@@ -135,8 +172,16 @@ for (const table of Object.keys(DOCS)) {
   rowsByTable.set(table, rows)
   for (const r of rows) recordIds.set(`${table}:${String(r.data[t.appId])}`, r.recordID)
 }
+// the seeded fixed vendor types — app constants the commit writes when the base
+// lacks them, not TEST rows; registered so the Vendor Type cross-check can name them
+{
+  const t = T['Vendor Types']
+  for (const r of await zoho.fetchAll(t.id)) recordIds.set(`vendor_types:${String(r.data[t.appId])}`, r.recordID)
+}
 /** What a link column SHOULD hold, if it resolved. */
 const expectLink: Record<string, Record<string, string>> = {
+  vendors: { 'Vendor Type': 'vendor_types:VT-VENDOR' },
+  purchase_products: { Item: 'items:TEST-ITEM-1', 'Linked Vendors': 'vendors:TEST-VEN-1' },
   batches: { Location: 'storage_locations:TEST-LOC-1' },
   products: { 'Bulk Item': 'items:TEST-ITEM-1' },
   dispatches: { Customer: 'customers:TEST-CUST-1', SKU: 'products:TEST-PROD-1', Batch: 'batches:TEST-BTH-1' },
@@ -195,6 +240,8 @@ if (!KEEP) {
       console.log(`    deleted ${TABLE_FOR[table]} ${String(doc.id)}`)
     }
   }
+  // the seeded fixed vendor types stay — they are app constants (src/lib/vendorTypes.ts),
+  // the rows every vendors commit links against, not check fixtures
   const { bumpRevisionTo } = await import('../../api/_lib/commit.js')
   console.log(`    revision now ${await bumpRevisionTo(zoho, parseInt(pass2.token, 10) || 0)}`)
 } else {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildLinkMaps, columnsFor, ledgerColumns } from './mappers.js'
+import { buildLinkMaps, columnsFor, ledgerColumns, mergeLinkRows } from './mappers.js'
 import type { LinkMaps } from './mappers.js'
 import { T } from './baseSchema.js'
 import type { ZohoRecord } from './zoho.js'
@@ -13,11 +13,12 @@ const rowIn = (base: string, appId: string, doc: Record<string, unknown>): ZohoR
   return { recordID: `z-${appId}`, data: { [t.appId]: appId, ...(t.dataJson ? { [t.dataJson]: JSON.stringify(doc) } : {}) } }
 }
 
-describe('buildLinkMaps — the eight tables the Plan 2 link columns read', () => {
-  it('keys customers and products by BOTH app id and name, batches and staff by id', () => {
+describe('buildLinkMaps — the nine tables the Plan 2 link columns read', () => {
+  it('keys customers and products by BOTH app id and name, batches, staff and vendor types by id', () => {
     const maps = buildLinkMaps(
       {
         vendors: [rowIn('Vendors', 'V1', { name: 'Farmer Joe' })],
+        vendorTypes: [rowIn('Vendor Types', 'VT-FARMER', { name: 'Farmer' })],
         purchaseProducts: [rowIn('Purchase Products', 'P1', { name: 'Coconut' })],
         storageLocations: [rowIn('Storage Locations', 'L1', { name: 'Freezer 1' })],
         items: [rowIn('Items', 'I1', { name: 'Coconut Water' })],
@@ -27,7 +28,7 @@ describe('buildLinkMaps — the eight tables the Plan 2 link columns read', () =
         staff: [rowIn('Staff', 'S1', { name: 'Ravi' })],
       },
       {
-        vendors: T['Vendors'], purchaseProducts: T['Purchase Products'], storageLocations: T['Storage Locations'], items: T['Items'],
+        vendors: T['Vendors'], vendorTypes: T['Vendor Types'], purchaseProducts: T['Purchase Products'], storageLocations: T['Storage Locations'], items: T['Items'],
         customers: T['Customers'], products: T['Products'], batches: T['Batches'], staff: T['Staff'],
       },
     )
@@ -39,11 +40,32 @@ describe('buildLinkMaps — the eight tables the Plan 2 link columns read', () =
     expect(maps.staff.get('S1')).toBe('z-S1')
     expect(maps.items.get('Coconut Water')).toBe('z-I1')
     expect(maps.storageLocations.get('Freezer 1')).toBe('z-L1')
+    expect(maps.vendorTypes.get('VT-FARMER')).toBe('z-VT-FARMER')
+  })
+
+  it('mergeLinkRows keys rows the commit just wrote the same way — id always, name where buildLinkMaps does', () => {
+    const maps = buildLinkMaps(
+      {
+        vendors: [], vendorTypes: [], purchaseProducts: [], storageLocations: [], items: [],
+        customers: [], products: [], batches: [], staff: [],
+      },
+      {
+        vendors: T['Vendors'], vendorTypes: T['Vendor Types'], purchaseProducts: T['Purchase Products'], storageLocations: T['Storage Locations'], items: T['Items'],
+        customers: T['Customers'], products: T['Products'], batches: T['Batches'], staff: T['Staff'],
+      },
+    )
+    // an item and a vendor the commit itself just wrote — record ids fresh off the upsert read-back
+    mergeLinkRows(maps, 'items', [rowIn('Items', 'RM-PP-0001', { name: 'Tender Coconut' })], T['Items'])
+    mergeLinkRows(maps, 'vendors', [rowIn('Vendors', 'VEN-00001', { name: 'Mandya Green Farms' })], T['Vendors'])
+    expect(maps.items.get('RM-PP-0001')).toBe('z-RM-PP-0001')
+    expect(maps.items.get('Tender Coconut')).toBe('z-RM-PP-0001') // a ledger line names items by name
+    expect(maps.vendors.get('VEN-00001')).toBe('z-VEN-00001')
+    expect(maps.vendors.get('Mandya Green Farms')).toBeUndefined() // vendors were never name-keyed
   })
 })
 
 const noLinks: LinkMaps = {
-  vendors: new Map(), purchaseProducts: new Map(), storageLocations: new Map(), items: new Map(),
+  vendors: new Map(), vendorTypes: new Map(), purchaseProducts: new Map(), storageLocations: new Map(), items: new Map(),
   customers: new Map(), products: new Map(), batches: new Map(), staff: new Map(),
 }
 
@@ -165,7 +187,31 @@ describe('columnsFor — real columns for every collection (field names, best-ef
     expect(columnsFor('testParameters', { id: 'TP1', category: 'micro', name: 'Total Plate Count', method: 'ISO 4833', unit: 'CFU/g' }, noLinks))
       .toEqual({ Name: 'Total Plate Count', Method: 'ISO 4833', Unit: 'CFU/g', Category: 'micro' })
     expect(columnsFor('purchaseProducts', { id: 'PP1', name: 'Coconut', uom: 'Nos', itemId: 'I1' }, links))
-      .toEqual({ Name: 'Coconut', 'Default UOM': 'Nos', Item: 'z-i1' })
+      .toEqual({ Name: 'Coconut', 'Default UOM': 'Nos', Item: 'z-i1', 'Linked Vendors': undefined })
+  })
+
+  it('vendor types and vendors: the type columns and the Vendor Type link', () => {
+    const links = { ...noLinks, vendorTypes: new Map([['VT-FARMER', 'z-vt1']]) }
+    expect(columnsFor('vendorTypes', { id: 'VT-FARMER', name: 'Farmer', sourceKind: 'Farmer', description: 'Produce suppliers', status: 'Active' }, links))
+      .toEqual({ Name: 'Farmer', 'Source Kind': 'Farmer', Description: 'Produce suppliers', Status: 'Active' })
+    const out = columnsFor('vendors', { id: 'VEN-00001', name: 'Mandya Green Farms', vendorTypeId: 'VT-FARMER', phone: '+91 98450 12345', area: 'Mandya', payment: '15 days', status: 'Active' }, links)
+    expect(out).toEqual({ Name: 'Mandya Green Farms', Phone: '919845012345', Area: 'Mandya', 'Payment Terms': '15 days', Status: 'Active', Email: undefined, Notes: undefined, 'Vendor Type': 'z-vt1' })
+    // an id with no row — a type the base was never seeded with — leaves the column empty
+    const orphan = columnsFor('vendors', { id: 'VEN-00002', name: 'Other', vendorTypeId: 'VT-WEIRD', status: 'Active' }, noLinks)
+    expect(orphan['Vendor Type']).toBeUndefined()
+  })
+
+  it('purchase products: Linked Vendors joins every resolvable vendor id, comma-separated; unresolved ids drop out', () => {
+    const links = {
+      ...noLinks,
+      items: new Map([['RM-PP-0001', 'z-i1']]),
+      vendors: new Map([['VEN-00001', 'z-v1'], ['VEN-00002', 'z-v2']]),
+    }
+    const out = columnsFor('purchaseProducts', { id: 'PP-0001', name: 'Tender Coconut', uom: 'Nos', itemId: 'RM-PP-0001', vendorIds: ['VEN-00001', 'VEN-GONE', 'VEN-00002'] }, links)
+    expect(out).toEqual({ Name: 'Tender Coconut', 'Default UOM': 'Nos', Item: 'z-i1', 'Linked Vendors': 'z-v1,z-v2' })
+    // nothing resolves — the column stays empty rather than shipping an empty string
+    const none = columnsFor('purchaseProducts', { id: 'PP-0002', name: 'Carton', uom: 'Nos', vendorIds: ['VEN-GONE'] }, links)
+    expect(none['Linked Vendors']).toBeUndefined()
   })
 
   it('ledger keeps its columns: names link by BOTH id and name keys', () => {
