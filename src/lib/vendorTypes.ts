@@ -1,4 +1,7 @@
-import type { VendorType } from '../types'
+// Extension is explicit: this file is also compiled by the nodenext api build
+// (the BFF's vendors commit seeds these constants), where extensionless imports
+// do not resolve — the same reason tables.ts spells its own imports out.
+import type { VendorType } from '../types.ts'
 
 /**
  * The vendor types the app knows. They are constants of the application, not
