@@ -6,10 +6,13 @@ import {
   invalidateSnapshotCache,
   noteCommitApplied,
   noteRevision,
+  projectSnapshot,
   readRevisionMemoized,
   readSnapshotCached,
+  withheldForCaller,
 } from './snapshot.js'
 import { TABLE_FOR, T as LIVE_T } from './baseSchema.js'
+import { PAGE_CATALOG } from '../../src/lib/pages.js'
 import type { ZohoClient, ZohoRecord } from './zoho.js'
 
 const T = {
@@ -398,6 +401,31 @@ describe('delta sweep — the substrate cache deltas off the watermarks', () => 
     const s3 = await readSnapshotCached(f.zoho)
     expect(s3.state?.ledger?.length).toBe(3)
     expect(f.calls.fetchSince[LED.id]).toBe(2) // the full read rebuilt the watermark
+  })
+
+  it('a future-dated stored row never advances the watermark — the delta keeps serving new rows', async () => {
+    // the poisoned-watermark chain this pins shut: a row whose `at` sits in the
+    // future used to become the lexicographic max, every later bucket landed
+    // past "now", and the delta answered [] forever while looking healthy.
+    // maxAt now skips rows beyond the grace (the commit gate refuses to write
+    // one; a hand edit in the Zoho UI still can), so the watermark stays at the
+    // honest max and the next sweep's delta finds the genuinely new row.
+    const future = new Date(Date.now() + 86_400_000).toISOString()
+    const fresh = new Date(Date.now() - 60_000).toISOString()
+    let rev = 7
+    const f = fakeDelta({
+      rev: () => rev,
+      ledger: [ledRow('L1', '2026-09-30T08:00:00.000Z'), ledRow('LF', future)],
+    })
+    const s1 = await readSnapshotCached(f.zoho)
+    expect(s1.state?.ledger?.length).toBe(2) // the row itself is data and is served
+    const ledFull = f.calls.fetchAll[LED.id] ?? 0
+    rev = 8
+    f.store[LED.id]!.push(ledRow('L2', fresh, 7))
+    const s2 = await readSnapshotCached(f.zoho)
+    expect(s2.state?.ledger?.length).toBe(3) // the new row arrived — via the delta
+    expect(f.calls.fetchSince[LED.id]).toBe(1) // the delta served this sweep…
+    expect(f.calls.fetchAll[LED.id]).toBe(ledFull) // …not a full re-read
   })
 
   it('a watermark older than five minutes is re-read whole — foreign deletions cannot outlive the clock', async () => {
@@ -795,5 +823,90 @@ describe('readRevisionMemoized', () => {
     invalidateSnapshotCache('9:abcdef')
     expect(await readRevisionMemoized(zoho)).toBe('9:abcdef')
     expect(fetchByKeyIn.mock.calls.length).toBe(1) // the memo served it, no read
+  })
+})
+
+describe('projectSnapshot — one substrate, each caller their own view', () => {
+  /**
+   * Read-side authorization (the audit's S2-6). The substrate is assembled once
+   * per revision and shared by EVERY caller, so a caller's page scope can only
+   * be applied as a per-request projection: drop the tables they may not read,
+   * name them in `withheld` for the client to bridge back (sync.ts
+   * restoreWithheld). What must never happen is as interesting as what must —
+   * the shared state object is never narrowed, and the withheld list is a
+   * function of the permission set alone, never of which tables hold rows.
+   */
+  const SUPPLIERS_CLERK = ['page.vendors']
+  const LAB_TESTER = ['page.quality', 'page.control-samples', 'page.reports', 'page.test-parameters']
+  const EVERY_PAGE = PAGE_CATALOG.map((p) => p.slug)
+
+  const fullSnap = () =>
+    assembleState(T as never, {
+      grns: [rec('GRN-1', { id: 'GRN-1', lot: 'LOT-1' })],
+      vendors: [rec('V-1', { id: 'V-1', name: 'Sriram' })],
+      ledger: [rec('L-1', { id: 'L-1', type: 'GRN', qty_in: 100 })],
+      audits: [rec('A-1', { id: 'A-1', action: 'posted' })],
+      counters: [{ recordID: 'c1', data: { 'f-series': 'grn', 'f-next': '5' } }],
+      config: [
+        { recordID: 'k1', data: { 'f-set': 'app_config', 'f-val': JSON.stringify({ company: 'Roligt' }) } },
+      ],
+    })
+
+  it('withholds exactly the pages a scoped caller does not hold — nothing more', () => {
+    // the operator (no page slugs) and a full administrator read the whole plant
+    expect(withheldForCaller([])).toEqual([])
+    expect(withheldForCaller(EVERY_PAGE)).toEqual([])
+    // a suppliers clerk: the day's work they do not hold, and the audit trail —
+    // but never the masters they hold, or the ledger and counters their own
+    // page's postings need
+    const clerk = withheldForCaller(SUPPLIERS_CLERK)
+    expect(clerk).toContain('grns')
+    expect(clerk).toContain('audits')
+    expect(clerk).not.toContain('vendors')
+    expect(clerk).not.toContain('ledger')
+    expect(clerk).not.toContain('counters')
+    // a lab tester holds quality, control-samples and reports: their verdicts,
+    // runs and lab reports stay readable; procurement's receipts do not
+    const lab = withheldForCaller(LAB_TESTER)
+    expect(lab).not.toContain('qcs')
+    expect(lab).not.toContain('packingRuns')
+    expect(lab).not.toContain('labReports')
+    expect(lab).toContain('grns')
+  })
+
+  it('projects the state per caller — dropped keys named in withheld, the rest served', () => {
+    const snap = fullSnap()
+    const view = projectSnapshot(snap, SUPPLIERS_CLERK)
+    expect(view.revision).toBe(snap.revision)
+    expect(view.state && 'grns' in view.state).toBe(false)
+    expect(view.state && 'audits' in view.state).toBe(false)
+    expect(view.state?.vendors?.[0]?.name).toBe('Sriram')
+    expect(view.state?.ledger?.[0]?.qtyIn).toBe(100)
+    expect(view.withheld).toEqual(withheldForCaller(SUPPLIERS_CLERK))
+  })
+
+  it('never narrows the shared substrate — the next caller still gets the whole plant', () => {
+    const snap = fullSnap()
+    const scoped = projectSnapshot(snap, SUPPLIERS_CLERK)
+    expect(scoped.state && 'grns' in scoped.state).toBe(false)
+    // the substrate's own state object is untouched by the projection above…
+    expect(snap.state?.grns?.length).toBe(1)
+    // …so the very next caller — an operator — is served the SAME object, whole
+    const whole = projectSnapshot(snap, [])
+    expect(whole.state).toBe(snap.state)
+    expect(whole.withheld).toEqual([])
+  })
+
+  it('answers the same withheld list for an empty plant and a full one — no data-presence leak', () => {
+    const empty = assembleState(T as never, {
+      grns: [], vendors: [], ledger: [], audits: [], counters: [], config: [],
+    })
+    expect(empty.state).toBeNull()
+    // a caller must not learn WHICH tables hold rows from the shape of the
+    // refusal — the list depends on their permissions and nothing else
+    expect(projectSnapshot(empty, SUPPLIERS_CLERK).withheld).toEqual(
+      projectSnapshot(fullSnap(), SUPPLIERS_CLERK).withheld,
+    )
+    expect(projectSnapshot(empty, SUPPLIERS_CLERK).state).toBeNull()
   })
 })

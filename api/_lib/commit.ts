@@ -21,17 +21,18 @@
  * two devices minting the same document number a refused insert instead of one
  * receipt quietly replacing the other while both ledger lines survive.
  */
-import { ZohoApiError } from './zoho.js'
+import { FUTURE_AT_GRACE_MS, ZohoApiError } from './zoho.js'
 import type { ZohoClient, ZohoRecord } from './zoho.js'
 import type { TableRef } from './baseSchema.js'
 import { T, TABLE_FOR } from './baseSchema.js'
 import { columnsFor, ledgerColumns, auditColumns, buildLinkMaps, mergeLinkRows, type LinkTableKey } from './mappers.js'
 import { FIXED_VENDOR_TYPES } from '../../src/lib/vendorTypes.js'
+import { periodKeyForPattern, seriesPatternOf } from '../../src/lib/seriesPatterns.js'
 import { COLLECTIONS } from '../../src/lib/tables.js'
 import type { StateChanges } from '../../src/lib/sync.js'
 import { TABLE_WRITE_PERMISSION, CONFIG_KEY_WRITE_PERMISSION, isAdminPermissions } from '../../src/lib/permissions.js'
 import { pageScope } from '../../src/lib/pages.js'
-import type { ViewId } from '../../src/types.js'
+import type { ViewId, NumberingRule } from '../../src/types.js'
 import type { Caller } from './auth.js'
 import { cachedLedgerWatermark, noteCommitApplied, noteRevision } from './snapshot.js'
 
@@ -51,6 +52,32 @@ export class Malformed extends Error {}
  *  TABLE_FOR with no CollectionSpec, so a change naming them used to slip past
  *  both permission loops untouched — ungated writes to live base tables. */
 const WRITABLE_TABLES = new Set<string>([...COLLECTIONS.map((c) => c.table), 'ledger', 'audits'])
+
+/** How far a counter may jump FORWARD past what is stored, for everyone but
+ *  administrators. A stale mirror heals by the size of the offline stint that
+ *  stale-wrote it — documents a human actually keyed, one row each, pushed in
+ *  chunks whose counter can land ahead of the rows — so the ceiling only has
+ *  to clear what one device can honestly mint, and a hundred thousand documents
+ *  keyed by hand on one phone is not that. Below the ceiling the write lands as
+ *  it always did; above it the commit is refused whole, because a crafted
+ *  {grn: 999999999} used to land unconditionally and stick until the next
+ *  genuine rollover, minting absurd codes plant-wide. */
+const COUNTER_JUMP_MAX = 100_000
+
+/** The config keys whose values are numbers by contract — the tolerances, alert
+ *  windows and label-stock dimensions. A crafted string under one of these
+ *  travels device-to-device through app_config and lands where only a number
+ *  is ever expected (the sticker sizes reach the print sheet's HTML raw), so
+ *  the shape gate refuses it before anything is spent. */
+const CONFIG_NUMBER_KEYS = [
+  'yieldTolerance',
+  'pmTolerance',
+  'expiryAlertDays',
+  'lowStockPacks',
+  'stickerWidthMm',
+  'stickerHeightMm',
+  'controlSampleDays',
+] as const
 
 /**
  * Pure shape validation, run before the throttle and any Zoho call. The commit
@@ -86,6 +113,28 @@ export function validateChanges(changes: StateChanges): string | null {
     const expect = (change as { expect?: unknown }).expect
     if (expect !== undefined && (expect === null || typeof expect !== 'object' || Array.isArray(expect)))
       return 'expect must be an object.'
+    // ledger lines and audit rows are insert-only: sync.ts emits no expect for
+    // either (edits arrive as remove+insert), so one here is the crafted
+    // rewrite shape — echo the stored row as the base, land the edit over it —
+    // which no permission gate could refuse, because the payload looked honest.
+    if ((change.table === 'ledger' || change.table === 'audits') && expect !== undefined)
+      return `${change.table} rows are insert-only and carry no expect.`
+    if (change.table === 'ledger' || change.table === 'audits') {
+      for (const row of upsert) {
+        const at = (row as { at?: unknown }).at
+        if (at === undefined) continue
+        // `at` feeds the snapshot watermarks, and a future one parks a watermark
+        // where no delta bucket ever reaches — the sweep then serves empty
+        // forever while looking healthy (the future row also leads every "when"
+        // column ever rendered). Past stays free: backdated PM receipts are a
+        // real, legal shape. The grace is the skew any honest phone is allowed;
+        // an unparseable string poisons the lexicographic watermark worse than
+        // a date, so it is refused with the same breath.
+        const t = typeof at === 'string' ? Date.parse(at) : Number.NaN
+        if (Number.isNaN(t) || t - Date.now() > FUTURE_AT_GRACE_MS)
+          return `${change.table} rows must carry a parseable, not-future 'at'.`
+      }
+    }
   }
   if (rows > 16) return 'A commit carries at most 16 rows.'
   const counters = changes.counters
@@ -104,38 +153,45 @@ export function validateChanges(changes: StateChanges): string | null {
   const config = changes.config
   if (config !== undefined && (config === null || typeof config !== 'object' || Array.isArray(config)))
     return 'changes.config must be an object.'
+  for (const key of CONFIG_NUMBER_KEYS) {
+    const v = (config as Record<string, unknown> | undefined)?.[key]
+    if (v !== undefined && (typeof v !== 'number' || !Number.isFinite(v)))
+      return `app_config ${key} must be a number.`
+  }
   return null
 }
 
-/** The date tokens a numbering pattern may carry, evaluated on the local clock —
- *  the same values src/lib/numbering.ts's DATE_TOKENS produce (a plant files by
- *  the date on its own wall). Spelled out here because numbering.ts's import
- *  graph is client code the api build cannot carry verbatim. */
-const PERIOD_TOKENS: Record<string, (d: Date) => string> = {
-  YYYY: (d) => String(d.getFullYear()),
-  YY: (d) => String(d.getFullYear()).slice(-2),
-  YYYYMMDD: (d) =>
-    `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`,
-  MM: (d) => String(d.getMonth() + 1).padStart(2, '0'),
-  DD: (d) => String(d.getDate()).padStart(2, '0'),
+/**
+ * The one `period:<series>` value that may unlock a counter reset or write a
+ * period row: the period the series' own PATTERN computes to on this clock.
+ * Judged against the stored `app_config` numbering rules through the same leaf
+ * the client mints with (src/lib/seriesPatterns.ts), because "is a current
+ * period" alone is not a gate — many distinct strings read as current at once
+ * ('YYYY:2026' and 'YYYY:2026|MM:10' both pass a token-by-token clock check in
+ * October 2026), and any of them but the real one is a forged claim whose
+ * re-issued numbers overwrite the original documents while their ledger lines
+ * dangle. A series nobody configured runs the built-in default pattern; a
+ * stored rule is merged exactly the way `ruleFor` merges it for the client.
+ */
+function expectedPeriodOf(storedConfig: Map<string, string>, series: string): string {
+  const raw = storedConfig.get('app_config') ?? '{}'
+  let cached = numberingOfConfig.get(storedConfig)
+  if (!cached || cached.raw !== raw) {
+    let rules: { numbering?: NumberingRule[] } = {}
+    try {
+      rules = JSON.parse(raw) as { numbering?: NumberingRule[] }
+    } catch {
+      rules = {}
+    }
+    cached = { raw, rules }
+    numberingOfConfig.set(storedConfig, cached)
+  }
+  const saved = cached.rules.numbering?.find((r) => r?.key === series)
+  return periodKeyForPattern(seriesPatternOf(saved, series), new Date())
 }
 
-/**
- * Whether a claimed `period:*` value is the series' real current period: every
- * token it names must read the same off the local clock, the way the honest
- * client computes it when it mints. A forged 'x', a stale 'YYYY:2025' in 2026
- * and a future 'YYYY:9999' all fail — and each unlocks a backwards counter
- * move whose re-issued numbers overwrite the original documents.
- */
-const isCurrentPeriod = (claimed: string): boolean => {
-  if (!/^[A-Za-z]+:[0-9A-Za-z-]+(\|[A-Za-z]+:[0-9A-Za-z-]+)*$/.test(claimed)) return false
-  const now = new Date()
-  return claimed.split('|').every((part) => {
-    const colon = part.indexOf(':')
-    const read = PERIOD_TOKENS[part.slice(0, colon)]
-    return read !== undefined && read(now) === part.slice(colon + 1)
-  })
-}
+/** app_config parses per commit, not per counter key — one string, many series. */
+const numberingOfConfig = new WeakMap<Map<string, string>, { raw: string; rules: { numbering?: NumberingRule[] } }>()
 
 /** One row the commit would have clobbered; the client adopts the winning version. */
 export interface RowConflict {
@@ -371,32 +427,54 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
   // Page narrowing: a caller holding any page.* slug is scoped to those pages,
   // and the day's work stops being open — they may write only the tables whose
   // page they hold. The default caller (no page permissions, the operator) is
-  // untouched; a full administrator is simply a caller holding every page. The
-  // BFF is what makes this real: the UI's nav hiding a page would matter little
-  // to a crafted POST without this loop.
+  // untouched by THIS loop; a full administrator is simply a caller holding
+  // every page. The BFF is what makes this real: the UI's nav hiding a page
+  // would matter little to a crafted POST without it.
   const pages = pageScope(caller.permissions)
-  // Audits inserts are the third ride-along, and the only one whose verdict is
-  // not settled inside the scoped block: an audit row may also ride a config
-  // change, and whether any config key actually moved is known only after the
-  // config gate below has read what is stored. These two carry the scoped
-  // block's verdict out to the refusal that stands after that gate.
-  let auditsNeedRide = false
-  let auditsRideOwned = false
-  if (pages && !isAdminPermissions([...held])) {
-    const holdsPage = (page: ViewId | readonly ViewId[]) =>
-      typeof page === 'string' ? pages.has(page) : page.some((p) => pages.has(p))
+  // The one exemption below the top gate: a full administrator, for whom
+  // housekeeping (a bare counter alignment, trail cleanup, ledger line
+  // removals) is a page like any other. Everyone else — the scoped clerks AND
+  // the open-tier operator — faces the ride-along gates: those gates used to
+  // live inside the scoped branch only, so a caller holding no page slugs at
+  // all walked straight past them, and the operator tier could post bare audit
+  // rows, bare ledger lines, remove ledger history and mint counters with no
+  // document behind any of it — precisely the tables where integrity lives.
+  const admin = isAdminPermissions([...held])
+  const holdsPage = (page: ViewId | readonly ViewId[]) =>
+    pages !== null && (typeof page === 'string' ? pages.has(page) : page.some((p) => pages.has(p)))
+  if (pages && !admin) {
     for (const change of changes.tables) {
       const spec = COLLECTIONS.find((c) => c.table === change.table)
       if (spec?.page && !holdsPage(spec.page)) throw new Forbidden(change.table)
     }
+  }
+  // Audits inserts are the third ride-along, and the only one whose verdict is
+  // not settled here: an audit row may also ride a config change, and whether
+  // any config key actually moved is known only after the config gate below has
+  // read what is stored. These two carry this block's verdict out to the
+  // refusal that stands after that gate.
+  let auditsNeedRide = false
+  let auditsRideOwned = false
+  if (!admin) {
     // Ride-alongs: ledger lines, audit inserts and counter moves are part of a
-    // document's posting, owned by no page. A scoped caller may write them only
-    // alongside a collection change whose page they hold — otherwise a crafted
+    // document's posting, owned by no page. Every non-admin caller may write
+    // them only alongside a collection change they hold — otherwise a crafted
     // POST moves stock, resets numbering or files audit rows through the tables
-    // this gate never covered, precisely the tables where integrity lives.
+    // no page gate covers. Masters tables carry no `page`, but their
+    // writePermission IS the page that owns them (the top gate already demanded
+    // it), and saving a master mints its number and files its audit row exactly
+    // like a posting — without that arm the suppliers clerk's add-vendor commit
+    // (vendors row + audit insert + counters{vendor}) owned neither ride and
+    // was refused blaming "ledger", a table nobody edited, wedging their whole
+    // queue.
     const ownsCollectionChange = changes.tables.some((t) => {
       const spec = COLLECTIONS.find((c) => c.table === t.table)
-      return !!spec?.page && holdsPage(spec.page) && (t.upsert?.length || t.remove?.length)
+      if (!spec || !(t.upsert?.length || t.remove?.length)) return false
+      // the day's work: a scoped caller needs the page ticked; the operator
+      // tier holds every open-tier table the way it holds their pages — by
+      // holding nothing at all
+      if (spec.page) return !pages || holdsPage(spec.page)
+      return !!spec.writePermission && holdsAny(spec.writePermission)
     })
     const ledgerRemove = changes.tables.some((t) => t.table === 'ledger' && !!t.remove?.length)
     const ledgerWrites = changes.tables.some(
@@ -406,20 +484,25 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
     // resets alike — need a document behind them: a period row is numbering
     // state, and rewriting it resets a series plant-wide
     const counterWrites = Object.keys(changes.counters || {}).length > 0
-    // One honest exception: moving stock between rooms is the Storage page's own
-    // job, and it posts ledger lines and an audit row while owning no collection
-    // row to hang them on — so that page stands in for one. A holder may upsert
-    // ledger lines with no collection change; removals and counters still need a
-    // document behind them, because a move never deletes history and never mints
-    // a number.
-    const stockMove = ledgerWrites && !ledgerRemove && holdsPage('storage')
+    // One honest exception: moving stock between rooms is the Storage page's
+    // own job, and it posts ledger lines and an audit row while owning no
+    // collection row to hang them on — so that page stands in for one. The
+    // trail row is load-bearing: a move always files the entry that names it,
+    // and without requiring it the operator's bare-lines commit (lines naming
+    // no posting, nothing in the trail) would ride this allowance too. A holder
+    // may upsert ledger lines with no collection change; the operator tier may
+    // too, because Storage is an open-tier page they hold like the rest.
+    // Removals and counters still need a document behind them, because a move
+    // never deletes history and never mints a number.
+    const moveTrail = changes.tables.some((t) => t.table === 'audits' && !!t.upsert?.length)
+    const stockMove = ledgerWrites && !ledgerRemove && moveTrail && (holdsPage('storage') || !pages)
     if ((ledgerWrites && !ownsCollectionChange && !stockMove) || (counterWrites && !ownsCollectionChange)) {
       throw new Forbidden('ledger')
     }
     // Audit inserts ride the same two verdicts — a document's posting files its
-    // audit row, and so does the Storage move above. The config ride (saveConfig,
-    // saveStickerSize) is judged after the config gate; the refusal itself is
-    // thrown below it, not here.
+    // audit row, and so does the Storage move above. The config ride
+    // (saveConfig, saveStickerSize) is judged after the config gate; the
+    // refusal itself is thrown below it, not here.
     auditsNeedRide = changes.tables.some((t) => t.table === 'audits' && !!t.upsert?.length)
     auditsRideOwned = ownsCollectionChange || stockMove
   }
@@ -469,6 +552,26 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
   const auditRemove = changes.tables.some((t) => t.table === 'audits' && t.remove?.length)
   if (auditRemove && !held.has(TABLE_WRITE_PERMISSION.audits)) throw new Forbidden('audits')
 
+  // Counter vaulting is refused with the other permission gates, before any
+  // write lands — a refused commit is whole, rows included. Its evidence is
+  // what the Counters table holds, so that read comes up here too (step 5
+  // reuses it; the read is spent either way, only its order moves).
+  const counters = T['Counters']
+  const seriesKeys = Object.keys(changes.counters).filter((k) => !k.startsWith('period:'))
+  const storedNext = new Map<string, number>()
+  if (seriesKeys.length) {
+    const rows = await zoho.fetchByKeyIn(counters.id, counters.fields['Series'], seriesKeys)
+    for (const r of rows) {
+      const series = String(r.data[counters.fields['Series']] ?? '')
+      if (series) storedNext.set(series, Number(r.data[counters.fields['Next']]) || 0)
+    }
+    for (const series of seriesKeys) {
+      const stored = storedNext.get(series)
+      if (stored !== undefined && (Number(changes.counters[series]) || 0) > stored + COUNTER_JUMP_MAX && !admin)
+        throw new Forbidden('counters')
+    }
+  }
+
   // 2. link maps for column enrichment — memoized per revision (see linkMemo):
   // four reads for the first commit after anything changed, none behind it.
   const links = await linkMapsCached(zoho, storedConfig.get('app_revision') ?? '0')
@@ -496,7 +599,17 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
     for (const row of change.upsert) {
       const appId = String(row.id)
       const stored = byApp.get(appId)
-      if (!stored) continue
+      if (!stored) {
+        // The base held this row (a non-null expect is only ever emitted for a
+        // row the client's base contained) but the table no longer does:
+        // somebody deleted it after this client's read. Letting the upsert
+        // through would resurrect a document an administrator removed, with
+        // this client never the wiser — refuse as a change instead, so the
+        // conflict path adopts the deletion. No expect means the client never
+        // saw the row: a plain insert, not a resurrection.
+        if (change.expect?.[appId] != null) conflicts.push({ table: change.table, id: appId, kind: 'changed' })
+        continue
+      }
       const storedDoc = storedPayload(table, stored)
       if (!storedDoc) continue
       const incoming = spec ? ((row as { data: Record<string, unknown> }).data ?? {}) : row
@@ -629,14 +742,20 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
       try {
         await zoho.deleteRecord(table.id, rid)
       } catch (e) {
-        // The row stood at pre-flight yet the delete still came back refused:
-        // something outside this process — another instance, a hand edit —
-        // removed it inside our window. With commits serialized here that cannot
-        // have been a sibling commit, and the outcome the caller asked for (the
-        // row gone) is already true, so the commit completes. Anything that is
-        // not an API refusal — a lock, a network fault — is an honest failure
-        // and still throws.
+        // The row stood at pre-flight yet the delete still came back refused. A
+        // refusal is not proof the row is gone — it may be a genuine 400 (a
+        // field-level refusal) with the row still standing, and swallowing that
+        // reports a deletion that never happened while the revision bump tells
+        // every device the lie is truth. Only a confirming read may decide:
+        // the key is fetched back, what is truly gone is skipped (something
+        // outside this process removed it inside our window — with commits
+        // serialized here that cannot have been a sibling commit, and the
+        // outcome the caller asked for is already true), and what still stands
+        // rethrows as the honest failure it is. Anything that is not an API
+        // refusal — a lock, a network fault — throws regardless.
         if (!(e instanceof ZohoApiError)) throw e
+        const survivors = await zoho.fetchByKeyIn(table.id, table.appId, [String(id)])
+        if (survivors.length) throw e
         console.warn(`[commit] ${change.table} ${id} vanished before its delete landed — skipped`)
       }
     }
@@ -689,32 +808,24 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
   // writing it would re-issue numbers — the one exception is a genuine period
   // reset, which arrives together with the new `period:*` value and must land.
   //
-  // A period claim that is not the series' CURRENT period moves nothing — not
-  // the period row, and not the counter the reset rule would have unlocked.
-  // Anything else re-issues numbers whose upserts overwrite the original
-  // documents while their ledger lines dangle: a forged value ('x') used to
-  // pass the mere String-inequality reset rule and rewind the series. The
-  // claim is checked token by token against the local clock, exactly how the
-  // honest client computes it; an echo of what is already stored always stays
-  // legal, whatever the clock says.
-  const counters = T['Counters']
+  // A period claim that is not the period the series' own pattern computes to
+  // right now moves nothing — not the period row, and not the counter the reset
+  // rule would have unlocked. Anything else re-issues numbers whose upserts
+  // overwrite the original documents while their ledger lines dangle: a forged
+  // value ('x') used to pass the mere String-inequality reset rule and rewind
+  // the series, and a merely-CURRENT value ('YYYY:2026|MM:10' against a series
+  // that only carries {YYYY}) slipped the clock check the first fix built — so
+  // the claim is bound to the stored pattern, the same arithmetic the honest
+  // client mints with. An echo of what is already stored always stays legal,
+  // whatever the clock says.
   const configTable = T['Config']
-  const seriesKeys = Object.keys(changes.counters).filter((k) => !k.startsWith('period:'))
-  const storedNext = new Map<string, number>()
-  if (seriesKeys.length) {
-    const rows = await zoho.fetchByKeyIn(counters.id, counters.fields['Series'], seriesKeys)
-    for (const r of rows) {
-      const series = String(r.data[counters.fields['Series']] ?? '')
-      if (series) storedNext.set(series, Number(r.data[counters.fields['Next']]) || 0)
-    }
-  }
   const unlocksReset = (series: string): boolean => {
     const periodKey = `period:${series}`
     const newPeriod = changes.counters[periodKey]
     return (
       newPeriod !== undefined &&
       String(newPeriod) !== (storedConfig.get(periodKey) ?? '') &&
-      isCurrentPeriod(String(newPeriod))
+      String(newPeriod) === expectedPeriodOf(storedConfig, series)
     )
   }
   for (const [series, value] of Object.entries(changes.counters)) {
@@ -722,7 +833,8 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
       const stored = storedConfig.get(series)
       const claimed = String(value)
       if (stored !== undefined && stored === claimed) continue // unchanged — nothing to write
-      if (!isCurrentPeriod(claimed)) continue // not this period: forged, stale or from the future — write nothing
+      if (claimed !== expectedPeriodOf(storedConfig, series.slice('period:'.length)))
+        continue // not this series' period: forged, stale, or merely current — write nothing
       await zoho.upsertByKey(configTable.id, configTable.fields['Setting'], series, {
         [configTable.fields['Setting']]: series,
         [configTable.fields['Value']]: claimed,
@@ -737,6 +849,8 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
       if (incoming < stored && !unlocksReset(series)) {
         continue // stale regression: the insert gate and the next sync heal it
       }
+      // forward jumps within the ceiling were judged before any write landed
+      // (COUNTER_JUMP_MAX, beside the other gates above)
     }
     await zoho.upsertByKey(counters.id, counters.fields['Series'], series, {
       [counters.fields['Series']]: series,

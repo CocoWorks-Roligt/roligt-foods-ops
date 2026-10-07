@@ -266,8 +266,155 @@ export function installOver(live: AppState, base: AppState | null, source: AppSt
   return out as unknown as AppState
 }
 
+/**
+ * Puts back the tables a partial snapshot withheld, BEFORE anything downstream
+ * looks at the state.
+ *
+ * The BFF projects each caller's snapshot to the pages they hold and names the
+ * dropped keys in `withheld` (the write gates' read-side mirror). To the client,
+ * an absent key is not "this table is none of my business" — migrateState would
+ * seed it as never-written and installOver would treat it as "the server dropped
+ * every untouched row", so the next save would emit removes for the whole table
+ * or a storm of 'exists' conflicts. The restore bridges that: each withheld key
+ * that the partial state is missing takes `from`'s value — this device's last
+ * full view, which stays because the server was never asked about it. A key the
+ * partial state DOES carry always keeps the fresh server value.
+ *
+ * Runs on the RAW remote state, ahead of migrateState: the migrate passes are
+ * cross-key (melanges fold into items, ledger locations into storage
+ * locations), so restoring after them would leave them looking at half a table.
+ * A null state, an empty list and a null `from` all pass through untouched —
+ * first boot has nothing to restore and nothing to lose.
+ */
+export function restoreWithheld(
+  partial: { state: Partial<AppState> | null; revision: string; withheld?: string[] },
+  from: AppState | null,
+): { state: Partial<AppState> | null; revision: string } {
+  if (!partial.state || !partial.withheld?.length || !from) return partial
+  const src = from as unknown as Record<string, unknown>
+  const state: Record<string, unknown> = { ...(partial.state as unknown as Record<string, unknown>) }
+  for (const key of partial.withheld) {
+    if (state[key] === undefined && src[key] !== undefined) state[key] = src[key]
+  }
+  return { state: state as Partial<AppState>, revision: partial.revision }
+}
+
 /** How many rows a set of changes touches. For the "still saving" indicator. */
 export const changeSize = (changes: StateChanges) =>
   changes.tables.reduce((a, t) => a + t.upsert.length + t.remove.length, 0) +
   Object.keys(changes.counters).length +
   (changes.config ? 1 : 0)
+
+/** The AppState key a table name lives under ('grns' → grns; ledger/audits are theirs). */
+function stateKeyForTable(table: string): string | null {
+  if (table === 'ledger' || table === 'audits') return table
+  return COLLECTIONS.find((c) => c.table === table)?.key ?? null
+}
+
+const idOfFor = (key: string) => {
+  if (key === 'ledger' || key === 'audits') return (r: unknown) => String((r as { id?: unknown }).id ?? '')
+  const spec = COLLECTIONS.find((c) => c.key === key)
+  return (r: unknown) =>
+    spec ? spec.id(r as Record<string, unknown>) : String((r as { id?: unknown }).id ?? '')
+}
+
+/**
+ * Adopts the server's version of documents that lost a save race.
+ *
+ * A refused row never arrives alone: a document carries its ledger lines and
+ * audit entries under its own code, and surrendering the row while still
+ * pushing our lines for it would corrupt the winner's stock. So the whole
+ * slice — the row, its lines, its entries — is taken from the server on both
+ * sides of the diff (the state and the base it is diffed against), which makes
+ * the re-save a no-op for the surrendered document and a clean push for
+ * everything else this device did.
+ *
+ * Counters are the one field where taking the server's value wholesale was a
+ * bug, not a courtesy: a device that minted offline past the server's counter
+ * (it holds 7, the server says 6) has surviving unconflicted rows carrying
+ * those numbers, and adopting 6 made its next mint 6+1 = "GRN-7" AGAIN — two
+ * receipts sharing one id, the second edit of which rides an expect that
+ * matches the first and overwrites it, no 409 ever fired. So the live state
+ * takes the per-key max, keeping every number a surviving local row carries;
+ * the base is adopted with `counters: 'server'` so the diff re-emits the
+ * counter move and the server catches up on the re-save. Period strings stay
+ * server-wins — the server is their judge.
+ */
+export function adoptServerRows(
+  cur: AppState,
+  server: Partial<AppState>,
+  conflicts: ReadonlyArray<{ table: string; id: string; kind: string }>,
+  opts: { counters?: 'max' | 'server' } = {},
+): AppState {
+  const touched = new Map<string, Set<string>>()
+  const mark = (key: string, id: string) => {
+    const ids = touched.get(key) ?? new Set<string>()
+    ids.add(id)
+    touched.set(key, ids)
+  }
+  for (const c of conflicts) {
+    const key = stateKeyForTable(c.table)
+    if (!key) continue
+    mark(key, c.id)
+    if (c.table !== 'ledger' && c.table !== 'audits') {
+      for (const l of cur.ledger ?? []) if (l.doc === c.id) mark('ledger', l.id)
+      for (const a of cur.audits ?? []) if (a.doc === c.id) mark('audits', String(a.id))
+      for (const l of server.ledger ?? []) if (l.doc === c.id) mark('ledger', l.id)
+      for (const a of server.audits ?? []) if (a.doc === c.id) mark('audits', String(a.id))
+    }
+  }
+  const next: Record<string, unknown> = { ...(cur as unknown as Record<string, unknown>) }
+  for (const [key, ids] of touched) {
+    const idOf = idOfFor(key)
+    const fromServer = ((server as Record<string, unknown>)[key] as unknown[] | undefined) ?? []
+    const winners = fromServer.filter((r) => ids.has(idOf(r)))
+    const ours = ((next[key] as unknown[] | undefined) ?? []).filter((r) => !ids.has(idOf(r)))
+    next[key] = [...ours, ...winners]
+  }
+  if (server.counters) {
+    const merged = { ...(next.counters as Record<string, unknown>) }
+    for (const [key, value] of Object.entries(server.counters)) {
+      merged[key] =
+        opts.counters !== 'server' && typeof value === 'number' && typeof merged[key] === 'number'
+          ? Math.max(merged[key] as number, value)
+          : value
+    }
+    next.counters = merged
+  }
+  if (server.counterPeriods) {
+    next.counterPeriods = { ...(next.counterPeriods as object), ...server.counterPeriods }
+  }
+  return next as unknown as AppState
+}
+
+/** What `offlineBootBase` needs from the device's mirror, already migrated. */
+export interface BootBase {
+  /** True while the mirror holds changes the database has not accepted. */
+  dirty: boolean
+  /** A clean mirror is a known-server state only when a revision was recorded with it. */
+  hasRevision: boolean
+  /** The recorded diff base — present only while dirty, lost on a quota spill. */
+  base: AppState | null
+  /** The mirror state itself. */
+  mirror: AppState | null
+}
+
+/**
+ * The diff base for a boot that could not reach the server.
+ *
+ * Null was the only answer here once, and null made every edit of an EXISTING
+ * row a guaranteed loss at reconnect: the null-base push writes each row as a
+ * bare insert, the server finds the row stored and differing, and answers
+ * 409 'exists' even though nobody else touched it — the operator's correction
+ * is adopted away with "re-enter your changes" for winning nothing. But a
+ * device that has synced before always holds a legitimate view: a clean mirror
+ * IS what the server stood at when its revision was recorded, and a dirty
+ * mirror carries the base it was diffed against when the work was done. Either
+ * is an honest expect-basis; only a mirror with neither (first run, quota
+ * spill) falls back to null — the safe direction to be wrong in.
+ */
+export function offlineBootBase(local: BootBase | null): AppState | null {
+  if (!local) return null
+  if (local.dirty) return local.base
+  return local.hasRevision ? local.mirror : null
+}

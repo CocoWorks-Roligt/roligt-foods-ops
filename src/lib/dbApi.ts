@@ -82,6 +82,14 @@ export interface DbSnapshot {
   revision: string
   /** The caller's permissions per the BFF — AppContext feeds them to the gating. */
   permissions?: string[]
+  /**
+   * State keys the server dropped because THIS caller may not read them (the
+   * BFF's per-caller projection). The client restores those keys from its own
+   * previous view before installing — sync.ts restoreWithheld — so a partial
+   * snapshot never reads as "never written" to the seeding or as a wipe to the
+   * three-way merge.
+   */
+  withheld?: string[]
 }
 
 export async function fetchDb(): Promise<DbSnapshot> {

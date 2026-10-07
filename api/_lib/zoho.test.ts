@@ -149,14 +149,25 @@ describe('ZohoClient', () => {
     expect(calls.filter((x) => !x.url.startsWith('https://accounts'))).toHaveLength(0)
   })
 
-  it('falls back to one paged sweep when more than ten keys are asked', async () => {
+  it('reads every key by its own criteria call at any batch size — never a paged sweep', async () => {
+    // the >10-key fallback used to turn an honest 16-row ledger commit (a big
+    // packing run is a real shape) into ONE paged fetchAll of a table that grows
+    // without limit — an unbounded read whose cost rose forever, and a crafted
+    // commit's lever against the shared budget. Per-key criteria reads spend one
+    // read per key, and the commit shape gate caps a pre-flight at 16 rows, so
+    // the spend is bounded at exactly the touched rows.
     const calls: { url: string; init?: RequestInit }[] = []
-    const c = new ZohoClient({ fetchImpl: fakeFetch(calls, [
-      { body: { records: { fetched: [{ recordID: 'r1', data: {} }] } } },
-    ]), env: ENV })
-    await c.fetchByKeyIn('T1', 'F', Array.from({ length: 11 }, (_, i) => `K${i}`))
-    // the sweep, not eleven criteria reads — a multi-value OR was never probed live
-    expect(calls.filter((x) => x.url.includes('/fetchRecordsWithCriteria'))).toHaveLength(1)
+    const c = new ZohoClient({ fetchImpl: fakeFetch(
+      calls,
+      Array.from({ length: 16 }, () => ({ body: { records: { fetched: [] } } })),
+    ), env: ENV })
+    const keys = Array.from({ length: 16 }, (_, i) => `K${i}`)
+    await c.fetchByKeyIn('T1', 'F', keys)
+    const criteriaCalls = calls.filter((x) => x.url.includes('/fetchRecordsWithCriteria'))
+    expect(criteriaCalls).toHaveLength(16)
+    expect(criteriaCalls.map((x) => new URL(x.url).searchParams.get('criteria'))).toEqual(
+      keys.map((k) => `"F" = "${k}"`),
+    )
   })
 
   it('refuses key values containing quotes — a broken criteria silently matches nothing', async () => {
@@ -400,6 +411,22 @@ describe('ZohoClient', () => {
       const c = new ZohoClient({ fetchImpl: fakeFetch(calls, []), env: ENV })
       // a weekend-idle device: ~53 hour buckets between watermark and now
       await expect(c.fetchSince('T1', 'jRNMfg', '2026-09-28T07:00:00.000Z')).rejects.toThrow(/too wide/)
+      expect(calls.filter((x) => !x.url.startsWith('https://accounts'))).toHaveLength(0) // not one read spent
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('fetchSince refuses a watermark dated in the future — the sweep falls back to its full read', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date('2026-09-30T12:00:00Z'))
+      const calls: { url: string; init?: RequestInit }[] = []
+      const c = new ZohoClient({ fetchImpl: fakeFetch(calls, []), env: ENV })
+      // a future watermark (a crafted row's `at`) puts every hour bucket past
+      // the current one: the bucket loop would run zero times and answer [] —
+      // a delta that looks healthy while it serves empty forever
+      await expect(c.fetchSince('T1', 'jRNMfg', '2999-01-01T00:00:00.000Z')).rejects.toThrow(/future/)
       expect(calls.filter((x) => !x.url.startsWith('https://accounts'))).toHaveLength(0) // not one read spent
     } finally {
       vi.useRealTimers()

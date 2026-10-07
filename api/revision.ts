@@ -26,6 +26,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
       res.status(503).json({ error: 'Zoho is rate-limited — try again shortly.' })
       return
     }
-    res.status(503).json({ error: (e as Error).message })
+    console.error('[revision]', e)
+    res.status(503).json({ error: 'The revision could not be read — try again shortly.' })
   }
 }

@@ -22,6 +22,7 @@
  */
 
 import { batchKind } from './batches'
+import { PERIOD_TOKENS, periodKeyForPattern, seriesPatternOf } from './seriesPatterns'
 import type { Problem } from './posting'
 import type { AppState, Config, Counters, NumberingRule } from '../types'
 
@@ -40,7 +41,6 @@ export interface SeriesDef {
 }
 
 /** The dated parts a pattern may ask for, beside `{P}` and `{N}`. */
-const two = (n: number) => String(n).padStart(2, '0')
 
 /**
  * Every token reads the *local* clock, deliberately.
@@ -52,15 +52,11 @@ const two = (n: number) => String(n).padStart(2, '0')
  * receipt beside it read today. A plant files by the date on its own wall.
  */
 export const DATE_TOKENS: Record<string, { label: string; value: (d: Date) => string; shape: string }> = {
-  YYYY: { label: 'Year — 2026', value: (d) => String(d.getFullYear()), shape: '\\d{4}' },
-  YY: { label: 'Year, short — 26', value: (d) => String(d.getFullYear()).slice(-2), shape: '\\d{2}' },
-  YYYYMMDD: {
-    label: 'Date — 20260909',
-    value: (d) => `${d.getFullYear()}${two(d.getMonth() + 1)}${two(d.getDate())}`,
-    shape: '\\d{8}',
-  },
-  MM: { label: 'Month — 09', value: (d) => two(d.getMonth() + 1), shape: '\\d{2}' },
-  DD: { label: 'Day — 09', value: (d) => two(d.getDate()), shape: '\\d{2}' },
+  YYYY: { label: 'Year — 2026', value: PERIOD_TOKENS.YYYY, shape: '\\d{4}' },
+  YY: { label: 'Year, short — 26', value: PERIOD_TOKENS.YY, shape: '\\d{2}' },
+  YYYYMMDD: { label: 'Date — 20260909', value: PERIOD_TOKENS.YYYYMMDD, shape: '\\d{8}' },
+  MM: { label: 'Month — 09', value: PERIOD_TOKENS.MM, shape: '\\d{2}' },
+  DD: { label: 'Day — 09', value: PERIOD_TOKENS.DD, shape: '\\d{2}' },
 }
 
 const PREFIX_TOKENS = ['P', 'PREFIX']
@@ -154,12 +150,8 @@ const fallback = (key: string): SeriesDef => ({
   pad: 4,
 })
 
-/** The prefix·middle·number shape this replaced, as a pattern. */
-const legacyPattern = (saved: NumberingRule) => {
-  const sep = saved.separator ?? '-'
-  const middle = saved.middle === 'year' ? `{YYYY}${sep}` : saved.middle === 'date' ? `{YYYYMMDD}${sep}` : ''
-  return `{P}${sep}${middle}{N}`
-}
+/** The prefix·middle·number shape this replaced is read as a pattern by
+ *  seriesPatterns.legacyPatternOf — shared with the server's counter gate. */
 
 /**
  * The shape a series is written in: what the admin saved, or the built-in shape.
@@ -174,7 +166,7 @@ export function ruleFor(config: Config | undefined, key: string): NumberingRule 
   return {
     key,
     prefix: saved?.prefix?.trim() || base.prefix,
-    pattern: saved?.pattern?.trim() || (saved ? legacyPattern(saved) : base.pattern),
+    pattern: seriesPatternOf(saved, key),
     pad,
   }
 }
@@ -248,10 +240,7 @@ export function seriesMatcher(rule: NumberingRule, when?: Date): RegExp {
  * restart every financial year had no way to.
  */
 export function periodKeyFor(rule: NumberingRule, when = new Date()): string {
-  return partsOf(rule.pattern)
-    .filter((p): p is { token: string } => 'token' in p && !!DATE_TOKENS[p.token])
-    .map((p) => `${p.token}:${DATE_TOKENS[p.token].value(when)}`)
-    .join('|')
+  return periodKeyForPattern(rule.pattern, when)
 }
 
 /**

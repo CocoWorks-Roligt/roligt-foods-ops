@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { diffRows, diffState, installOver } from './sync.ts'
+import { adoptServerRows, diffRows, diffState, installOver, offlineBootBase, restoreWithheld } from './sync.ts'
 import type { AppState } from '../types.ts'
 
 /**
@@ -150,5 +150,134 @@ describe('installOver', () => {
     const plant = asPlant([V('V1', 'same'), V('V2', 'same')])
     const merged = installOver(plant, plant, plant)
     expect(JSON.stringify(merged)).toBe(JSON.stringify(plant))
+  })
+})
+
+describe('adoptServerRows', () => {
+  /**
+   * The other half of the 409 protocol: what a device keeps after losing a
+   * save race. Rows surrender to the server's slice, but the COUNTER is where
+   * the old server-wins merge bit — a device holding numbers minted offline
+   * past the server's counter would adopt the lower value, mint the same
+   * number again, and its edit of that number would ride an expect matching
+   * its own first receipt: an overwrite no 409 ever catches.
+   */
+  const G = (id: string, extra: Record<string, unknown> = {}) => ({ id, status: 'Posted', ...extra })
+
+  it('keeps a counter minted past the server\'s, and the re-save re-emits it — no number is re-issued', () => {
+    // phone B went offline minting GRN-6 and GRN-7 (counter 7); phone A minted
+    // its own GRN-6 online (server counter 6). B's chunk is refused whole on
+    // the GRN-6 'exists' — but B's unconflicted GRN-7 survives locally
+    const recorded = asState({ grns: [G('GRN-5')], counters: { grn: 5 } }) // B's base
+    const live = asState({ grns: [G('GRN-5'), G('GRN-6'), G('GRN-7')], counters: { grn: 7 } })
+    const server = asState({ grns: [G('GRN-5'), G('GRN-6', { farmer: 'A' })], counters: { grn: 6 } })
+    const conflicts = [{ table: 'grns', id: 'GRN-6', kind: 'exists' }]
+    const base = adoptServerRows(recorded, server, conflicts, { counters: 'server' })
+    const state = adoptServerRows(live, server, conflicts)
+    // the state keeps B's higher number; the base takes the server's 6 — the
+    // gap between them is the counter diff the re-save pushes
+    expect(state.counters).toEqual({ grn: 7 })
+    expect(base.counters).toEqual({ grn: 6 })
+    // the surrendered GRN-6 is A's now; B's GRN-7 survives alongside it — once
+    expect((state.grns as { id: string }[]).map((g) => g.id)).toEqual(['GRN-5', 'GRN-7', 'GRN-6'])
+    const again = diffState(base, state)
+    expect(again.counters).toEqual({ grn: 7 }) // the server catches up
+    const grns = again.tables.find((t) => t.table === 'grns')!
+    expect(grns.upsert.map((r) => (r as { id: string }).id)).toEqual(['GRN-7'])
+    expect(grns.expect ?? {}).toEqual({}) // a plain insert: the base never held it
+    // and the next mint from here is 8 — not a second GRN-7
+    expect(state.counters.grn + 1).toBe(8)
+  })
+
+  it('takes the server\'s counter when it is the ahead one — the winner\'s series continues', () => {
+    const state = adoptServerRows(
+      asState({ counters: { grn: 6 } }),
+      asState({ counters: { grn: 8 } }),
+      [],
+    )
+    expect(state.counters).toEqual({ grn: 8 })
+  })
+
+  it('keeps period rows the server\'s word — the server judges periods, not the device', () => {
+    const state = adoptServerRows(
+      asState({ counters: { grn: 7 }, counterPeriods: { grn: 'MM:10' } }),
+      asState({ counters: { grn: 6 }, counterPeriods: { grn: 'YYYY:2026' } }),
+      [],
+    )
+    expect(state.counterPeriods).toEqual({ grn: 'YYYY:2026' })
+  })
+})
+
+describe('offlineBootBase', () => {
+  /**
+   * The boot-while-offline base. Null was the only answer once, and null made
+   * every edit of an existing row a guaranteed 409 'exists' at reconnect — the
+   * null-base push carries no expect, the row is stored and differs, refused
+   * even though nobody else touched it. A device that has synced before always
+   * holds a view worth diffing against.
+   */
+  const G = (id: string, status = 'Posted') => ({ id, status })
+
+  it('a clean mirror with its revision is the base — offline edits carry expect and land', () => {
+    const mirror = asState({ grns: [G('GRN-42')], counters: {} })
+    const base = offlineBootBase({ dirty: false, hasRevision: true, base: null, mirror })
+    expect(base).toBe(mirror)
+    // the chain this enables: an edit made offline diffs against the mirror, so
+    // the push carries the pre-edit row as its expect — admitted when nobody
+    // else moved the row, a 409 only when somebody genuinely did
+    const push = diffState(base, asState({ grns: [G('GRN-42', 'Edited')], counters: {} }))
+    expect(push.tables.find((t) => t.table === 'grns')?.expect).toEqual({
+      'GRN-42': { id: 'GRN-42', data: { id: 'GRN-42', status: 'Posted' } },
+    })
+  })
+
+  it('a dirty mirror diffs against its recorded base — yesterday\'s offline work keeps its footing', () => {
+    const base = asState({ grns: [G('GRN-1')], counters: {} })
+    expect(offlineBootBase({ dirty: true, hasRevision: true, base, mirror: null })).toBe(base)
+  })
+
+  it('falls back to null only with no view at all — first run, no revision, quota-spilled base', () => {
+    expect(offlineBootBase(null)).toBeNull()
+    expect(offlineBootBase({ dirty: false, hasRevision: false, base: null, mirror: asState({}) })).toBeNull()
+    expect(offlineBootBase({ dirty: true, hasRevision: true, base: null, mirror: asState({}) })).toBeNull()
+  })
+})
+
+describe('restoreWithheld', () => {
+  /**
+   * The scoped-caller half of the snapshot protocol (the audit's S2-6): the BFF
+   * drops the tables this caller may not read and names them in `withheld`. An
+   * ABSENT key would read as "never written" to migrateState's seeding and as a
+   * wipe to installOver's merge — either way a lie about tables the server was
+   * never asked about — so the previous view's copies of exactly those keys are
+   * bridged back in BEFORE any of that runs.
+   */
+  it("bridges a withheld key from the previous view and leaves the server's fresh keys alone", () => {
+    const from = asState({ grns: [{ id: 'GRN-1' }], vendors: [{ id: 'V-1', name: 'old' }] })
+    const partial = { state: asState({ vendors: [{ id: 'V-2', name: 'new' }] }), revision: '8', withheld: ['grns'] }
+    const out = restoreWithheld(partial, from)
+    const outState = out.state as unknown as Record<string, unknown>
+    expect(outState.grns).toEqual([{ id: 'GRN-1' }]) // bridged from the previous view
+    expect(outState.vendors).toEqual([{ id: 'V-2', name: 'new' }]) // the server's fresh row stands
+    expect(out.revision).toBe('8')
+    expect((partial.state as unknown as Record<string, unknown>).grns).toBeUndefined() // not mutated
+  })
+
+  it('passes through when there is nothing to bridge — null state, no withheld list, no previous view', () => {
+    expect(restoreWithheld({ state: null, revision: '8', withheld: ['grns'] }, asState({})).state).toBeNull()
+    const noList = restoreWithheld({ state: asState({}), revision: '8' }, asState({ grns: [{ id: 'GRN-1' }] }))
+    expect((noList.state as unknown as Record<string, unknown>).grns).toBeUndefined()
+    const noFrom = restoreWithheld({ state: asState({}), revision: '8', withheld: ['grns'] }, null)
+    expect((noFrom.state as unknown as Record<string, unknown>).grns).toBeUndefined()
+  })
+
+  it('never invents a key the previous view does not hold either', () => {
+    const out = restoreWithheld(
+      { state: asState({ vendors: [] }), revision: '8', withheld: ['grns', 'qcs'] },
+      asState({ qcs: [{ id: 'QC-1' }] }),
+    )
+    const outState = out.state as unknown as Record<string, unknown>
+    expect(outState.qcs).toEqual([{ id: 'QC-1' }])
+    expect('grns' in outState).toBe(false) // still absent — nothing to bridge from
   })
 })

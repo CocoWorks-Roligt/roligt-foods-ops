@@ -10,6 +10,8 @@
  * Nothing here is app-specific — it takes finished lines and a size in millimetres.
  */
 
+import { DEFAULT_STICKER_HEIGHT_MM, DEFAULT_STICKER_WIDTH_MM, stickerMm } from './stickers'
+
 export interface StickerDoc {
   title: string
   lines: { label: string; value: string }[]
@@ -40,10 +42,16 @@ function fontFor(lineCount: number, heightMm: number) {
 }
 
 export function buildStickerHtml({ widthMm, heightMm, stickers }: StickerSheet) {
+  // The dimensions are the one interpolated value the sheet does not escape:
+  // they ride inside the <style> block, where markup in the value would close
+  // it. The callers pass config-backed numbers, but this sink coerces for
+  // itself — a number cannot carry markup, whatever reached the config row.
+  const width = stickerMm(widthMm, DEFAULT_STICKER_WIDTH_MM)
+  const height = stickerMm(heightMm, DEFAULT_STICKER_HEIGHT_MM)
   const pages = stickers
     .flatMap((s) => Array.from({ length: Math.max(1, s.copies) }, () => s))
     .map((s) => {
-      const font = fontFor(s.lines.length, heightMm)
+      const font = fontFor(s.lines.length, height)
       const rows = s.lines
         .map(
           (l) =>
@@ -63,7 +71,7 @@ export function buildStickerHtml({ widthMm, heightMm, stickers }: StickerSheet) 
 <meta charset="utf-8">
 <title>Stickers</title>
 <style>
-  @page { size: ${widthMm}mm ${heightMm}mm; margin: 0; }
+  @page { size: ${width}mm ${height}mm; margin: 0; }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
   body {
@@ -73,9 +81,9 @@ export function buildStickerHtml({ widthMm, heightMm, stickers }: StickerSheet) 
     print-color-adjust: exact;
   }
   .sticker {
-    width: ${widthMm}mm;
-    height: ${heightMm}mm;
-    padding: ${Math.max(1.5, heightMm * 0.06)}mm ${Math.max(2, widthMm * 0.04)}mm;
+    width: ${width}mm;
+    height: ${height}mm;
+    padding: ${Math.max(1.5, height * 0.06)}mm ${Math.max(2, width * 0.04)}mm;
     overflow: hidden;
     page-break-after: always;
     break-after: page;
@@ -125,6 +133,12 @@ ${pages}
 export function printStickerSheet(sheet: StickerSheet) {
   const frame = document.createElement('iframe')
   frame.setAttribute('aria-hidden', 'true')
+  // Sandbox without allow-scripts: the sheet is inert HTML + CSS, so printing
+  // wants no script of its own — but srcdoc inherits this origin, and anything
+  // that ever did slip past the escaping/coercion would otherwise run as the
+  // signed-in user. allow-same-origin keeps contentWindow reachable for
+  // focus()/print(); scripting inside the frame stays off.
+  frame.setAttribute('sandbox', 'allow-same-origin')
   frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;'
   frame.srcdoc = buildStickerHtml(sheet)
   document.body.appendChild(frame)

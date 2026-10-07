@@ -69,6 +69,18 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
  */
 export type ReadScope = 'interactive' | 'sweep' | 'cold'
 
+/**
+ * How far past this clock a timestamp may sit and still be honest — the slack
+ * any phone's skewed clock is allowed. It is the one grace three `at` gates
+ * share, so they can never disagree: the commit shape gate refuses a ledger or
+ * audit row dated beyond it (a future `at` parks the snapshot watermark where
+ * no delta bucket ever reaches, and the sweep serves empty forever), the
+ * watermark computation skips such rows when one is already stored (a hand edit
+ * in the Zoho UI can still write one), and fetchSince refuses a watermark
+ * beyond it outright, handing the sweep to its full read.
+ */
+export const FUTURE_AT_GRACE_MS = 5 * 60_000
+
 class Budget {
   private hits: number[] = []
   private readonly max: number
@@ -146,6 +158,9 @@ interface ClientOpts {
    *  interactive traffic is guaranteed the remaining ≥8 of 26). Test override —
    *  the production cap is a settled number, never raised past 26. */
   sweepReadsPerMin?: number
+  /** Global reads per minute; default 26. Test override — the production cap is
+   *  Zoho's own shared window and is never raised past 26 in production. */
+  readsPerMin?: number
   /** Longest a sweep read may wait for budget; default 75s — past the 60s
    *  window slide, so pacing alone never throws, but bounded for 503s. */
   sweepMaxWaitMs?: number
@@ -172,7 +187,7 @@ export class ZohoClient {
     this.env = opts.env ?? process.env
     this.baseId = opts.baseId ?? this.env.ZOHO_BASE_ID ?? ''
     this.page = opts.page ?? 1000
-    this.reads = new Budget(26, opts.maxWaitMs ?? 60_000, {
+    this.reads = new Budget(opts.readsPerMin ?? 26, opts.maxWaitMs ?? 60_000, {
       max: opts.sweepReadsPerMin ?? 18,
       maxWaitMs: opts.sweepMaxWaitMs ?? 75_000,
     })
@@ -381,6 +396,14 @@ export class ZohoClient {
     if (Number.isNaN(since)) {
       throw new ZohoApiError('fetchSince', 0, `watermark is not a date: ${sinceISO.slice(0, 60)}`)
     }
+    // A watermark dated in the future (a crafted row's `at`, before the gates
+    // learned it) puts every hour bucket PAST endHour: the loop below would run
+    // zero times and answer [] — a delta that looks healthy while it serves
+    // empty forever. Refusing costs the sweep its full read, which recomputes
+    // the watermark from rows the grace actually admits.
+    if (since - Date.now() > FUTURE_AT_GRACE_MS) {
+      throw new ZohoApiError('fetchSince', 0, `watermark is in the future: ${sinceISO.slice(0, 60)} — full read instead`)
+    }
     // hour buckets from the watermark's hour through the current one, inclusive:
     // flooring the start keeps the watermark's partial hour re-readable, so a row
     // landing later inside it is caught by the next delta sweep
@@ -445,9 +468,13 @@ export class ZohoClient {
    * endpoint answer HTTP 200 wrapping `INTERNAL SERVER ERROR` (pinned against
    * the scratch base 2026-09-28: same criteria, flag on → the row comes back).
    * The flag is the same one upsertByKey has always sent for its criteria. A
-   * multi-value OR was never probed, so batches larger than ten keys fall back
-   * to one paged sweep of the table — at that size the sweep is the cheaper
-   * spend anyway.
+   * multi-value OR was never probed, so the read stays ONE CRITERIA CALL PER KEY
+   * at any batch size (the audit's S2-5 fix): the old >10-key fallback was one
+   * paged sweep of the whole table — an unbounded read whose cost grew with the
+   * table forever, and both an honest shape (a 16-row ledger commit is a real
+   * big packing run) and a crafted one's lever against the shared budget. The
+   * commit shape gate caps a pre-flight at 16 rows, so the per-key spend is
+   * bounded at exactly the touched rows.
    */
   async fetchByKeyIn(tableId: string, keyFieldId: string, values: string[]): Promise<ZohoRecord[]> {
     const keys = [...new Set(values.map((v) => String(v)).filter(Boolean))]
@@ -458,7 +485,6 @@ export class ZohoClient {
       }
     }
     if (!keys.length) return []
-    if (keys.length > 10) return this.fetchAll(tableId)
     const out: ZohoRecord[] = []
     for (const v of keys) {
       const j = (await this.call('read', 'POST', '/fetchRecordsWithCriteria', {

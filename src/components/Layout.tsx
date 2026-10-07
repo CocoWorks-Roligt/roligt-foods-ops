@@ -1,6 +1,6 @@
 import { Fragment, Suspense, useCallback, useEffect, useRef, useState, type ComponentType } from 'react'
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { useSaveStatus } from '../context/AppContext'
+import { useApp, useSaveStatus } from '../context/AppContext'
 import { useAuth } from '../context/AuthContext'
 import { allowedPages, pageScope, PAGE_CATALOG, type PageRow } from '../lib/pages.ts'
 import { useSessionPermissions } from '../lib/sessionPermissions'
@@ -80,7 +80,58 @@ function SaveIndicator() {
   return <span>All changes saved.</span>
 }
 
+/**
+ * The shared-device sign-out (the audit's S3-1): sign out AND remove this
+ * device's stored copy of the plant, so a floor tablet handed to the next
+ * shift — or a revoked user's phone — leaves nothing behind. It is a separate
+ * button from the plain sign-out on purpose: work saved on this device that
+ * the server has not accepted dies with the wipe, so the confirm names that
+ * when it is true, and nothing wipes on the ordinary paths (sign-out, session
+ * expiry) — surviving to push after re-sign-in is the offline design.
+ */
+function WipeSignOutButton({ onWipe }: { onWipe: () => void }) {
+  const saveStatus = useSaveStatus()
+  const confirmAndWipe = () => {
+    const warning = saveStatus.dirty
+      ? "Remove this device's stored copy of the plant and sign out? Unsaved work on this device will be LOST."
+      : "Remove this device's stored copy of the plant and sign out?"
+    if (window.confirm(warning)) onWipe()
+  }
+  return (
+    <button className="btn btn-light" type="button" onClick={confirmAndWipe}>
+      Sign out &amp; wipe
+    </button>
+  )
+}
+
 const NAV_PATHS = PAGE_CATALOG.map((p) => p.path)
+
+/**
+ * The over-draw banner (the audit's S2-8): lots whose balance went negative —
+ * the two-offline-devices collision, surfaced after the fact. Persistent while
+ * any over-draw exists, because it is a reconciliation the plant owes, not an
+ * event that comes and goes; the postings themselves stand (detect, not
+ * block), so the banner names the lots and points at Storage.
+ */
+function OverdrawBar() {
+  const { overdrawn, getItemName } = useApp()
+  if (!overdrawn.length) return null
+  const shown = overdrawn.slice(0, 3)
+  const lots = shown
+    .map(({ row }) => `${getItemName(row.item)}${row.lot ? ` · ${row.lot}` : ''}`)
+    .join('; ')
+  return (
+    <div className="offline-bar overdrawn" role="alert">
+      <span>
+        {overdrawn.length === 1
+          ? 'One lot is over-drawn'
+          : `${overdrawn.length} lots are over-drawn`}{' '}
+        — stock went negative (two devices may have drawn the same lot): {lots}
+        {overdrawn.length > shown.length ? ' and more' : ''}. Check the postings on Storage.
+      </span>
+    </div>
+  )
+}
 
 function isActive(pathname: string, path: string) {
   if (path === '/') return pathname === '/'
@@ -275,6 +326,9 @@ export function Layout() {
             <button className="btn btn-light" type="button" onClick={() => void signOut()}>
               Sign out
             </button>
+            {/* Shared floor hardware's variant — the confirm inside warns when
+                unsaved work would die with the wipe. */}
+            <WipeSignOutButton onWipe={() => void signOut({ wipeDevice: true })} />
           </div>
         </div>
       </aside>
@@ -297,6 +351,7 @@ export function Layout() {
           </div>
         </header>
         <OfflineBar />
+        <OverdrawBar />
         <div className="content">
           {/* Route chunks load on first navigation (see App.tsx); the boundary
               sits inside Layout so the nav, offline bar and header stay mounted

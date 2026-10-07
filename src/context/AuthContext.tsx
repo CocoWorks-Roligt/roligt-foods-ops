@@ -11,6 +11,7 @@ import { setUnauthorizedHandler } from '../lib/authEvents'
 import { WORKOS_CONFIGURED, getDevRole } from '../lib/authMode'
 import { setAppticsUser } from '../lib/apptics'
 import { fetchSession, type SessionLike } from '../lib/authSession'
+import { clearLocal } from '../lib/localDb'
 import { devPermissions, isAdminPermissions, type PermissionKey } from '../lib/permissions.ts'
 import { setSessionPermissions, useSessionPermissions } from '../lib/sessionPermissions'
 
@@ -31,7 +32,13 @@ interface AuthContextValue {
   can: (perm: PermissionKey) => boolean
   /** Sends the browser to the hosted AuthKit page (dev: enters the dev session). */
   signIn: () => Promise<string | null>
-  signOut: () => Promise<void>
+  /**
+   * Ends the session. `wipeDevice` additionally removes this device's stored
+   * copy of the plant (the shared-device variant — the audit's S3-1): it must
+   * be the caller's explicit choice, because unsaved work held only in the
+   * mirror dies with it.
+   */
+  signOut: (opts?: { wipeDevice?: boolean }) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -112,7 +119,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return null
   }, [])
 
-  const signOut = useCallback(async () => {
+  const signOut = useCallback(async (opts: { wipeDevice?: boolean } = {}) => {
+    // The wipe runs BEFORE the signout navigation — /api/auth/signout never
+    // returns here — and ONLY on the explicit variant. The plain signout and
+    // the 401 handler above deliberately keep the mirror: work saved on this
+    // device surviving to push after re-sign-in is the offline design's whole
+    // point, and the wipe is the shared-floor device's answer instead.
+    if (opts.wipeDevice) clearLocal()
     if (WORKOS_CONFIGURED) {
       // Ends the session at WorkOS and clears the cookie, then lands on '/' —
       // where the router shows this login screen again.

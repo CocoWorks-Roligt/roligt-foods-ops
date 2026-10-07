@@ -414,3 +414,13 @@ export function stickerLines(template: StickerTemplate, values: Record<string, s
 
 export const DEFAULT_STICKER_WIDTH_MM = 100
 export const DEFAULT_STICKER_HEIGHT_MM = 50
+
+/** A label-stock dimension off a stored config value. Config arrives from other
+ *  devices and is not ours to trust as typed: a string slips a falsy-check
+ *  ('50;}</style>…' is truthy) and the value is interpolated into the print
+ *  sheet's HTML, so only a real, positive, finite number goes through —
+ *  everything else, strings included, falls back to the default. */
+export const stickerMm = (v: unknown, fallback: number): number => {
+  const n = Number(v)
+  return Number.isFinite(n) && n > 0 && n <= 1000 ? n : fallback
+}

@@ -165,7 +165,7 @@ describe('commitChanges', () => {
   it('refuses operator writes to config', async () => {
     const { zoho, ops } = fakeZoho()
     await expect(
-      commitChanges(zoho, operator, { ...CHANGES, tables: [], config: { tolerances: { lab: 5 } } }),
+      commitChanges(zoho, operator, { ...CHANGES, tables: [], counters: {}, config: { tolerances: { lab: 5 } } }),
     ).rejects.toMatchObject(new Forbidden('app_config tolerances'))
     expect(ops.upserts).toEqual([]) // refused before a single write landed
   })
@@ -216,6 +216,65 @@ describe('commitChanges', () => {
     expect(ops.upserts).toEqual([]) // nothing landed from any of the refused commits
   })
 
+  it('admits the suppliers clerk\'s real add-vendor commit — masters writes own their ride-alongs', async () => {
+    // the client's honest shape: the vendors row, the audit insert it files, and
+    // the vendor counter it mints. Masters tables carry no page, so this owned
+    // neither ride and was refused blaming "ledger" — a table nobody edited —
+    // wedging every masters-only role's queue on its first save
+    const { zoho, ops } = fakeZoho()
+    const { token: rev } = await commitChanges(zoho, suppliersClerk, {
+      empty: false,
+      tables: [
+        { table: 'vendors', upsert: [{ id: 'VEN-00001', data: { id: 'VEN-00001', name: 'Mandya Green Farms', status: 'Active' } }], remove: [] },
+        { table: 'audits', upsert: [{ id: 'A1', at: '2026-09-21T08:00:00Z', actor: 'supplies@roligt.local', action: 'created', doc: 'VEN-00001', details: '' }], remove: [] },
+      ],
+      counters: { vendor: 1 },
+    })
+    expect(rev).toBeTypeOf('string')
+    expect(ops.upserts.some((u) => u.key === 'VEN-00001')).toBe(true)
+    expect(ops.upserts.some((u) => u.key === 'vendor')).toBe(true)
+    expect(ops.upserts.some((u) => u.key === 'A1')).toBe(true)
+    // the rides are owned by the MASTER, not granted wholesale: ledger lines and
+    // counters with no master behind them still refuse for the same caller
+    await expect(
+      commitChanges(zoho, suppliersClerk, { ...CHANGES, tables: [CHANGES.tables[1]], counters: {} }),
+    ).rejects.toMatchObject(new Forbidden('ledger'))
+    await expect(
+      commitChanges(zoho, suppliersClerk, { ...CHANGES, tables: [], counters: { vendor: 9 } }),
+    ).rejects.toMatchObject(new Forbidden('ledger'))
+  })
+
+  it('refuses to resurrect a row deleted after this client read it — expect present, row gone', async () => {
+    // the administrator deleted GRN-1 on another phone; this phone edited it
+    // offline with the pre-delete row as its expect base. The pre-flight finds
+    // nothing stored, and the old `if (!stored) continue` let the upsert land
+    // unconditionally — the deleted document came back and this client never
+    // learned it had been removed
+    const base = { id: 'GRN-1', lot: 'LOT-1', total: 100, status: 'Posted' }
+    const { zoho, ops } = fakeZoho() // the delete already landed: nothing stored
+    await expect(
+      commitChanges(zoho, admin, {
+        ...CHANGES,
+        tables: [
+          {
+            table: 'grns',
+            upsert: [{ id: 'GRN-1', data: { ...base, status: 'Edited' } }],
+            remove: [],
+            expect: { 'GRN-1': { id: 'GRN-1', data: base } },
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ conflicts: [{ table: 'grns', id: 'GRN-1', kind: 'changed' }] })
+    expect(ops.upserts).toEqual([]) // nothing resurrected
+    // a row the client never saw is still a plain insert — no expect, no tombstone
+    const { zoho: z2, ops: ops2 } = fakeZoho()
+    await commitChanges(z2, admin, {
+      ...CHANGES,
+      tables: [{ table: 'grns', upsert: [{ id: 'GRN-NEW', data: { id: 'GRN-NEW' } }], remove: [] }],
+    })
+    expect(ops2.upserts.some((u) => u.key === 'GRN-NEW')).toBe(true)
+  })
+
   it('narrows a page-scoped caller: the procurement clerk writes GRNs, nothing else', async () => {
     const { zoho, ops } = fakeZoho()
     // the whole day's-work shape — doc, ledger line, audit, counter — rides through
@@ -252,6 +311,43 @@ describe('commitChanges', () => {
     ).resolves.toMatchObject({ token: expect.any(String), wrote: true })
   })
 
+  it('faces the unscoped operator with the ride-along gates — the open tier is not a bypass', async () => {
+    // the gates used to live inside the scoped branch only: a caller holding no
+    // page slugs at all walked straight past them, so the operator tier could
+    // post bare audit rows, bare ledger lines, remove ledger history and mint
+    // counters with no document behind any of it
+    const { zoho, ops } = fakeZoho()
+    // bare ledger lines — stock moved with no posting owns them
+    await expect(
+      commitChanges(zoho, operator, { ...CHANGES, tables: [CHANGES.tables[1]], counters: {} }),
+    ).rejects.toMatchObject(new Forbidden('ledger'))
+    // bare counters — numbering with nothing minted
+    await expect(
+      commitChanges(zoho, operator, { ...CHANGES, tables: [], counters: { grn: 2 } }),
+    ).rejects.toMatchObject(new Forbidden('ledger'))
+    // a bare ledger removal — history is nobody's to delete without a document
+    await expect(
+      commitChanges(zoho, operator, { ...CHANGES, tables: [{ table: 'ledger', upsert: [], remove: ['L9'] }], counters: {} }),
+    ).rejects.toMatchObject(new Forbidden('ledger'))
+    // a bare audit insert — the trail is evidence, not a page anyone may write
+    await expect(
+      commitChanges(zoho, operator, { ...CHANGES, tables: [CHANGES.tables[2]], counters: {} }),
+    ).rejects.toMatchObject(new Forbidden('audits'))
+    expect(ops.upserts).toEqual([]) // nothing landed from any of the refused commits
+    expect(ops.deletes).toEqual([])
+    // but Storage is an open-tier page: the operator's moveStock — ledger lines
+    // and an audit row, no collection row — is exactly their job, and the same
+    // shape a page.storage holder posts
+    const { token: rev } = await commitChanges(zoho, operator, {
+      ...CHANGES,
+      tables: [CHANGES.tables[1], CHANGES.tables[2]], // ledger + audits only
+      counters: {},
+    })
+    expect(rev).toBeTypeOf('string')
+    expect(ops.upserts.some((u) => u.key === 'L1')).toBe(true)
+    expect(ops.upserts.some((u) => u.key === 'A1')).toBe(true)
+  })
+
   it('a page.storage caller edits the areas and their defaults; an operator cannot', async () => {
     const { zoho, ops } = fakeZoho([configRow(STORED_CONFIG)])
     const storekeeper = { email: 'store@roligt.local', permissions: ['page.storage'] } as Caller
@@ -271,7 +367,7 @@ describe('commitChanges', () => {
   it('refuses operator removals from the audit trail', async () => {
     const { zoho, ops } = fakeZoho()
     await expect(
-      commitChanges(zoho, operator, { ...CHANGES, tables: [{ table: 'audits', upsert: [], remove: ['A1'] }] }),
+      commitChanges(zoho, operator, { ...CHANGES, tables: [{ table: 'audits', upsert: [], remove: ['A1'] }], counters: {} }),
     ).rejects.toMatchObject(new Forbidden('audits'))
     expect(ops.deletes).toEqual([]) // the trail is insert-only for operators
   })
@@ -284,6 +380,7 @@ describe('commitChanges', () => {
     await expect(
       commitChanges(zoho, operator, {
         ...CHANGES,
+        counters: {},
         tables: [
           { table: 'audits', upsert: [], remove: [] },
           { table: 'audits', upsert: [], remove: ['A1'] },
@@ -643,6 +740,37 @@ describe('commitChanges', () => {
     expect(ops.upserts.some((u) => u.key === 'grn')).toBe(true)
   })
 
+  it('caps a counter\'s forward jump for everyone but administrators', async () => {
+    // a crafted {grn: 999999999} used to land unconditionally and stick until
+    // the next genuine rollover, minting absurd codes plant-wide; an honest
+    // stale mirror heals by the size of a stint a human actually keyed
+    const existing: ZohoRecord[] = [
+      {
+        recordID: 'z-c1',
+        data: {
+          __table: T['Counters'].id,
+          [T['Counters'].fields['Series']]: 'grn',
+          [T['Counters'].fields['Next']]: 5,
+        },
+      },
+    ]
+    const { zoho, ops } = fakeZoho(existing)
+    // the operator cannot vault the series — refused whole, before any write
+    await expect(
+      commitChanges(zoho, operator, { ...CHANGES, counters: { grn: 105_000 } }),
+    ).rejects.toMatchObject(new Forbidden('counters'))
+    expect(ops.upserts).toEqual([]) // rows included — the refusal is not partial
+    // a real stint's heal (documents minted offline, pushed with their rows)
+    // lands exactly as it always did
+    const { token: rev } = await commitChanges(zoho, operator, { ...CHANGES, counters: { grn: 9 } })
+    expect(rev).toBeTypeOf('string')
+    expect(ops.upserts.some((u) => u.key === 'grn')).toBe(true)
+    // the administrator's housekeeping knows no ceiling
+    ops.upserts.length = 0
+    await commitChanges(zoho, admin, { ...CHANGES, tables: [], counters: { grn: 999_999_999 } })
+    expect(ops.upserts.some((u) => u.key === 'grn')).toBe(true)
+  })
+
   it('lets a genuine period reset move the counter backwards', async () => {
     // clock-agnostic: the claim is whatever this year computes to, the stored
     // row the year before — a real rollover whenever the suite runs
@@ -707,6 +835,80 @@ describe('commitChanges', () => {
       await commitChanges(zoho, admin, { ...CHANGES, tables: [], counters: { grn: 1, 'period:grn': claim } })
       expect(ops.upserts.filter((u) => u.key === 'grn' || u.key === 'period:grn')).toEqual([])
     }
+  })
+
+  it('refuses to rewind a counter on an ALTERNATIVE current-period claim — only the series\' own pattern\'s period unlocks', async () => {
+    // 'YYYY:2026|MM:10' reads as current token-by-token in October 2026, and
+    // so do 'MM:10' and 'YYYY:2026|DD:07' — but the grn series runs {P}{YYYY}{N}
+    // and only ever computes 'YYYY:2026'. The clock check the first fix built
+    // read each token off the wall without ever asking the pattern, so any of
+    // these slipped the String-inequality reset rule and rewound Next to 1
+    const now = new Date()
+    const y = `YYYY:${now.getFullYear()}`
+    const mm = `MM:${String(now.getMonth() + 1).padStart(2, '0')}`
+    const dd = `DD:${String(now.getDate()).padStart(2, '0')}`
+    const existing: ZohoRecord[] = [
+      {
+        recordID: 'z-c1',
+        data: {
+          __table: T['Counters'].id,
+          [T['Counters'].fields['Series']]: 'grn',
+          [T['Counters'].fields['Next']]: 5,
+        },
+      },
+      {
+        recordID: 'z-p1',
+        data: {
+          __table: T['Config'].id,
+          [T['Config'].fields['Setting']]: 'period:grn',
+          [T['Config'].fields['Value']]: y,
+        },
+      },
+    ]
+    const { zoho, ops } = fakeZoho(existing)
+    for (const claim of [`${y}|${mm}`, mm, `${y}|${dd}`, `${dd}|${mm}`]) {
+      ops.upserts.length = 0
+      await commitChanges(zoho, admin, { ...CHANGES, tables: [], counters: { grn: 1, 'period:grn': claim } })
+      expect(ops.upserts.filter((u) => u.key === 'grn' || u.key === 'period:grn')).toEqual([])
+    }
+  })
+
+  it('judges a period claim against the series\' STORED numbering rule, not the built-in pattern', async () => {
+    // the plant re-shaped grn to a daily series: only YYYYMMDD:<today> may
+    // reset it, and the old shape's claim — current by the clock, wrong for
+    // the stored pattern — moves nothing
+    const now = new Date()
+    const two = (n: number) => String(n).padStart(2, '0')
+    const today = `YYYYMMDD:${now.getFullYear()}${two(now.getMonth() + 1)}${two(now.getDate())}`
+    const yearOnly = `YYYY:${now.getFullYear()}`
+    const existing: ZohoRecord[] = [
+      {
+        recordID: 'z-c1',
+        data: {
+          __table: T['Counters'].id,
+          [T['Counters'].fields['Series']]: 'grn',
+          [T['Counters'].fields['Next']]: 9,
+        },
+      },
+      {
+        recordID: 'z-p1',
+        data: {
+          __table: T['Config'].id,
+          [T['Config'].fields['Setting']]: 'period:grn',
+          [T['Config'].fields['Value']]: 'stale-but-different',
+        },
+      },
+      configRow({ numbering: [{ key: 'grn', prefix: 'RFTC', pattern: '{P}{YYYYMMDD}-{N}', pad: 4 }] }),
+    ]
+    const { zoho, ops } = fakeZoho(existing)
+    // the built-in pattern's period claim is refused
+    await commitChanges(zoho, admin, { ...CHANGES, tables: [], counters: { grn: 1, 'period:grn': yearOnly } })
+    expect(ops.upserts.filter((u) => u.key === 'grn' || u.key === 'period:grn')).toEqual([])
+    // the stored pattern's own period resets and lands
+    ops.upserts.length = 0
+    await commitChanges(zoho, admin, { ...CHANGES, tables: [], counters: { grn: 1, 'period:grn': today } })
+    expect(ops.upserts.find((u) => u.key === 'grn')!.values[T['Counters'].fields['Next']]).toBe('1')
+    expect(ops.upserts.find((u) => u.key === 'period:grn')!.values[T['Config'].fields['Value']]).toBe(today)
   })
 
   it('gates period:* counter keys like any counter — a scoped caller needs the document behind them', async () => {
@@ -798,7 +1000,7 @@ describe('commitChanges', () => {
     ])
   })
 
-  it('a remove whose row vanished after pre-flight completes the commit; a lock still throws', async () => {
+  it('a remove whose row vanished after pre-flight completes the commit; a refusal with the row standing does not', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const { zoho } = fakeZoho([storedGrn('GRN-OLD', { id: 'GRN-OLD' })])
     const remove = {
@@ -807,15 +1009,39 @@ describe('commitChanges', () => {
       counters: {},
       config: undefined,
     }
-    // the delete refuses: something outside this process removed the row inside
-    // our window — the outcome asked for is already true, so the commit completes
+    // the delete refuses AND the row is truly gone — something outside this
+    // process removed it inside our window, so the confirming read finds
+    // nothing and the commit completes: the outcome asked for is already true
+    let vanished = false
     zoho.deleteRecord = async () => {
+      vanished = true
       throw new ZohoApiError('DELETE /records', 404, 'record not found')
     }
+    const realFetchByKeyIn = zoho.fetchByKeyIn.bind(zoho)
+    zoho.fetchByKeyIn = async (tableId: string, keyFieldId: string, values: string[]) =>
+      vanished && values.some((v) => String(v) === 'GRN-OLD')
+        ? []
+        : realFetchByKeyIn(tableId, keyFieldId, values)
     const { token: rev } = await commitChanges(zoho, admin, remove)
     expect(rev).toBeTypeOf('string')
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('GRN-OLD'))
-    // a lock is an honest failure — it still rejects, never swallowed
+    // a delete that refuses while the row still stands is a real refusal, not a
+    // vanished row — swallowing it used to report a deletion that never
+    // happened while the revision bump told every device the lie was truth
+    const { zoho: zoho2 } = fakeZoho([storedGrn('GRN-STAYS', { id: 'GRN-STAYS' })])
+    zoho2.deleteRecord = async () => {
+      throw new ZohoApiError('DELETE /records', 400, 'field refusal')
+    }
+    await expect(
+      commitChanges(zoho2, admin, {
+        ...remove,
+        tables: [{ table: 'grns', upsert: [], remove: ['GRN-STAYS'] }],
+      }),
+    ).rejects.toBeInstanceOf(ZohoApiError)
+    // a lock is an honest failure — it still rejects, never swallowed (the
+    // confirming read must see the row standing again: `vanished` still true
+    // would skip the delete outright and resolve as a no-op)
+    vanished = false
     zoho.deleteRecord = async () => {
       throw new ZohoLockedError()
     }
@@ -1038,6 +1264,56 @@ describe('validateChanges — the pure shape gate before any Zoho call', () => {
     expect(v({ ...CHANGES, tables: [], counters: {}, config: { tolerances: { lab: 5 } } })).toBeNull()
     // an expect map on a change is the sync client's own honest shape
     expect(v({ ...CHANGES, tables: [{ ...CHANGES.tables[0], expect: {} }] })).toBeNull()
+  })
+
+  it('refuses ledger and audit rows carrying an expect — insert-only tables never have one', () => {
+    // the crafted rewrite shape: echo the stored line as your base, land the
+    // edit over it. sync.ts emits no expect for either table (edits arrive as
+    // remove+insert), so no permission gate could tell this payload from an
+    // honest one — only the shape can
+    expect(
+      v({ tables: [{ table: 'ledger', upsert: [{ id: 'L1', at: '2026-09-21T08:00:00Z', qty_in: 1 }], remove: [], expect: { L1: { id: 'L1', qty_in: 90 } } }], counters: {} }),
+    ).toContain('insert-only')
+    expect(
+      v({ tables: [{ table: 'audits', upsert: [{ id: 'A1', at: '2026-09-21T08:00:00Z' }], remove: [], expect: { A1: null } }], counters: {} }),
+    ).toContain('insert-only')
+    // the honest shapes: inserts carry rows, never an expect
+    expect(
+      v({ tables: [{ table: 'ledger', upsert: [{ id: 'L1', at: '2026-09-21T08:00:00Z', qty_in: 90 }], remove: [] }], counters: {} }),
+    ).toBeNull()
+    expect(v({ tables: [CHANGES.tables[2]], counters: {} })).toBeNull()
+  })
+
+  it('refuses a future-dated ledger or audit row — `at` feeds the snapshot watermarks', () => {
+    // a future `at` parks the watermark where no delta bucket ever reaches and
+    // the sweep serves empty forever; it also leads every "when" column. Past
+    // stays free — backdated PM receipts are a real, legal shape.
+    const past = new Date(Date.now() - 86_400_000).toISOString()
+    const future = new Date(Date.now() + 3_600_000).toISOString()
+    for (const table of ['ledger', 'audits']) {
+      expect(v({ tables: [{ table, upsert: [{ id: 'X1', at: future }], remove: [] }], counters: {} })).toContain('not-future')
+      expect(v({ tables: [{ table, upsert: [{ id: 'X1', at: 'not a date at all' }], remove: [] }], counters: {} })).toContain('not-future')
+      expect(v({ tables: [{ table, upsert: [{ id: 'X1', at: past }], remove: [] }], counters: {} })).toBeNull()
+      expect(v({ tables: [{ table, upsert: [{ id: 'X1' }], remove: [] }], counters: {} })).toBeNull() // absent is honest too
+    }
+    // clock skew within the grace is a phone being a phone
+    expect(v({ tables: [{ table: 'ledger', upsert: [{ id: 'X1', at: new Date(Date.now() + 60_000).toISOString() }], remove: [] }], counters: {} })).toBeNull()
+  })
+
+  it('refuses a config value that is not the number its key promises — strings never ride app_config into the client', () => {
+    // the stored-XSS shape: a sticker dimension as a crafted string is
+    // interpolated into the print sheet's HTML on every device that adopts it
+    expect(
+      v({ ...CHANGES, tables: [], counters: {}, config: { stickerWidthMm: '50;}</style><img src=x onerror=fetch("/api/commit")>' } }),
+    ).toBe('app_config stickerWidthMm must be a number.')
+    expect(v({ ...CHANGES, tables: [], counters: {}, config: { expiryAlertDays: '7' } })).toBe(
+      'app_config expiryAlertDays must be a number.',
+    )
+    expect(v({ ...CHANGES, tables: [], counters: {}, config: { stickerWidthMm: Number.NaN } })).toContain('must be a number')
+    // numbers pass, absent keys pass, unknown keys are not this gate's business
+    expect(v({ ...CHANGES, tables: [], counters: {}, config: { stickerWidthMm: 100, lowStockPacks: 4 } })).toBeNull()
+    expect(v({ ...CHANGES, tables: [], counters: {}, config: { reportCustomerName: 'Roligt Foods' } })).toBeNull()
+    expect(v({ ...CHANGES, tables: [], counters: {}, config: { anythingElse: { deep: 'value' } } })).toBeNull()
   })
 
   it('refuses payloads that are not the honest shape at all', () => {

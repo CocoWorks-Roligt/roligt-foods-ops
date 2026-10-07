@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { T } from './baseSchema.js'
 import { __resetCommitThrottle } from './commitThrottle.js'
+import { __resetSnapshotThrottle } from './snapshotThrottle.js'
 
 /**
  * Handler-level tests: the Retry-After plumbing, the status-code mapping and the
@@ -19,6 +20,8 @@ const mode = vi.hoisted(() => ({
   /** When set: criteria reads naming this key answer one stored row — the
    *  pre-flight's view of a document another device already saved. */
   existing: null as { key: string; appId: string; fields: Record<string, string> } | null,
+  /** When set: every Zoho network call throws it — the handler's catch-all. */
+  failWith: null as Error | null,
 }))
 
 vi.mock('./auth.ts', () => ({
@@ -35,6 +38,7 @@ vi.mock('./shared.ts', async () => {
     if (url.startsWith('https://accounts.zoho.in')) {
       return new Response(JSON.stringify({ access_token: 'tok', expires_in: 3600 }), { status: 200 })
     }
+    if (mode.failWith) throw mode.failWith
     if (mode.locked) throw new ZohoLockedError(mode.retryAfterSec)
     // small POSTs carry their params on the query string (see zoho.ts call()) —
     // the criteria naming the row appears in the URL, not the body
@@ -48,11 +52,20 @@ vi.mock('./shared.ts', async () => {
     }
     return new Response(JSON.stringify({ records: { fetched: [] } }), { status: 200 })
   }
-  return { zoho: new ZohoClient({ fetchImpl, env: {} as Record<string, string | undefined> }) }
+  // The global read window is not this file's subject (zoho.test.ts pins it);
+  // the commit path left live here spends 10 reads on its first commit (Config
+  // plus the nine link tables) and 1 on every one after, so the production
+  // 26/min held the whole file's ledger at exactly 26 — the first added test
+  // pushed fire #8 of the refill loop into a full window and every test after
+  // inherited the poisoned budget. Uncapped here on purpose.
+  return { zoho: new ZohoClient({ fetchImpl, env: {} as Record<string, string | undefined>, readsPerMin: 100_000 }) }
 })
 
 vi.mock('./snapshot.ts', async () => {
   const { ZohoLockedError } = await vi.importActual<typeof import('./zoho.ts')>('./zoho.ts')
+  // the real projection forwards: the route imports projectSnapshot off this
+  // module, and the test below pins the REAL read-side rule, not a mock of it
+  const actual = await vi.importActual<typeof import('./snapshot.ts')>('./snapshot.ts')
   const guard = async <A,>(v: A): Promise<A> => {
     if (mode.locked) throw new ZohoLockedError(mode.retryAfterSec)
     return v
@@ -63,6 +76,7 @@ vi.mock('./snapshot.ts', async () => {
     readRevision: vi.fn(async () => guard('0')),
     readRevisionMemoized: vi.fn(async () => guard('0')),
     invalidateSnapshotCache: vi.fn(),
+    projectSnapshot: actual.projectSnapshot,
     // the real commit lib imports these off the same mocked module
     noteRevision: vi.fn(),
     cachedRevision: vi.fn(() => null),
@@ -83,7 +97,9 @@ beforeEach(() => {
   mode.permissions = ['masters.manage', 'staff.manage', 'config.manage', 'audit.manage', 'admin.manage']
   mode.setCookies = null
   mode.existing = null
+  mode.failWith = null
   __resetCommitThrottle() // every test's caller starts with a fresh bucket
+  __resetSnapshotThrottle() // and a fresh snapshot bucket beside it
 })
 
 function fakeRes() {
@@ -112,6 +128,23 @@ describe('handlers', () => {
     // no rows, no counters, no config: nothing landed, so the revision this empty
     // base already sits at ('0' — nothing was ever written) goes straight back
     expect(res.json).toHaveBeenCalledWith({ revision: '0' })
+  })
+
+  it('answers a server failure with a generic body — internal error text stays in the server log', async () => {
+    // the catch-all used to hand e.message to the caller, and a ZohoApiError
+    // carries slices of the raw upstream response: base ids, table ids, API
+    // internals. The wire gets the retry promise; the log gets the detail.
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mode.failWith = new Error('upstream detail naming base gerc53fe9f1e44e5f4a13809d9bd47367ba9d and tables')
+    const res = fakeRes()
+    await commit(fakeReq({ changes: { tables: [], counters: {}, empty: false } }), res)
+    expect(res.status).toHaveBeenCalledWith(500)
+    const body = res.json.mock.calls[0][0] as { error: string }
+    expect(body.error).not.toContain('gerc53fe')
+    expect(body.error).not.toContain('upstream')
+    expect(body.error).toContain('retry')
+    expect(err).toHaveBeenCalled() // the detail landed in the log, not the wire
+    err.mockRestore()
   })
 
   it('throttles one caller — a burst fired rapid-fire gets 429 with Retry-After', async () => {
@@ -240,7 +273,7 @@ describe('handlers', () => {
     const rs = fakeRes()
     await snapshot(fakeReq(null), rs)
     expect(rs.setHeader).toHaveBeenCalledWith('Set-Cookie', mode.setCookies)
-    expect(rs.json).toHaveBeenCalledWith({ state: null, revision: '0', permissions: mode.permissions })
+    expect(rs.json).toHaveBeenCalledWith({ state: null, revision: '0', permissions: mode.permissions, withheld: [] })
     const rr = fakeRes()
     await revision(fakeReq(null), rr)
     expect(rr.setHeader).toHaveBeenCalledWith('Set-Cookie', mode.setCookies)
@@ -264,12 +297,55 @@ describe('handlers', () => {
     const rs = fakeRes()
     await snapshot(fakeReq(null), rs)
     expect(rs.status).toHaveBeenCalledWith(200)
-    expect(rs.json).toHaveBeenCalledWith({ state: null, revision: '0', permissions: mode.permissions })
+    expect(rs.json).toHaveBeenCalledWith({ state: null, revision: '0', permissions: mode.permissions, withheld: [] })
     const rr = fakeRes()
     await revision(fakeReq(null), rr)
     expect(rr.status).toHaveBeenCalledWith(200)
     expect(rr.json).toHaveBeenCalledWith({ revision: '0' })
     // one client for the whole BFF — the budget is global per API key, not per request
     expect(zoho).toBeInstanceOf(ZohoClient)
+  })
+
+  it('throttles snapshot reads per account — a burst fired rapid-fire gets 429 with Retry-After', async () => {
+    // the read-side twin of the commit throttle (the audit's S2-5 interim): a
+    // snapshot spend is shared plant budget — every warm miss a criteria read,
+    // every moved revision a full sweep — so one account hammering /api/snapshot
+    // is refused BEFORE a read is spent. A fresh bucket holds the sustained
+    // minute's worth (6); the honest client (boot two calls, the poll ~3/min)
+    // never meets it.
+    const codes: number[] = []
+    for (let i = 0; i < 8; i++) {
+      const res = fakeRes()
+      await snapshot(fakeReq(null), res)
+      codes.push(res.status.mock.calls[0][0])
+    }
+    expect(codes.slice(0, 6)).toEqual(Array(6).fill(200))
+    expect(codes.slice(6)).toEqual(Array(2).fill(429))
+    const refused = fakeRes()
+    await snapshot(fakeReq(null), refused)
+    expect(refused.setHeader).toHaveBeenCalledWith('Retry-After', expect.any(String))
+    expect(refused.json).toHaveBeenCalledWith(
+      expect.objectContaining({ error: expect.stringContaining('Too many snapshot reads') }),
+    )
+  })
+
+  it('speaks the caller page scope in the snapshot body — withheld names the tables this caller may not read', async () => {
+    // a suppliers clerk: procurement receipts and the audit trail are withheld;
+    // the masters they hold, and the ledger and counters their own page needs,
+    // are not. The mocked reader serves a null plant here and the list is the
+    // same a full one would answer — that constancy is pinned in snapshot.test.ts.
+    mode.permissions = ['page.vendors']
+    const scoped = fakeRes()
+    await snapshot(fakeReq(null), scoped)
+    const body = scoped.json.mock.calls[0][0] as { withheld: string[] }
+    expect(body.withheld).toContain('grns')
+    expect(body.withheld).toContain('audits')
+    expect(body.withheld).not.toContain('vendors')
+    expect(body.withheld).not.toContain('ledger')
+    // the operator (no page slugs at all) reads the whole plant — nothing withheld
+    mode.permissions = []
+    const open = fakeRes()
+    await snapshot(fakeReq(null), open)
+    expect((open.json.mock.calls[0][0] as { withheld: string[] }).withheld).toEqual([])
   })
 })

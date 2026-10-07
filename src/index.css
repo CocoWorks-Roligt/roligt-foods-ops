@@ -552,6 +552,26 @@ body.drawer-open {
   line-height: 1.45;
 }
 
+/* The over-draw banner shares the strip's anatomy but not its mood: stock that
+   has gone negative is a reconciliation waiting to happen, not a connection
+   state — amber reads as "check this", the ink strip reads as "we know". */
+.offline-bar.overdrawn {
+  background: var(--amber-wash);
+  color: var(--amber);
+}
+
+/* The per-lot flag on a Storage area card — the banner's amber again, so the lot
+   and the alert that named it read as one thing. */
+.overdrawn-lot {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--amber);
+  background: var(--amber-wash);
+  border: 1px solid var(--amber);
+  border-radius: var(--radius-control);
+  padding: 8px 10px;
+}
+
 .offline-dot {
   flex: 0 0 auto;
   width: 9px;

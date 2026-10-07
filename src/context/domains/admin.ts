@@ -9,7 +9,7 @@
 import { useCallback, useMemo } from 'react'
 import { checkNumbering, formatDocNo, seriesDef } from '../../lib/numbering'
 import { printStickerSheet } from '../../lib/stickerPrint'
-import { DEFAULT_STICKER_HEIGHT_MM, DEFAULT_STICKER_WIDTH_MM, stageLabel, stickerOwner, stickerReferenceLabel } from '../../lib/stickers'
+import { DEFAULT_STICKER_HEIGHT_MM, DEFAULT_STICKER_WIDTH_MM, stageLabel, stickerMm, stickerOwner, stickerReferenceLabel } from '../../lib/stickers'
 import type { StickerJob } from '../../lib/stickers'
 import { deepClone, nowISO } from '../../lib/utils'
 import type { AppState, Config, NumberingRule, StickerTemplate } from '../../types'
@@ -48,8 +48,11 @@ export function useAdmin({ state, setState, nextId, log, showToast, forbidden }:
         showToast('Nothing to print — pick a record and switch on at least one field.')
         return null
       }
-      const widthMm = state.config.stickerWidthMm || DEFAULT_STICKER_WIDTH_MM
-      const heightMm = state.config.stickerHeightMm || DEFAULT_STICKER_HEIGHT_MM
+      // Coerced, not trusted: the values arrive from other devices' config
+      // writes, and what lands in the print history (and the sheet's HTML)
+      // must be a real number — stickerMm falls anything else back to stock.
+      const widthMm = stickerMm(state.config.stickerWidthMm, DEFAULT_STICKER_WIDTH_MM)
+      const heightMm = stickerMm(state.config.stickerHeightMm, DEFAULT_STICKER_HEIGHT_MM)
       const copies = live.reduce((a, b) => a + b.copies, 0)
 
       setState((prev) => {

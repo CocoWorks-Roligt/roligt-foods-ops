@@ -27,6 +27,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
     if (setCookies.length) res.setHeader('Set-Cookie', setCookies)
     res.status(302).end()
   } catch (e) {
-    res.status(500).json({ error: (e as Error).message })
+    console.error('[auth/start]', e)
+    res.status(500).json({ error: 'Sign-in could not be started — try again.' })
   }
 }

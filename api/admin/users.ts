@@ -276,6 +276,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
       res.status(502).json({ error: `WorkOS refused the request: ${(e as Error).message}` })
       return
     }
-    res.status(500).json({ error: (e as Error).message })
+    console.error('[admin/users]', e)
+    res.status(500).json({ error: 'The user change failed on the server — check the list before retrying.' })
   }
 }

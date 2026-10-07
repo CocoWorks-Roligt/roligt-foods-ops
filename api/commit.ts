@@ -85,6 +85,9 @@ export default async function (req: VercelRequest, res: VercelResponse) {
       res.status(503).json({ error: 'Zoho is rate-limited — the change is saved on this device and will retry.' })
       return
     }
-    res.status(500).json({ error: (e as Error).message })
+    // The detail is ours, not the caller's — ZohoApiError carries slices of the
+    // raw upstream response (base and table ids, internals). Logged server-side.
+    console.error('[commit]', e)
+    res.status(500).json({ error: 'The save failed on the server — it is still saved on this device and will retry.' })
   }
 }

@@ -26,6 +26,7 @@ import {
   fmtRowTotal,
   itemTypeLabel,
   locationLabel,
+  type OverdrawnLot,
   roomSuits,
   stockRowKey,
   storageTypeCount,
@@ -41,6 +42,7 @@ export function Storage() {
   const {
     state,
     rows,
+    overdrawn,
     getItemName,
     addStorageLocation,
     updateStorageLocation,
@@ -74,6 +76,22 @@ export function Storage() {
     }
     return by
   }, [rows])
+
+  /**
+   * Over-drawn lots by area (the audit's S2-8). The held fold above skips them —
+   * a negative row holds nothing, so it never reaches "what's inside" — which is
+   * exactly why the card has to carry the flag itself: the banner names the lot,
+   * this is where the operator lands to check it.
+   */
+  const overByArea = useMemo(() => {
+    const by = new Map<string, OverdrawnLot[]>()
+    for (const o of overdrawn) {
+      const list = by.get(o.row.location)
+      if (list) list.push(o)
+      else by.set(o.row.location, [o])
+    }
+    return by
+  }, [overdrawn])
 
   /** Every transfer ever made, newest first — the out-leg names where it came from. */
   const moves = useMemo(() => {
@@ -305,6 +323,18 @@ export function Storage() {
                       <b>{inr(inside?.value || 0)}</b>
                     </div>
                   </div>
+                  {(overByArea.get(s.name) || []).length ? (
+                    <div className="overdrawn-lot">
+                      Over-drawn:{' '}
+                      {(overByArea.get(s.name) || [])
+                        .map(
+                          ({ row }) =>
+                            `${getItemName(row.item)}${row.lot ? ` · ${row.lot}` : ''} (${fmtQty(row.qty)} ${row.uom})`,
+                        )
+                        .join('; ')}
+                      . Stock went negative — two devices may have drawn the same lot.
+                    </div>
+                  ) : null}
                   {purposes.length ? (
                     <div className="small">
                       Default for {purposes.map((p) => p.label.toLowerCase()).join(', ')}

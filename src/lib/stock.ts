@@ -22,6 +22,43 @@ export const stockRowKey = (r: {
   expiry?: string
 }) => [r.item, r.lot, r.location, r.status, r.expiry || ''].map(encodeURIComponent).join('|')
 
+/**
+ * Lots whose on-hand balance has gone NEGATIVE — the over-draw the audit's S2-8
+ * asked to surface.
+ *
+ * Availability checks are client-only, and two offline devices can both pass
+ * them against the same released lot: each draw is legal on what it saw, both
+ * ledger sets land (fresh uid ids never conflict), and the fold quietly answers
+ * a negative number nobody was reading. This is the post-sync reconciliation:
+ * DETECT, not block — the lines are already committed, and the plant needs to
+ * see the collision and reconcile it, not have later work refused on its
+ * behalf. Each over-draw names the documents that drew from the exact row (its
+ * qty_out lines), so the banner can point at the postings to check.
+ */
+export interface OverdrawnLot {
+  /** The stock row that went negative — its `qty` is always < 0. */
+  row: StockRow
+  /** Unique documents that drew from this exact row. */
+  docs: string[]
+}
+
+export function overdrawnLots(state: AppState): OverdrawnLot[] {
+  const negative = stockRows(state).filter((r) => r.qty < -QTY_EPSILON)
+  if (!negative.length) return []
+  const docsBy = new Map<string, Set<string>>()
+  for (const l of state.ledger) {
+    if (!(Number(l.qtyOut) > QTY_EPSILON)) continue
+    const k = stockRowKey({ ...l, expiry: l.expiry })
+    const set = docsBy.get(k) ?? new Set<string>()
+    set.add(l.doc)
+    docsBy.set(k, set)
+  }
+  return negative.map((row) => ({
+    row,
+    docs: [...(docsBy.get(stockRowKey(row)) ?? [])],
+  }))
+}
+
 export function stockRows(state: AppState): StockRow[] {
   const g: Record<string, StockRow> = {}
   for (const l of state.ledger) {

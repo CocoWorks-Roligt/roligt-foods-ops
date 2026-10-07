@@ -24,10 +24,9 @@ import { useSales } from './domains/sales'
 import { usePlanning, type PlanInput } from './domains/planning'
 import { useStaffRoster, type ShiftInput, type StaffInput } from './domains/roster'
 import { useStorageLocations } from './domains/storage'
-import { fetchDb, fetchRevision, saveDb, ThrottledError, UnauthorizedError, type RowConflict } from '../lib/dbApi'
+import { fetchDb, fetchRevision, saveDb, ThrottledError, UnauthorizedError } from '../lib/dbApi'
 import { readLocal, writeLocal, type LocalCopy } from '../lib/localDb'
-import { installOver } from '../lib/sync'
-import { COLLECTIONS } from '../lib/tables'
+import { adoptServerRows, installOver, offlineBootBase, restoreWithheld } from '../lib/sync'
 import { canAny, type PermissionKey } from '../lib/permissions.ts'
 import { setSessionPermissions, useSessionPermissions } from '../lib/sessionPermissions'
 import {
@@ -49,7 +48,7 @@ import { formatDocNo, periodKeyFor, ruleFor } from '../lib/numbering'
 import {
   type StockIssueInput,
 } from '../lib/issues'
-import { itemName, stockRows } from '../lib/stock'
+import { itemName, overdrawnLots, stockRows, type OverdrawnLot } from '../lib/stock'
 import {
   type StickerJob,
 } from '../lib/stickers'
@@ -105,6 +104,12 @@ interface AppContextValue {
   /** Re-exported so screens do not have to reach for a second context to say something. */
   showToast: (message: string) => void
   rows: StockRow[]
+  /**
+   * Lots whose balance went negative (the audit's S2-8) — two offline devices
+   * drawing the same released lot, detected after the fact. Detect, not block:
+   * the banner and the Storage page carry it; nothing refuses on its behalf.
+   */
+  overdrawn: OverdrawnLot[]
   getItemName: (id: string) => string
   vendorTypeName: (id: string) => string
   createGrn: (input: GrnInput) => string | null
@@ -219,19 +224,6 @@ const SaveStatusContext = createContext<SaveStatus>({
   mirrorFailed: false,
 })
 
-/** The AppState key a table name lives under ('grns' → grns; ledger/audits are theirs). */
-function stateKeyForTable(table: string): string | null {
-  if (table === 'ledger' || table === 'audits') return table
-  return COLLECTIONS.find((c) => c.table === table)?.key ?? null
-}
-
-const idOfFor = (key: string) => {
-  if (key === 'ledger' || key === 'audits') return (r: unknown) => String((r as { id?: unknown }).id ?? '')
-  const spec = COLLECTIONS.find((c) => c.key === key)
-  return (r: unknown) =>
-    spec ? spec.id(r as Record<string, unknown>) : String((r as { id?: unknown }).id ?? '')
-}
-
 /** The number inside a revision token (`<n>:<nonce>`) — the only part that orders. */
 const revNum = (t: number | string) => Number.parseInt(String(t), 10) || 0
 
@@ -246,55 +238,6 @@ const revNum = (t: number | string) => Number.parseInt(String(t), 10) || 0
  */
 const installSnapshot = (source: AppState, base: AppState | null) => (live: AppState) =>
   live === base ? source : installOver(live, base, source)
-
-/**
- * Adopts the server's version of documents that lost a save race.
- *
- * A refused row never arrives alone: a document carries its ledger lines and
- * audit entries under its own code, and surrendering the row while still
- * pushing our lines for it would corrupt the winner's stock. So the whole
- * slice — the row, its lines, its entries — is taken from the server on both
- * sides of the diff (the state and the base it is diffed against), which makes
- * the re-save a no-op for the surrendered document and a clean push for
- * everything else this device did. Counters come along so the next code minted
- * here continues from the server's series instead of colliding again.
- */
-function adoptServerRows(
-  cur: AppState,
-  server: Partial<AppState>,
-  conflicts: readonly RowConflict[],
-): AppState {
-  const touched = new Map<string, Set<string>>()
-  const mark = (key: string, id: string) => {
-    const ids = touched.get(key) ?? new Set<string>()
-    ids.add(id)
-    touched.set(key, ids)
-  }
-  for (const c of conflicts) {
-    const key = stateKeyForTable(c.table)
-    if (!key) continue
-    mark(key, c.id)
-    if (c.table !== 'ledger' && c.table !== 'audits') {
-      for (const l of cur.ledger ?? []) if (l.doc === c.id) mark('ledger', l.id)
-      for (const a of cur.audits ?? []) if (a.doc === c.id) mark('audits', String(a.id))
-      for (const l of server.ledger ?? []) if (l.doc === c.id) mark('ledger', l.id)
-      for (const a of server.audits ?? []) if (a.doc === c.id) mark('audits', String(a.id))
-    }
-  }
-  const next: Record<string, unknown> = { ...(cur as unknown as Record<string, unknown>) }
-  for (const [key, ids] of touched) {
-    const idOf = idOfFor(key)
-    const fromServer = ((server as Record<string, unknown>)[key] as unknown[] | undefined) ?? []
-    const winners = fromServer.filter((r) => ids.has(idOf(r)))
-    const ours = ((next[key] as unknown[] | undefined) ?? []).filter((r) => !ids.has(idOf(r)))
-    next[key] = [...ours, ...winners]
-  }
-  if (server.counters) next.counters = { ...(next.counters as object), ...server.counters }
-  if (server.counterPeriods) {
-    next.counterPeriods = { ...(next.counterPeriods as object), ...server.counterPeriods }
-  }
-  return next as unknown as AppState
-}
 
 export function AppProvider({ children }: { children: ReactNode }) {
   // Every audit line and QC signature used to read "Admin" no matter who was signed
@@ -497,8 +440,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setSessionPermissions(remote.permissions)
 
         // What the database holds is the plant, empty or not — reading it back
-        // never invents masters, so a plant somebody cleared stays cleared.
-        const server = remote.state ? migrateState(remote.state) : null
+        // never invents masters, so a plant somebody cleared stays cleared. A
+        // scoped caller's snapshot arrives without the tables they may not read
+        // (named in `withheld`): those keys are restored from what this device
+        // painted, BEFORE migrate — the server was never asked about them, so
+        // this device's last view of them stays the truth, and an absent key
+        // would otherwise read as "never written" to the seeding and as a wipe
+        // to the merge.
+        const server = remote.state ? migrateState(restoreWithheld(remote, painted).state) : null
         if (server) synced.current = server
 
         // Work this device did without a signal is real work, and the only copy of it.
@@ -535,9 +484,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
           showToast(e.message)
           return
         }
-        // Offline at startup. The device's own copy is the only record there is, and
-        // nothing is known about the server, so nothing may be diffed against it.
-        synced.current = null
+        // Offline at startup. The device's own copy is the only record there is —
+        // but a device that has synced before still holds a legitimate view of
+        // the server (a clean mirror at its recorded revision, or a dirty
+        // mirror's recorded base), and diffing against null made every edit of
+        // an existing row a guaranteed 409 'exists' at reconnect even when
+        // nobody else had touched it. Only a mirror with no view at all falls
+        // back to null: everything written, nothing removed.
+        synced.current = offlineBootBase(
+          local && {
+            dirty: local.dirty,
+            hasRevision: local.revision !== undefined,
+            base: local.base ? migrateState(local.base) : null,
+            mirror: migrateState(local.state),
+          },
+        )
         if (local) {
           setState(installSnapshot(migrateState(local.state), painted))
           setOffline(true)
@@ -588,7 +549,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         revision.current = remote.revision
         setSessionPermissions(remote.permissions)
         if (!remote.state) return
-        const server = migrateState(remote.state)
+        // Same withheld rule as the reconcile: the tables this caller may not
+        // read come back from the last synced view, so a partial snapshot never
+        // installs as a wipe.
+        const server = migrateState(restoreWithheld(remote, synced.current).state)
         const was = synced.current
         setState(installSnapshot(server, was))
         synced.current = server
@@ -679,7 +643,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 setSessionPermissions(remote.permissions)
                 const serverState = migrateState(remote.state)
                 if (synced.current) {
-                  synced.current = adoptServerRows(synced.current, serverState, result.conflicts)
+                  // The base takes the SERVER's counters verbatim while the live
+                  // state (below) takes the per-key max — the difference between
+                  // them is the counter diff the re-save re-emits, so the server
+                  // catches up to the higher number this device minted offline.
+                  synced.current = adoptServerRows(synced.current, serverState, result.conflicts, {
+                    counters: 'server',
+                  })
                 }
                 // Functional, and merged against the live state rather than the
                 // one this save started from: anything edited while the adoption
@@ -744,6 +714,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   )
 
   const rows = useMemo(() => stockRows(state), [state])
+
+  // The over-draw fold runs on the same ledger as `rows`; empty on a healthy
+  // plant, so the banner below simply stays gone.
+  const overdrawn = useMemo(() => overdrawnLots(state), [state])
 
   const getItemName = useCallback((id: string) => itemName(state, id), [state])
 
@@ -841,6 +815,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       state,
       showToast,
       rows,
+      overdrawn,
       getItemName,
       vendorTypeName,
       ...procurement,
@@ -870,6 +845,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       quality,
       planning,
       roster,
+      overdrawn,
       rows,
       sales,
       showToast,

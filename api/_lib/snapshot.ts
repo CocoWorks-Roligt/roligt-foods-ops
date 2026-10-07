@@ -4,11 +4,13 @@
  * Supabase client had (id, data) — `migrateState` fills any collection not yet
  * mapped from seed defaults, which is what lets the GRN slice ship before the rest.
  */
+import { FUTURE_AT_GRACE_MS } from './zoho.js'
 import type { ReadScope, ZohoClient, ZohoRecord } from './zoho.js'
 import { T, TABLE_FOR } from './baseSchema.js'
 import { rowToDoc } from './mappers.js'
 import { COLLECTIONS, ledgerFromRow, auditFromRow } from '../../src/lib/tables.js'
-import type { AppState } from '../../src/types.js'
+import { canViewPage } from '../../src/lib/pages.js'
+import type { AppState, ViewId } from '../../src/types.js'
 
 export interface Assembled {
   state: Partial<AppState> | null
@@ -96,6 +98,68 @@ export function assembleState(schema: typeof T, rows: SnapshotRows): Assembled {
   return { state: everWritten ? state : null, revision, everWritten }
 }
 
+// ---- read-side authorization: the per-caller projection over the shared substrate ----
+
+/**
+ * The tables a caller may be denied on the READ side — the mirror image of the
+ * write gates in commit.ts. Masters stay readable for everyone: they are the
+ * reference data every screen resolves names against, and the staff register
+ * (the Roster page's master) sits on the open tier; field-level masking of
+ * contacts/GSTIN is deliberately NOT attempted here. The day's work is readable
+ * by the page that owns it, and the audit trail by the Audit page — an
+ * open-tier page, so the operator keeps the trail and only scoped clerks lose
+ * it. `ledger`, `counters`, `counterPeriods` and `config` are readable by every
+ * signed-in caller: the ledger is the stock arithmetic the whole app runs on.
+ */
+const READ_GATED: { key: string; page: ViewId | readonly ViewId[] }[] = [
+  ...COLLECTIONS.filter((c) => c.page).map((c) => ({ key: c.key, page: c.page! })),
+  { key: 'audits', page: 'audit' },
+]
+
+/**
+ * The state keys this caller may not see — CONSTANT per permission set, computed
+ * from the page map alone and never from what the base holds, so the list leaks
+ * which tables a ROLE cannot read, never which tables hold data. Empty for the
+ * unscoped operator (the open tier reads the whole day's work) and for a caller
+ * holding every page.
+ */
+export function withheldForCaller(held: readonly string[]): string[] {
+  const sees = (page: ViewId | readonly ViewId[]) =>
+    typeof page === 'string' ? canViewPage(held, page) : page.some((p) => canViewPage(held, p))
+  return READ_GATED.filter((g) => !sees(g.page)).map((g) => g.key)
+}
+
+/** What one caller's GET /api/snapshot returns after authorization. */
+export interface ProjectedSnapshot {
+  state: Partial<AppState> | null
+  revision: string
+  /** The state keys dropped from `state` for this caller — restoreWithheld's cue. */
+  withheld: string[]
+}
+
+/**
+ * The shared substrate, projected to one caller. The assembled snapshot is
+ * built once per revision and served to everyone — that sharing is what keeps
+ * the 26-read sweep economics — so authorization happens HERE, per request, on
+ * a shallow copy: the keys this caller may not see are dropped and named in
+ * `withheld`, which the client honors by keeping its mirror's copies of exactly
+ * those keys (src/lib/sync.ts restoreWithheld). A key merely ABSENT would read
+ * as "never written" to the client's seeding and as "the server dropped every
+ * row" to its three-way merge — either corrupts the next save, which is why the
+ * list travels with every body. The substrate itself is never mutated: the next
+ * caller — an operator, an admin — still receives the whole plant.
+ */
+export function projectSnapshot(snap: Assembled, held: readonly string[]): ProjectedSnapshot {
+  const withheld = withheldForCaller(held)
+  if (!snap.state || !withheld.length) return { state: snap.state, revision: snap.revision, withheld }
+  const drop = new Set(withheld)
+  const state: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(snap.state)) {
+    if (!drop.has(key)) state[key] = value
+  }
+  return { state: state as Partial<AppState>, revision: snap.revision, withheld }
+}
+
 /** Reads every mapped table (App ID + Data JSON only) and assembles the snapshot. */
 export async function readSnapshot(zoho: ZohoClient): Promise<Assembled> {
   return (await sweepTables(zoho, null, new Set(), null, true)).snap
@@ -151,12 +215,21 @@ function rowAt(table: { dataJson?: string }, r: ZohoRecord): string | null {
 }
 
 /** The max `at` across rows (never below `seen`) — ISO-8601 Zulu strings compare
- *  lexicographically in chronological order, so a plain string compare is it. */
+ *  lexicographically in chronological order, so a plain string compare is it.
+ *  A row dated past the grace never advances it: the commit gate refuses to
+ *  write one now, but a hand edit in the Zoho UI still can, and a future `at`
+ *  here would park the watermark where no delta bucket ever reaches — the
+ *  sweep serving empty forever while looking perfectly healthy. Unparseable
+ *  strings are skipped for the same reason: they poison a lexicographic max
+ *  worse than any date. */
 function maxAt(seen: string | undefined, rows: ZohoRecord[], table: { dataJson?: string }): string | undefined {
   let max = seen
   for (const r of rows) {
     const at = rowAt(table, r)
-    if (at && (max === undefined || at > max)) max = at
+    if (!at || (max !== undefined && at <= max)) continue
+    const t = Date.parse(at)
+    if (Number.isNaN(t) || t - Date.now() > FUTURE_AT_GRACE_MS) continue
+    max = at
   }
   return max
 }
