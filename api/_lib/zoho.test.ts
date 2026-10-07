@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ZohoApiError, ZohoClient, ZohoLockedError } from './zoho.js'
+import { ZohoApiError, ZohoCasConflictError, ZohoClient, ZohoLockedError } from './zoho.js'
 
 /**
  * A fetchImpl that records calls and answers from a scripted map.
@@ -61,6 +61,56 @@ describe('ZohoClient', () => {
     expect(JSON.parse(u.searchParams.get('data')!)).toEqual({ FAPP: 'GRN-1', FDATA: '{"a":1}' })
     // small payloads ride the query string — no request body
     expect(calls[1]!.init?.body).toBeUndefined()
+  })
+
+  it('makes the write conditional when a cas token is given — update-only equality on the version column', async () => {
+    // The S2-5 cross-instance OCC, wire-pinned to the probe's findings
+    // (probe-version.mjs, 2026-10-07): the criteria grammar has no AND, so the
+    // row identity rides INSIDE the token value and the conditional write is
+    // one text equality on the Version column.
+    const calls: { url: string; init?: RequestInit }[] = []
+    const c = new ZohoClient({
+      fetchImpl: fakeFetch(calls, [{ body: { records: { updated: [{ recordID: 'r1', data: {} }] }, status: 'success' } }]),
+      env: ENV,
+    })
+    await c.upsertByKey('T1', 'FAPP', 'GRN-1', { FAPP: 'GRN-1', FVER: 'GRN-1:6' }, { versionFieldId: 'FVER', expected: 'GRN-1:5' })
+    const u = new URL(calls[1]!.url)
+    expect(u.pathname).toBe('/api/v1/records')
+    expect(u.searchParams.get('criteria')).toBe('"FVER" = "GRN-1:5"')
+    // update-only, NEVER upsert: with is_upsert_needed true a no-match inserts a
+    // duplicate row (pinned live) — the exact corruption the conditional write
+    // exists to prevent
+    expect(u.searchParams.get('is_upsert_needed')).toBe('false')
+    expect(u.searchParams.get('is_ids_used_in_params')).toBe('true')
+    expect(JSON.parse(u.searchParams.get('data')!)).toEqual({ FAPP: 'GRN-1', FVER: 'GRN-1:6' })
+  })
+
+  it('reads an empty records.updated as the conflict — the row moved, nothing landed', async () => {
+    // The miss shape the probe pinned: HTTP 200, status "success",
+    // records.updated: [] — no error, no write. An unrecognized success body
+    // reads the same way: the only safe answer to "did my write land?" is no.
+    const calls: { url: string; init?: RequestInit }[] = []
+    const c = new ZohoClient({
+      fetchImpl: fakeFetch(calls, [
+        { body: { records: { updated: [] }, status: 'success' } },
+        { body: { something: 'else entirely' } },
+      ]),
+      env: ENV,
+    })
+    await expect(
+      c.upsertByKey('T1', 'FAPP', 'GRN-1', {}, { versionFieldId: 'FVER', expected: 'GRN-1:9' }),
+    ).rejects.toBeInstanceOf(ZohoCasConflictError)
+    await expect(
+      c.upsertByKey('T1', 'FAPP', 'GRN-1', {}, { versionFieldId: 'FVER', expected: 'GRN-1:9' }),
+    ).rejects.toBeInstanceOf(ZohoCasConflictError)
+  })
+
+  it('refuses a cas token carrying a quote — the criteria would silently mismatch', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const c = new ZohoClient({ fetchImpl: fakeFetch(calls, []), env: ENV })
+    await expect(
+      c.upsertByKey('T1', 'FAPP', 'GRN-1', {}, { versionFieldId: 'FVER', expected: 'bad"token' }),
+    ).rejects.toThrow(/quotes/)
   })
 
   it('sends large upserts as an x-www-form-urlencoded body (query params 414 past ~4 KB)', async () => {

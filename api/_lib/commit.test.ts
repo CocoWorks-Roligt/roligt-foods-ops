@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { commitChanges, Conflict, Forbidden, validateChanges } from './commit.js'
 import { invalidateSnapshotCache, readSnapshotCached } from './snapshot.js'
 import { T } from './baseSchema.js'
-import { ZohoApiError, ZohoLockedError } from './zoho.js'
+import { ZohoApiError, ZohoCasConflictError, ZohoLockedError } from './zoho.js'
 import type { ZohoClient, ZohoRecord } from './zoho.js'
 import type { Caller } from './auth.js'
 import { PERMISSIONS } from '../../src/lib/permissions.js'
@@ -464,6 +464,44 @@ describe('commitChanges', () => {
       ],
     })
     expect(ops.upserts.filter((u) => u.table === T['Audit Log'].id).map((u) => u.key)).toEqual(['A2'])
+  })
+
+  it('stamps the draining session as actor and preserves a differing queued-by claim in Details', async () => {
+    // the shared tablet (the audit's S3-12): the offline queue was filled by the
+    // supplies lead, then drained hours later by whoever signed in next. The
+    // stored Actor is the DRAINING session's email — the payload's claim is not
+    // evidence — but a well-formed DIFFERING claim is preserved in Details as
+    // provenance. Matching, empty and malformed claims change nothing: Details
+    // is not a free-text channel for the payload.
+    const { zoho, ops } = fakeZoho()
+    await commitChanges(zoho, operator, {
+      empty: false,
+      tables: [
+        CHANGES.tables[1]!, // one ledger line owns the ride-along audit rows
+        {
+          table: 'audits',
+          upsert: [
+            { id: 'A9', at: '2026-09-21T08:00:00Z', actor: 'supplies@roligt.local', action: 'moved', doc: 'LOT-1', details: 'moved to Cold Room' },
+            { id: 'A10', at: '2026-09-21T08:01:00Z', actor: 'op@roligt.local', action: 'moved', doc: 'LOT-1', details: 'the drainer queued this one themself' },
+            { id: 'A11', at: '2026-09-21T08:02:00Z', actor: 'not an email', action: 'moved', doc: 'LOT-1', details: 'malformed claim' },
+            { id: 'A12', at: '2026-09-21T08:03:00Z', actor: 'ghost@roligt.local', action: 'moved', doc: 'LOT-1', details: '' },
+          ],
+          remove: [],
+        },
+      ],
+      counters: {},
+    })
+    const audit = T['Audit Log']
+    const stored = (key: string) => ops.upserts.find((u) => u.key === key)!.values
+    for (const key of ['A9', 'A10', 'A11', 'A12']) {
+      expect(stored(key)[audit.fields['Actor']!]).toBe('op@roligt.local')
+    }
+    // the differing email claim rides in Details — appended to what the row
+    // said, or on its own when the row said nothing
+    expect(stored('A9')[audit.fields['Details']!]).toBe('moved to Cold Room; queued by supplies@roligt.local')
+    expect(stored('A12')[audit.fields['Details']!]).toBe('queued by ghost@roligt.local')
+    expect(stored('A10')[audit.fields['Details']!]).toBe('the drainer queued this one themself')
+    expect(stored('A11')[audit.fields['Details']!]).toBe('malformed claim')
   })
 
   it('translates mapper columns to field IDs — the wire speaks IDs, not names', async () => {
@@ -1375,5 +1413,162 @@ describe('validateChanges — the pure shape gate before any Zoho call', () => {
     expect(v({ tables: [], counters: {}, config: 'nope' })).toBe('changes.config must be an object.')
     expect(v({ tables: [], counters: {}, config: [] })).toBe('changes.config must be an object.')
     expect(v({ tables: [], counters: {}, config: null })).toBe('changes.config must be an object.')
+  })
+})
+
+describe('version-column OCC — the cross-instance conditional write (S2-5)', () => {
+  // The Version column (added to the 21 editable tables of both bases,
+  // 2026-10-07) holds "<AppID>:<n>"; the conditional write is one text equality
+  // on it, update-only — the probe (scripts/zoho/probe-version.mjs) pinned the
+  // whole contract, including that upsert-TRUE on a no-match mints a duplicate.
+  // These pins drive upsertByKey the way the live API behaves: a cas write
+  // lands only while the row's CURRENT token is the expected one.
+  const vendors = T['Vendors']
+  const ver = vendors.fields['Version']!
+  const X_DOC = { id: 'VEN-1', name: "X's edit", status: 'Active' }
+  const venRow = (token: string): ZohoRecord => ({
+    recordID: 'z-ven-1',
+    data: {
+      __table: vendors.id,
+      [vendors.appId]: 'VEN-1',
+      [vendors.dataJson!]: JSON.stringify(X_DOC),
+      ...(token ? { [ver]: token } : {}),
+    },
+  })
+  const venCommit = (ours: Record<string, unknown>, expect: unknown) =>
+    ({
+      empty: false,
+      tables: [
+        {
+          table: 'vendors',
+          upsert: [{ id: String(ours.id), data: ours as never }],
+          remove: [],
+          ...(expect ? { expect: expect as never } : {}),
+        },
+      ],
+      counters: {},
+    }) as never
+
+  /** fakeZoho plus a cas-honoring upsertByKey; `bumpOnNth` moves the row's token
+   *  BEFORE the Nth conditional write — another instance's commit landing in the
+   *  window between our pre-flight and our write, the race no per-process queue
+   *  can see. */
+  function casAware(store: ZohoRecord[], bumpOnNth = 0) {
+    const fake = fakeZoho(store)
+    const base = fake.zoho.upsertByKey.bind(fake.zoho)
+    const seen: ({ versionFieldId: string; expected: string } | undefined)[] = []
+    let casCalls = 0
+    ;(fake.zoho as unknown as Record<string, unknown>).upsertByKey = async (
+      tableId: string,
+      keyFieldId: string,
+      keyValue: string,
+      values: Record<string, unknown>,
+      cas?: { versionFieldId: string; expected: string },
+    ) => {
+      seen.push(cas)
+      if (cas) {
+        casCalls++
+        const row = store.find((r) => r.data.__table === tableId && String(r.data[keyFieldId]) === keyValue)
+        if (bumpOnNth === casCalls && row) {
+          const n = Number(String(row.data[cas.versionFieldId] ?? '').split(':').pop())
+          row.data[cas.versionFieldId] = `${keyValue}:${Number.isFinite(n) && n > 0 ? n + 1 : 1}`
+        }
+        const current = row ? String(row.data[cas.versionFieldId] ?? '') : ''
+        if (current !== cas.expected) throw new ZohoCasConflictError(keyValue)
+      }
+      return base(tableId, keyFieldId, keyValue, values)
+    }
+    return { ...fake, seen }
+  }
+
+  it('refuses with 409 changed — never overwrites — when the token moves between pre-flight and write', async () => {
+    // The audit's S2-5 pin: two instances interleave around one row. The
+    // pre-flight cannot see it — X's write lands AFTER our read — so the plain
+    // expect check passes and today's unconditional upsert would have silently
+    // destroyed X's edit. The conditional write catches it at the only arbiter
+    // that spans instances: the row itself.
+    const store = [venRow('VEN-1:5')]
+    const { zoho } = casAware(store, 1)
+    const err = await commitChanges(
+      zoho,
+      admin,
+      venCommit({ id: 'VEN-1', name: 'Our edit', status: 'Active' }, { 'VEN-1': { id: 'VEN-1', data: X_DOC } }),
+    ).then(
+      () => null,
+      (e: unknown) => e,
+    )
+    expect(err).toBeInstanceOf(Conflict)
+    expect((err as Conflict).conflicts).toEqual([{ table: 'vendors', id: 'VEN-1', kind: 'changed' }])
+    // X's edit stands — content and token both
+    expect(JSON.parse(String(store[0]!.data[vendors.dataJson!]))).toEqual(X_DOC)
+    expect(String(store[0]!.data[ver])).toBe('VEN-1:6')
+  })
+
+  it('writes through the observed token and stamps the next one — VEN-1:5 becomes VEN-1:6', async () => {
+    const store = [venRow('VEN-1:5')]
+    const { zoho, ops, seen } = casAware(store)
+    await commitChanges(
+      zoho,
+      admin,
+      venCommit({ id: 'VEN-1', name: 'Our edit', status: 'Active' }, { 'VEN-1': { id: 'VEN-1', data: X_DOC } }),
+    )
+    expect(seen.find((c) => c)).toEqual({ versionFieldId: ver, expected: 'VEN-1:5' })
+    const write = ops.upserts.find((u) => u.table === vendors.id && u.key === 'VEN-1')!
+    expect(write.values[ver]).toBe('VEN-1:6')
+    expect(String(store[0]!.data[ver])).toBe('VEN-1:6')
+  })
+
+  it('writes legacy rows and fresh inserts with today’s unconditional shape, stamping their first token', async () => {
+    // Lazy migration: existing rows carry an empty Version until their first
+    // edit; the client protocol never changes. A malformed token (a hand edit in
+    // the Zoho UI) takes the same path — adopt versioning on the next write.
+    const store = [venRow('')]
+    const { zoho, ops, seen } = casAware(store)
+    await commitChanges(
+      zoho,
+      admin,
+      venCommit({ id: 'VEN-1', name: 'First edit of a legacy row', status: 'Active' }, { 'VEN-1': { id: 'VEN-1', data: X_DOC } }),
+    )
+    await commitChanges(zoho, admin, venCommit({ id: 'VEN-2', name: 'Brand new', status: 'Active' }, null))
+    expect(seen.every((c) => !c)).toBe(true) // plain keyed upserts — never update-only on these
+    const v1 = ops.upserts.find((u) => u.table === vendors.id && u.key === 'VEN-1')!
+    const v2 = ops.upserts.find((u) => u.table === vendors.id && u.key === 'VEN-2')!
+    expect(v1.values[ver]).toBe('VEN-1:1')
+    expect(v2.values[ver]).toBe('VEN-2:1')
+    // and the second edit of VEN-1 is conditional from here on
+    await commitChanges(
+      zoho,
+      admin,
+      venCommit({ id: 'VEN-1', name: 'Second edit', status: 'Active' }, { 'VEN-1': { id: 'VEN-1', data: { ...X_DOC, name: 'First edit of a legacy row' } } }),
+    )
+    expect(seen.filter(Boolean).map((c) => c!.expected)).toEqual(['VEN-1:1'])
+  })
+
+  it('skips the link fixup when the row moves under it — the winner’s content stands, the commit still lands', async () => {
+    // The 4b re-send carries the whole row, so a fixup over a moved row would
+    // clobber the winner's content — the exact destruction the CAS prevents.
+    // The fixup is a cosmetic completion (link columns that left empty), so it
+    // defers to the next save instead of failing the commit.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const store: ZohoRecord[] = []
+      const { zoho, ops } = casAware(store, 1) // the only cas write here is the fixup
+      const { token } = await commitChanges(zoho, admin, {
+        empty: false,
+        tables: [
+          { table: 'items', upsert: [{ id: 'RM-PP-0001', data: { id: 'RM-PP-0001', name: 'Tender Coconut', type: 'Raw Material', uom: 'Nos', lotControlled: true, reorder: 0, costMethod: 'Lot Actual' } }], remove: [] },
+          { table: 'purchase_products', upsert: [{ id: 'PP-0001', data: { id: 'PP-0001', name: 'Tender Coconut', category: 'Farm Produce', uom: 'Nos', description: '', vendorIds: [], itemId: 'RM-PP-0001', status: 'Active' } }], remove: [] },
+        ],
+        counters: {},
+      })
+      expect(token).toMatch(/^1:/) // the commit itself succeeded
+      const ppTable = T['Purchase Products']
+      const ppWrites = ops.upserts.filter((u) => u.table === ppTable.id && u.key === 'PP-0001')
+      expect(ppWrites).toHaveLength(1) // the fixup was skipped, never re-sent
+      expect(ppWrites[0]!.values[ppTable.fields['Item']]).toBeUndefined() // the link defers
+      expect(warn).toHaveBeenCalledTimes(1)
+    } finally {
+      warn.mockRestore()
+    }
   })
 })

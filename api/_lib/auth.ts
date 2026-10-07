@@ -99,13 +99,22 @@ export async function authenticate(req: Request): Promise<Authentication> {
       throw new AuthError(`Invalid session (${(e as Error).message}). Sign in again.`)
     }
     if (result && result.auth.user) {
+      // Fail closed on an incomplete server configuration (the audit's S3-9):
+      // with WORKOS_ORG_ID unset, neither the wrong-org refusal below nor the
+      // membership retirement gate can run, and a removed member's seal would
+      // live on until its refresh token died. Refuse every session rather
+      // than serve unvalidated ones — a deploy missing the org id locks
+      // everyone out loudly instead of admitting everyone quietly.
+      const orgId = process.env.WORKOS_ORG_ID
+      if (!orgId) {
+        throw new AuthError('The server cannot validate sessions (WORKOS_ORG_ID is not set). Ask an admin to fix the configuration.')
+      }
       // Single-org app: /api/auth/start scopes every sign-in to the one
       // organization, so a live session speaks for that org and no other. A
       // session carrying a different org claim is not one of ours — refuse it
       // outright rather than admit a caller with an ambiguous permission set.
       // (No claim ≠ refusal: only the wrong org is provably wrong.)
-      const orgId = process.env.WORKOS_ORG_ID
-      if (orgId && result.auth.organizationId && result.auth.organizationId !== orgId) {
+      if (result.auth.organizationId && result.auth.organizationId !== orgId) {
         throw new AuthError('Your session belongs to another organization. Sign in again.')
       }
       const email = result.auth.user.email || 'unknown@user'
@@ -113,12 +122,10 @@ export async function authenticate(req: Request): Promise<Authentication> {
       // or deleting someone does nothing to a browser already holding a
       // session, so the app checks the membership itself (a minute-stale at
       // worst; the admin endpoints' own mutations drop the mirror at once).
-      // Without the management key there is nothing to check against — then
-      // the commit permission gate is the only line, as it always was.
-      if (process.env.WORKOS_API_KEY && process.env.WORKOS_ORG_ID) {
-        if (!(await isActiveMember(email))) {
-          throw new AuthError('Your access to this app was removed or deactivated. Ask an admin to restore it.')
-        }
+      // The real cookie branch only runs when workosConfigured() has already
+      // demanded the management key, so the check needs no second env guard.
+      if (!(await isActiveMember(email))) {
+        throw new AuthError('Your access to this app was removed or deactivated. Ask an admin to restore it.')
       }
       return {
         caller: { email, permissions: result.auth.permissions ?? [] },

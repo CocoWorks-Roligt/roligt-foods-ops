@@ -95,8 +95,10 @@ export default async function (req: VercelRequest, res: VercelResponse) {
           res.status(400).json({ error: 'A slug (lowercase, no spaces) and a name are required.' })
           return
         }
-        await createRole(slug, name)
+        // Audited first: a failure after this leaves a trail row recording the
+        // attempt, never an un-audited landed action.
         await writeAdminAudit(zoho, caller, 'role created', slug, name)
+        await createRole(slug, name)
         break
       }
       case 'set-permissions': {
@@ -118,6 +120,16 @@ export default async function (req: VercelRequest, res: VercelResponse) {
           res.status(400).json({ error: 'No such role.' })
           return
         }
+        // The role ceiling (the audit's S3-7): this route can strengthen a role
+        // to anything the catalog offers, and page.admin-roles alone must not
+        // become full-admin equivalence. A caller may only leave a role
+        // carrying permissions they already hold — the flattened session
+        // cannot say which roles the caller holds, so the ceiling is against
+        // the caller's whole permission set.
+        if (permissions.some((p) => !caller.permissions.includes(p))) {
+          res.status(403).json({ error: 'You can only give a role permissions you hold yourself.' })
+          return
+        }
         // Somebody must always be able to administer the app: after this save,
         // each Administration page must still be carried by some role, or
         // nobody could ever grant it back from the inside (the seed script
@@ -131,8 +143,8 @@ export default async function (req: VercelRequest, res: VercelResponse) {
             return
           }
         }
-        await setRolePermissions(slug, permissions)
         await writeAdminAudit(zoho, caller, 'role permissions set', slug, `permissions: ${permissions.join(', ') || 'none'}`)
+        await setRolePermissions(slug, permissions)
         break
       }
       default:
@@ -146,8 +158,9 @@ export default async function (req: VercelRequest, res: VercelResponse) {
       return
     }
     if (e instanceof ZohoLockedError) {
+      // the audit write is the first write now — a lock here changed nothing
       res.setHeader('Retry-After', String(e.retryAfterSec))
-      res.status(503).json({ error: 'Zoho is rate-limited — the role change may have landed; check the matrix before retrying.' })
+      res.status(503).json({ error: 'Zoho is rate-limited — nothing was changed. Try again shortly.' })
       return
     }
     const status = (e as { status?: number }).status

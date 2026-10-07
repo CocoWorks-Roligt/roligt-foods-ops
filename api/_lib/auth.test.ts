@@ -57,6 +57,7 @@ describe('authenticate — the WorkOS session cookie', () => {
     process.env.WORKOS_CLIENT_ID = 'client'
     process.env.WORKOS_API_KEY = 'sk_test'
     process.env.WORKOS_COOKIE_PASSWORD = 'x'.repeat(32)
+    process.env.WORKOS_ORG_ID = 'org_ours'
     const fake = vi.fn(async () => ({
       auth: authResult(),
       setCookies: ['wos-session=re-sealed; Path=/; HttpOnly'],
@@ -71,6 +72,7 @@ describe('authenticate — the WorkOS session cookie', () => {
 
   it('omits setCookies when no refresh happened', async () => {
     process.env.WORKOS_CLIENT_ID = 'client'
+    process.env.WORKOS_ORG_ID = 'org_ours'
     const fake = vi.fn(async () => ({ auth: authResult(), setCookies: [] }))
     __setAuthenticator(fake)
     const auth = await authenticate(new Request('https://bff.roligt.local/api/revision'))
@@ -101,6 +103,7 @@ describe('authenticate — the WorkOS session cookie', () => {
 
   it('reads the email even when the provider claims none', async () => {
     process.env.WORKOS_CLIENT_ID = 'client'
+    process.env.WORKOS_ORG_ID = 'org_ours'
     const fake = vi.fn(async () => ({
       auth: authResult({ user: { email: '' } as SignedIn['user'], permissions: [] }),
       setCookies: [],
@@ -159,11 +162,19 @@ describe('authenticate — the WorkOS session cookie', () => {
     expect((await authenticate(new Request('https://bff.roligt.local/api/revision'))).caller.email).toBe('lead@roligt.local')
   })
 
-  it('skips the gate without the management key — the cookie alone decides', async () => {
+  it('fails closed when WORKOS_ORG_ID is unset — no session is served unvalidated', async () => {
+    // The retirement gap (the audit's S3-9): with the org id missing, the
+    // wrong-org refusal AND the membership gate were both skipped, so a
+    // removed member's seal outlived their access. Now the missing var refuses
+    // every session outright — loudly locked out beats quietly unvalidated.
     process.env.WORKOS_CLIENT_ID = 'client'
-    memberState.active = false
+    process.env.WORKOS_API_KEY = 'sk_test'
+    process.env.WORKOS_COOKIE_PASSWORD = 'x'.repeat(32)
+    memberState.active = true // even a perfectly healthy member is refused
     __setAuthenticator(vi.fn(async () => ({ auth: authResult(), setCookies: [] })))
-    expect((await authenticate(new Request('https://bff.roligt.local/api/revision'))).caller.email).toBe('lead@roligt.local')
+    await expect(authenticate(new Request('https://bff.roligt.local/api/revision'))).rejects.toMatchObject({
+      message: expect.stringContaining('WORKOS_ORG_ID'),
+    })
   })
 })
 

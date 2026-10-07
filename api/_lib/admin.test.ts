@@ -25,6 +25,8 @@ const mode = vi.hoisted(() => ({
   refuse: null as null | { status: number; message: string },
   /** When set, the mocked ensurePermissions throws — the GET must survive it. */
   refuseEnsure: false,
+  /** When set, the Audit Log write throws a Zoho lock — the audit-first pin. */
+  lockAudit: false,
 }))
 
 vi.mock('./auth.ts', () => ({
@@ -84,16 +86,21 @@ vi.mock('./workosAdmin.ts', () => ({
 const writes = vi.hoisted(() => [] as { url: string; body: string }[])
 
 vi.mock('./shared.ts', async () => {
-  const { ZohoClient } = await vi.importActual<typeof import('./zoho.ts')>('./zoho.ts')
+  const { ZohoClient, ZohoLockedError } = await vi.importActual<typeof import('./zoho.ts')>('./zoho.ts')
+  const { T } = await vi.importActual<typeof import('./baseSchema.ts')>('./baseSchema.ts')
   const fetchImpl = async (url: string | URL, init?: RequestInit) => {
     const full = String(url)
     if (full.startsWith('https://accounts.zoho.in')) {
       return new Response(JSON.stringify({ access_token: 'tok', expires_in: 3600 }), { status: 200 })
     }
-    if (init?.method === 'PUT') writes.push({ url: full, body: String(init.body ?? '') })
+    if (init?.method === 'PUT') {
+      // the audit-first pin's lever: the Audit Log write itself hits the lock
+      if (mode.lockAudit && full.includes(T['Audit Log'].id)) throw new ZohoLockedError(120)
+      writes.push({ url: full, body: String(init.body ?? '') })
+    }
     return new Response(JSON.stringify({ records: { fetched: [] } }), { status: 200 })
   }
-  return { zoho: new ZohoClient({ fetchImpl, env: {} as Record<string, string | undefined> }) }
+  return { zoho: new ZohoClient({ fetchImpl, env: {} as Record<string, string | undefined>, writesPerMin: 100_000 }) }
 })
 
 vi.mock('./snapshot.ts', () => ({
@@ -121,6 +128,7 @@ beforeEach(() => {
   mode.calls = []
   mode.refuse = null
   mode.refuseEnsure = false
+  mode.lockAudit = false
   writes.length = 0
   vi.clearAllMocks()
 })
@@ -292,22 +300,29 @@ describe('mutations audit and bump', () => {
     expect(invalidateSnapshotCache).toHaveBeenCalledTimes(1)
   })
 
-  it('sets roles on a membership and audits', async () => {
-    mode.roles = [{ slug: 'admin', name: 'Admin', permissions: [...ADMIN] }]
-    mode.orgUsers = [row('u9', 'm9', 'lead@roligt.local')]
+  it('sets roles on a membership and audits — the ceiling admits what the caller already holds', async () => {
+    // a full-catalog caller granting a weaker role: the union of the assigned
+    // role's permissions sits inside the caller's own set, so the S3-7 ceiling
+    // passes and the save lands exactly as it always did (the caller keeps an
+    // admin-carrying membership so the last-admin guard is satisfied too)
+    mode.permissions = [...PERMISSIONS]
+    mode.roles = [
+      { slug: 'app-admin', name: 'App Admin', permissions: [...ADMIN] },
+      { slug: 'clerk', name: 'Suppliers Clerk', permissions: ['page.vendors'] },
+    ]
+    mode.orgUsers = [row('u1', 'm1', 'who@roligt.local', ['app-admin']), row('u9', 'm9', 'lead@roligt.local')]
     const res = fakeRes()
-    await usersHandler(fakeReq({ action: 'set-roles', membershipId: 'm9', roleSlugs: ['admin'] }), res)
+    await usersHandler(fakeReq({ action: 'set-roles', membershipId: 'm9', roleSlugs: ['clerk'] }), res)
     expect(res.status).toHaveBeenCalledWith(200)
-    expect(mode.calls).toEqual(['set-roles:m9=admin'])
+    expect(mode.calls).toEqual(['set-roles:m9=clerk'])
     expect(writes).toHaveLength(2)
   })
 
-  // Budget note: every successful mutation rides the real ZohoClient in the
-  // shared.ts mock, whose serialized Budget allows 17 writes a minute — and
-  // writeAdminAudit costs 2 writes each. At most 8 successful-mutation tests
-  // can run per file; the 9th sleeps a full minute waiting for the window and
-  // times out. Keep audit-content assertions folded into existing successes,
-  // not in new ones.
+  // Budget note: writeAdminAudit costs 2 writes per mutation, and the audit-
+  // first order means even a WorkOS-refused action spends them — so this
+  // file's mocked client overrides writesPerMin (the documented test hook)
+  // and the 17/min production cap is pinned in zoho.test.ts instead. The
+  // write SHAPES (one audit row, one revision bump) stay asserted here.
 
   it('creates a role and audits', async () => {
     const res = fakeRes()
@@ -446,6 +461,9 @@ describe('self-protection and last-admin', () => {
   })
 
   it('refuses stripping the admin pages from the last role carrying them', async () => {
+    // full-catalog caller so the ceiling stays out of the way — this pin is
+    // the last-admin guard's alone
+    mode.permissions = [...PERMISSIONS]
     mode.roles = [{ slug: 'app-admin', name: 'App Admin', permissions: [...ADMIN] }]
     const res = fakeRes()
     await rolesHandler(fakeReq({ action: 'set-permissions', slug: 'app-admin', permissions: ['page.roster'] }), res)
@@ -455,6 +473,9 @@ describe('self-protection and last-admin', () => {
   })
 
   it('allows stripping them once another role carries the admin pages — and audits the change', async () => {
+    // the caller holds the whole catalog, so the role ceiling passes what the
+    // last-admin guard admits (page.roster is inside their set)
+    mode.permissions = [...PERMISSIONS]
     mode.roles = [
       { slug: 'app-admin', name: 'App Admin', permissions: [...ADMIN] },
       { slug: 'board', name: 'Board', permissions: [...ADMIN] },
@@ -497,20 +518,101 @@ describe('validation and upstream failures', () => {
     expect(res.status).toHaveBeenCalledWith(400)
   })
 
-  it('maps a WorkOS 4xx refusal to 502 without auditing a row that did not happen', async () => {
+  it('maps a WorkOS 4xx refusal to 502 — the attempt already audited, nothing landed twice', async () => {
+    // Audit-first flips this shape's meaning: the trail row recording the
+    // ATTEMPT is written before the mutation, so a refusal upstream leaves one
+    // honest "we tried this" row rather than no row at all (the S3-8 gap was
+    // the opposite corner — a landed action with nothing on the trail).
     mode.refuse = { status: 409, message: 'user exists' }
     const res = fakeRes()
     await usersHandler(fakeReq({ action: 'create', email: 'dupe@roligt.local', roleSlugs: [] }), res)
     expect(res.status).toHaveBeenCalledWith(502)
-    expect(writes).toEqual([])
+    expect(mode.calls).toEqual(['create:dupe@roligt.local']) // the mutation ran and was refused
+    expect(writes).toHaveLength(2) // the attempt's audit row + revision bump stand
+    const wire = writes.map((w) => decodeURIComponent(`${w.url} ${w.body}`).replace(/\+/g, ' ')).join(' ')
+    expect(wire).toContain('user created')
   })
 
-  it('maps a WorkOS refusal on delete the same way', async () => {
+  it('maps a WorkOS refusal on delete the same way — audited attempt, no deletion', async () => {
     mode.refuse = { status: 404, message: 'user not found' }
     withCallerAdmin(row('uX', 'mX', 'x@roligt.local'))
     const res = fakeRes()
     await usersHandler(fakeReq({ action: 'delete', userId: 'uX' }), res)
     expect(res.status).toHaveBeenCalledWith(502)
+    expect(writes).toHaveLength(2)
+  })
+})
+
+describe('the role ceiling (S3-7) — page.admin-users alone is not full admin', () => {
+  /** The caller holds ONLY the two Administration pages, and the environment
+   *  holds one full-catalog role beyond their reach — the exact equivalence
+   *  break the audit named. Every refusal here must touch nothing. */
+  const STRONG = [{ slug: 'full', name: 'Full', permissions: [...PERMISSIONS] }]
+
+  it('refuses creating a user with a role stronger than the caller', async () => {
+    mode.permissions = [...ADMIN]
+    mode.roles = STRONG
+    const res = fakeRes()
+    await usersHandler(fakeReq({ action: 'create', email: 'new@roligt.local', roleSlugs: ['full'] }), res)
+    expect(res.status).toHaveBeenCalledWith(403)
+    expect(mode.calls).toEqual([])
     expect(writes).toEqual([])
+  })
+
+  it('refuses set-roles that would grant a stronger role', async () => {
+    mode.permissions = [...ADMIN]
+    mode.roles = STRONG
+    mode.orgUsers = [row('u9', 'm9', 'lead@roligt.local')]
+    const res = fakeRes()
+    await usersHandler(fakeReq({ action: 'set-roles', membershipId: 'm9', roleSlugs: ['full'] }), res)
+    expect(res.status).toHaveBeenCalledWith(403)
+    expect(mode.calls).toEqual([])
+    expect(writes).toEqual([])
+  })
+
+  it('refuses a password link for a member stronger than the caller — takeover by another name', async () => {
+    mode.permissions = [...ADMIN]
+    mode.roles = STRONG
+    mode.orgUsers = [row('u2', 'm2', 'owner@roligt.local', ['full'])]
+    const res = fakeRes()
+    await usersHandler(fakeReq({ action: 'reset-link', membershipId: 'm2' }), res)
+    expect(res.status).toHaveBeenCalledWith(403)
+    expect(mode.calls).toEqual([])
+    expect(writes).toEqual([])
+  })
+
+  it('refuses strengthening a role past the caller\'s own permissions', async () => {
+    mode.permissions = [...ADMIN]
+    mode.roles = [
+      { slug: 'app-admin', name: 'App Admin', permissions: [...ADMIN] },
+      { slug: 'board', name: 'Board', permissions: [...ADMIN] },
+    ]
+    // board keeps the admin pages, so the last-admin guard alone would allow
+    // this — only the ceiling catches page.roster leaving the caller's set
+    const res = fakeRes()
+    await rolesHandler(fakeReq({ action: 'set-permissions', slug: 'app-admin', permissions: ['page.roster'] }), res)
+    expect(res.status).toHaveBeenCalledWith(403)
+    expect(mode.calls).toEqual([])
+    expect(writes).toEqual([])
+  })
+})
+
+describe('audit before mutate (S3-8)', () => {
+  it('a Zoho lock during the audit write aborts before anything lands — 503, no WorkOS call', async () => {
+    // the exact gap the audit named: the WorkOS mutation used to run first,
+    // and a ZohoLockedError in writeAdminAudit left a landed action with no
+    // trail row. The audit write is the first write now, so a lock here means
+    // NOTHING happened — and the 503 says so.
+    mode.orgUsers = [row('u2', 'm2', 'back@roligt.local')]
+    mode.lockAudit = true
+    const res = fakeRes()
+    await usersHandler(fakeReq({ action: 'reactivate', membershipId: 'm2' }), res)
+    expect(res.status).toHaveBeenCalledWith(503)
+    expect(res.setHeader).toHaveBeenCalledWith('Retry-After', '120')
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ error: expect.stringContaining('nothing was changed') }),
+    )
+    expect(mode.calls).toEqual([]) // WorkOS was never touched
+    expect(writes).toEqual([]) // and no row landed anywhere
   })
 })

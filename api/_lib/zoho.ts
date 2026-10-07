@@ -33,6 +33,18 @@ export class ZohoLockedError extends Error {
     this.retryAfterSec = retryAfterSec
   }
 }
+/**
+ * A compare-and-swap write matched nothing: the row's version token moved
+ * between the caller's read and the write — on this instance or any other,
+ * which is the whole point (the audit's S2-5: the per-process commit queue
+ * only serialized writers that shared a process). The commit path maps it to
+ * its 409 'changed' conflict; the client's adoption path does the rest.
+ */
+export class ZohoCasConflictError extends Error {
+  constructor(key: string) {
+    super(`version token moved under the write: ${key.slice(0, 60)}`)
+  }
+}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -161,6 +173,9 @@ interface ClientOpts {
   /** Global reads per minute; default 26. Test override — the production cap is
    *  Zoho's own shared window and is never raised past 26 in production. */
   readsPerMin?: number
+  /** Writes per minute; default 17. Test override — the same stance as
+   *  readsPerMin: the production cap is Zoho's own shared window. */
+  writesPerMin?: number
   /** Longest a sweep read may wait for budget; default 75s — past the 60s
    *  window slide, so pacing alone never throws, but bounded for 503s. */
   sweepMaxWaitMs?: number
@@ -191,7 +206,7 @@ export class ZohoClient {
       max: opts.sweepReadsPerMin ?? 18,
       maxWaitMs: opts.sweepMaxWaitMs ?? 75_000,
     })
-    this.writes = new Budget(17, opts.maxWaitMs ?? 60_000)
+    this.writes = new Budget(opts.writesPerMin ?? 17, opts.maxWaitMs ?? 60_000)
     this.maxInflight = opts.maxInflight ?? 6
   }
 
@@ -499,11 +514,27 @@ export class ZohoClient {
     return out
   }
 
+  /**
+   * The keyed upsert, optionally made CONDITIONAL — the cross-instance OCC the
+   * audit's S2-5 asked for. `cas` names the table's Version column and the
+   * token ("<AppID>:<n>") the pre-flight observed; the criteria becomes one
+   * equality on that token and the write goes update-only. The live probe
+   * (scripts/zoho/probe-version.mjs, 2026-10-07) pinned every leg of this:
+   * the criteria grammar is single-condition text equality — every AND shape,
+   * parenthesized included, answers 500 — which is why the ROW IDENTITY rides
+   * inside the token value instead of a second condition; a colon inside the
+   * quoted value is safe; `is_upsert_needed: false` is honored (match →
+   * `records.updated[<row>]`, no-match → HTTP 200 `records.updated: []` with
+   * `status: "success"` — an empty updated array, nothing written, no error);
+   * and `is_upsert_needed: true` on a no-match MINTS A DUPLICATE ROW, which is
+   * why the conditional write can never fall back to the upsert shape.
+   */
   async upsertByKey(
     tableId: string,
     keyFieldId: string,
     keyValue: string,
     values: Record<string, unknown>,
+    cas?: { versionFieldId: string; expected: string },
   ): Promise<void> {
     // A quote or backslash inside keyValue would break the criteria string below — the
     // match silently fails and is_upsert_needed then CREATES a duplicate row instead of
@@ -511,12 +542,17 @@ export class ZohoClient {
     if (/["\\]/.test(keyValue)) {
       throw new ZohoApiError('upsertByKey', 0, `key value must not contain quotes or backslashes: ${keyValue.slice(0, 60)}`)
     }
+    if (cas && /["\\]/.test(cas.expected)) {
+      // by construction the token is keyValue + ':' + digits, but a future caller
+      // could pass anything — the same silent-mismatch stakes as the guard above
+      throw new ZohoApiError('upsertByKey', 0, `cas token must not contain quotes or backslashes: ${cas.expected.slice(0, 60)}`)
+    }
     const data: Record<string, string> = {}
     for (const [k, v] of Object.entries(values)) {
       if (v === undefined || v === null) continue
       data[k] = typeof v === 'string' ? v : JSON.stringify(v)
     }
-    await this.call('write', 'PUT', '/records', {
+    const params: Record<string, unknown> = {
       base_id: this.baseId,
       table_id: tableId,
       data: JSON.stringify(data),
@@ -524,12 +560,32 @@ export class ZohoClient {
       // accepts this string form built from the FIELD ID while is_ids_used_in_params
       // stays true (check names: criteria-array-shape, criteria-fieldid-string).
       // Business keys must not contain double quotes.
-      criteria: `"${keyFieldId}" = "${keyValue}"`,
-      is_upsert_needed: true,
       is_ids_used_in_params: true,
       is_ids_used_in_data: true,
       first_match_only: true,
-    })
+    }
+    if (!cas) {
+      await this.call('write', 'PUT', '/records', {
+        ...params,
+        criteria: `"${keyFieldId}" = "${keyValue}"`,
+        is_upsert_needed: true,
+      })
+      return
+    }
+    const j = (await this.call('write', 'PUT', '/records', {
+      ...params,
+      criteria: `"${cas.versionFieldId}" = "${cas.expected}"`,
+      // update-only, NEVER upsert: on a no-match this flag with `true` inserts a
+      // duplicate row (pinned live) — the exact corruption the CAS exists to prevent
+      is_upsert_needed: false,
+    })) as Record<string, any>
+    const updated = j?.records?.updated
+    if (!Array.isArray(updated) || updated.length === 0) {
+      // HTTP 200, status success, updated: [] — the row moved between the
+      // pre-flight and this write. An unexpected body shape reads the same way:
+      // the safe answer to "did my conditional write land?" is no.
+      throw new ZohoCasConflictError(keyValue)
+    }
   }
 
   async deleteRecord(tableId: string, recordId: string): Promise<void> {

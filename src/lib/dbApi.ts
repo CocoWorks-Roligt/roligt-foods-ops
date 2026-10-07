@@ -41,7 +41,10 @@ async function api(path: string, init?: RequestInit): Promise<Response> {
     trackEvent('session_expired')
     throw new UnauthorizedError()
   }
-  if (res.status === 503) {
+  if (res.status === 429 || res.status === 503) {
+    // The commit/snapshot throttles (429) and the Zoho lock (503) both answer
+    // with the seconds they want the client to wait — the queue's retry honours
+    // the server's own hint instead of probing on a fixed half-minute.
     const retryAfter = Number(res.headers.get('retry-after')) || 60
     trackEvent('db_throttled', { retryAfterSec: retryAfter })
     throw new ThrottledError(retryAfter)
@@ -197,27 +200,87 @@ export function chunkChanges(changes: StateChanges, size = WRITES_PER_COMMIT): S
   if (gateRows.length === 0) {
     // Nothing can vouch for a tail here — a masters save (masters tables carry
     // no page) or a ledger-only diff from an unscoped caller. One queue, rows
-    // in order, and the tail writes charged against the same budget as they
-    // join: assigned-but-uncharged they used to meet a final flush that pushed
-    // nothing when the rows landed on an exact chunk boundary — silently
-    // dropping every minted counter and any config change (a routine 12-row
-    // dispatch hit exactly this shape, and the next device re-issued its
-    // number into a 409).
-    for (const item of items) {
+    // in order — and the rides (audits, counters, config) NEVER travel alone:
+    // the BFF's ride-along gate refuses a commit whose only content is a ride,
+    // and one refused chunk re-sends with every later save, wedging the device
+    // (the lone "Edited item" audit of a change-nothing edit, 2026-10-07).
+    // Rows chunk at the write pace; rides then take seats in a chunk that
+    // already carries rows — the 16-row ceiling validateChanges grants leaves
+    // every 12-row chunk four spare seats, and a save with more audits than
+    // seats spills them into earlier chunks the same way. Counters and config
+    // ride the same host: they cost no row, and a boundary that used to strand
+    // them alone (the dropped-mint 409) now cannot. A re-sent host row is an
+    // idempotent no-op server-side, the voucher trick with a masters row, so
+    // even the pathological all-chunks-full save keeps its rides accompanied.
+    const auditRows = items.filter((i) => i.table === 'audits')
+    const rowItems = items.filter((i) => i.table !== 'audits')
+    for (const item of rowItems) {
       addRow(item)
       if (used >= size) flush()
     }
-    for (const key of counterKeys) {
-      current.counters[key] = changes.counters[key]!
-      used++
-      if (used >= size) flush()
+    if (!rowItems.length) {
+      // rides without any row of their own (an audits-only diff saveDb drops
+      // before chunking; a ledger-only diff keeps its ledger rows above) —
+      // unreachable from the app, kept whole for direct callers
+      for (const item of auditRows) addRow(item)
+      for (const key of counterKeys) current.counters[key] = changes.counters[key]!
+      if (changes.config) current.config = changes.config
+      flush()
+      return chunks.length ? chunks : [changes]
     }
-    if (changes.config) {
-      current.config = changes.config
-      used++
+    const rowsOf = (c: StateChanges) => c.tables.reduce((a, t) => a + t.upsert.length + t.remove.length, 0)
+    const host: StateChanges = used > 0 ? current : chunks[chunks.length - 1]!
+    const seated = [...auditRows]
+    // last-to-first over closed chunks, then the host, until every audit sits
+    const seatAll = (chunk: StateChanges) => {
+      while (seated.length && rowsOf(chunk) < 16) {
+        const item = seated.shift()!
+        let table = chunk.tables.find((t) => t.table === item.table)
+        if (!table) {
+          table = { table: item.table, upsert: [], remove: [] }
+          chunk.tables.push(table)
+        }
+        if (item.kind === 'upsert') {
+          table.upsert.push(item.row)
+          if (item.expect) (table.expect ??= {})[String(item.row.id)] = item.expect
+        } else table.remove.push(item.id)
+      }
     }
+    for (let i = chunks.length - 1; i >= 0 && seated.length; i--) seatAll(chunks[i]!)
+    seatAll(host)
+    if (seated.length) {
+      // every seat taken (only possible with more audits than four per chunk,
+      // a shape no honest save produces): a fresh chunk opens by re-sending
+      // the host's first stored upsert — identical to what is stored, so the
+      // BFF skips it as an idempotent no-op, the voucher trick with a masters
+      // row — and the remaining audits ride it
+      const hostTable = host.tables.find((t) => t.upsert.length)
+      const voucher = hostTable?.upsert[0] as Record<string, unknown> | undefined
+      const fresh: StateChanges = { tables: [], counters: {}, empty: false }
+      if (voucher) {
+        const id = String((voucher as { id: unknown }).id)
+        const expect = hostTable!.expect?.[id]
+        fresh.tables.push({ table: hostTable!.table, upsert: [voucher], remove: [], ...(expect ? { expect: { [id]: expect } } : {}) })
+      }
+      while (seated.length) {
+        const item = seated.shift()!
+        let table = fresh.tables.find((t) => t.table === item.table)
+        if (!table) {
+          table = { table: item.table, upsert: [], remove: [] }
+          fresh.tables.push(table)
+        }
+        table.upsert.push((item as { kind: 'upsert'; row: Record<string, unknown> }).row)
+      }
+      chunks.push(fresh)
+      for (const key of counterKeys) fresh.counters[key] = changes.counters[key]!
+      if (changes.config) fresh.config = changes.config
+      return chunks
+    }
+    for (const key of counterKeys) host.counters[key] = changes.counters[key]!
+    if (changes.config) host.config = changes.config
+    host.empty = false
     flush()
-    return chunks.length ? chunks : [changes]
+    return chunks
   }
 
   // Voucher layout: every tail chunk opens with a collection row so the
@@ -275,7 +338,17 @@ export async function saveDb(next: AppState, prev: AppState | null): Promise<Sav
     return result
   }
   try {
-    if (changes.empty) {
+    // An edit that changed nothing diffs to its audit row alone ("Edited item"
+    // is filed on every save-dialog submit, values or not). A lone audit is a
+    // ride the BFF's ride-along gate refuses — and the refused row would ride
+    // in every later save from this device, wedging its whole queue. Nothing
+    // happened, so nothing is filed: the save reads the revision like the
+    // empty diff always did and reports success.
+    const auditsOnly =
+      changes.tables.every((t) => t.table === 'audits') &&
+      Object.keys(changes.counters).length === 0 &&
+      !changes.config
+    if (changes.empty || auditsOnly) {
       const revision = await fetchRevision()
       return finish({ ok: true, revision })
     }

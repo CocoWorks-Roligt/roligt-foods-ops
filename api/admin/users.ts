@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { authenticate, AuthError } from '../_lib/auth.js'
+import { authenticate, AuthError, type Caller } from '../_lib/auth.js'
 import { ZohoLockedError } from '../_lib/zoho.js'
 import { zoho } from '../_lib/shared.js'
 import { writeAdminAudit } from '../_lib/adminAudit.js'
@@ -27,13 +27,15 @@ import { ADMIN_PAGE_SLUGS } from '../../src/lib/permissions.js'
  * they minted — the person sets their own password through it (verifying their
  * email on the way), so no admin ever types anyone's password and no onboarding
  * step depends on WorkOS mail surviving a Zoho spam filter. Every mutating
- * action files one audit row and bumps the
- * revision, so the change is visible on every client's Audit page without a
- * reload. Every action that takes access away (deactivate/remove/delete)
- * resolves the target from the live member list — never from the request
- * body — so the caller's own row is always refused no matter what the body
- * claims, and none of them can leave the app without a single active member
- * able to administer it.
+ * action writes its audit row FIRST — a failure upstream then leaves a trail
+ * row recording the attempt, never a landed action the trail says nothing
+ * about — and bumps the revision, so the change is visible on every client's
+ * Audit page without a reload. Actions that grant or take over access
+ * (create/set-roles/reset-link) sit under the role ceiling below; every action
+ * that takes access away (deactivate/remove/delete) resolves the target from
+ * the live member list — never from the request body — so the caller's own row
+ * is always refused no matter what the body claims, and none of them can leave
+ * the app without a single active member able to administer it.
  */
 
 type Body = {
@@ -71,6 +73,29 @@ async function adminsAfter(
 
 const asSlugs = (v: unknown): string[] =>
   Array.isArray(v) ? v.map(String).filter((s) => /^[a-z0-9:\-_.*]+$/.test(s)) : []
+
+/** The union of permissions the given role slugs carry — unknown slugs add
+ *  nothing (WorkOS refuses them at the mutation itself). */
+const unionOfRoles = (roles: Awaited<ReturnType<typeof listRoles>>, slugs: string[]): Set<string> => {
+  const union = new Set<string>()
+  for (const slug of slugs) {
+    for (const p of roles.find((r) => r.slug === slug)?.permissions ?? []) union.add(p)
+  }
+  return union
+}
+
+/**
+ * The role ceiling (the audit's S3-7): page.admin-users alone used to be
+ * full-admin equivalence — set-roles could grant the full-catalog role, create
+ * could mint one, and reset-link could hand a stronger member their password.
+ * A caller may only grant or take over access they already hold: the roles
+ * involved may carry no permission outside the caller's own set. Actions that
+ * merely reduce access (deactivate/remove/delete) are deliberately NOT
+ * ceiling-gated — the last-admin guard bounds those, and taking access away is
+ * never a privilege escalation.
+ */
+const withinCeiling = (union: Set<string>, caller: Caller) =>
+  [...union].every((p) => caller.permissions.includes(p))
 
 export default async function (req: VercelRequest, res: VercelResponse) {
   try {
@@ -111,10 +136,15 @@ export default async function (req: VercelRequest, res: VercelResponse) {
           return
         }
         const roleSlugs = asSlugs(body.roleSlugs)
-        await createUserWithRoles({ email, name: body.name, roleSlugs })
+        if (!withinCeiling(unionOfRoles(await listRoles(), roleSlugs), caller)) {
+          res.status(403).json({ error: 'You can only grant roles no stronger than your own.' })
+          return
+        }
+        // Audited first: a failure after this leaves a trail row recording the
+        // attempt, never an un-audited landed action — and the row's own
+        // reset-link action names the state to check.
         await writeAdminAudit(zoho, caller, 'user created', email, `roles: ${roleSlugs.join(', ') || 'none'}`)
-        // Audited before the mint: a WorkOS hiccup on the link must not leave
-        // an un-audited user behind — the row's reset-link action recovers it.
+        await createUserWithRoles({ email, name: body.name, roleSlugs })
         try {
           const link = await createPasswordResetLink(email)
           extra.resetUrl = link.url
@@ -135,10 +165,17 @@ export default async function (req: VercelRequest, res: VercelResponse) {
           res.status(400).json({ error: 'That user is not in the organization — perhaps already removed.' })
           return
         }
+        // A password link for a member holding more than the caller is account
+        // takeover by another name — the ceiling covers the target's CURRENT
+        // roles, not what the request claims about them.
+        if (!withinCeiling(unionOfRoles(await listRoles(), row.roles), caller)) {
+          res.status(403).json({ error: 'A password link for this member would hand over more access than you hold — ask a full admin.' })
+          return
+        }
+        await writeAdminAudit(zoho, caller, 'password link minted', row.email, 'one-time link; the holder sets this user’s password')
         const link = await createPasswordResetLink(row.email)
         extra.resetUrl = link.url
         extra.expiresAt = link.expiresAt
-        await writeAdminAudit(zoho, caller, 'password link minted', row.email, 'one-time link; the holder sets this user’s password')
         break
       }
       case 'deactivate': {
@@ -161,8 +198,8 @@ export default async function (req: VercelRequest, res: VercelResponse) {
           res.status(400).json({ error: 'Refused — this would leave nobody able to manage users. Grant another admin first.' })
           return
         }
-        await deactivateUser(membershipId)
         await writeAdminAudit(zoho, caller, 'user deactivated', row.email, 'organization membership deactivated; their session retires within a minute')
+        await deactivateUser(membershipId)
         break
       }
       case 'reactivate': {
@@ -176,8 +213,8 @@ export default async function (req: VercelRequest, res: VercelResponse) {
           res.status(400).json({ error: 'That user is not in the organization — perhaps already removed.' })
           return
         }
-        await reactivateUser(membershipId)
         await writeAdminAudit(zoho, caller, 'user reactivated', row.email, 'organization membership reactivated')
+        await reactivateUser(membershipId)
         break
       }
       case 'set-roles': {
@@ -192,14 +229,18 @@ export default async function (req: VercelRequest, res: VercelResponse) {
           res.status(400).json({ error: 'That membership is not in the organization.' })
           return
         }
+        if (!withinCeiling(unionOfRoles(await listRoles(), roleSlugs), caller)) {
+          res.status(403).json({ error: 'You can only grant roles no stronger than your own.' })
+          return
+        }
         // The caller may demote themselves — but never to a plant where nobody
         // at all can administer users (grant another admin first).
         if ((await adminsAfter(users, { override: { membershipId, roles: roleSlugs } })) === 0) {
           res.status(400).json({ error: 'Refused — this would leave nobody able to manage users. Grant another admin first.' })
           return
         }
-        await setUserRoles(membershipId, roleSlugs)
         await writeAdminAudit(zoho, caller, 'user roles set', membershipId, `roles: ${roleSlugs.join(', ') || 'none'}`)
+        await setUserRoles(membershipId, roleSlugs)
         break
       }
       case 'remove': {
@@ -224,8 +265,8 @@ export default async function (req: VercelRequest, res: VercelResponse) {
           res.status(400).json({ error: 'Refused — this would leave nobody able to manage users. Grant another admin first.' })
           return
         }
-        await removeMembership(membershipId)
         await writeAdminAudit(zoho, caller, 'user access removed', row.email, 'organization membership deleted; the WorkOS account survives')
+        await removeMembership(membershipId)
         break
       }
       case 'delete': {
@@ -248,8 +289,8 @@ export default async function (req: VercelRequest, res: VercelResponse) {
           res.status(400).json({ error: 'Refused — this would leave nobody able to manage users. Grant another admin first.' })
           return
         }
-        await deleteUserAccount(userId)
         await writeAdminAudit(zoho, caller, 'user deleted', row.email, 'WorkOS account permanently deleted, memberships with it')
+        await deleteUserAccount(userId)
         break
       }
       default:
@@ -262,12 +303,12 @@ export default async function (req: VercelRequest, res: VercelResponse) {
       res.status(401).json({ error: e.message })
       return
     }
-    // The audit/revision writes ride the Zoho budget like every other write — a
-    // rate-limited lock is retryable, not a 500 (the WorkOS action may already
-    // have landed; the audit's own row-action remedy recovers the trail).
+    // The audit write is the FIRST write of every action now, so a Zoho lock
+    // here means nothing landed at all — retryable, never a 500, and never a
+    // change the trail missed.
     if (e instanceof ZohoLockedError) {
       res.setHeader('Retry-After', String(e.retryAfterSec))
-      res.status(503).json({ error: 'Zoho is rate-limited — the user change may have landed; check the list before retrying.' })
+      res.status(503).json({ error: 'Zoho is rate-limited — nothing was changed. Try again shortly.' })
       return
     }
     // A WorkOS refusal (409 email exists, 422 bad payload…) is theirs to read.

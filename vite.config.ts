@@ -1,14 +1,46 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
-// The Apptics staging gate lives outside the build now: the SDK is fetched at
-// runtime from Zoho's init endpoint (src/lib/appticsSdk.ts), so a build whose
-// env carries no VITE_APPTICS_* ids never references it at all and there is no
-// script for the workbox precache to pick up.
-export default defineConfig(() => {
+export default defineConfig(({ mode }) => {
+  // The Apptics staging gate has to fold at BUILD time, not run time. Vite only
+  // replaces import.meta.env.<KEY> for keys that are SET — an unset key stays a
+  // live property read, so APPTICS_CONFIGURED stayed a runtime value and the
+  // dynamic import behind it stayed a graph edge: the bundler emitted the SDK
+  // chunk unreferenced, and the workbox precache glob shipped its bytes (and
+  // the trial's ids) in every production bundle anyway. Defining the three ids
+  // here turns the guard into `false && …` for a build that carries no ids, the
+  // dead branch (with the dynamic import) is tree-shaken, and no chunk exists
+  // for the precache to find. process.env wins over the .env files, matching
+  // Vite's own precedence; vitest is exempt because vi.stubEnv() drives the
+  // same expressions at run time in the tests.
+  const apptics = {
+    ...loadEnv(mode, process.cwd(), 'VITE_APPTICS_'),
+    ...Object.fromEntries(
+      Object.entries(process.env).filter(([k]) => k.startsWith('VITE_APPTICS_')),
+    ),
+  }
+  const defineApptics = (key: string): string =>
+    apptics[key] === undefined ? 'undefined' : JSON.stringify(apptics[key])
+  const appticsConfigured = Boolean(
+    apptics.VITE_APPTICS_APP_TOKEN && apptics.VITE_APPTICS_ZSOID && apptics.VITE_APPTICS_PROJECT_ID,
+  )
   return {
+    define: process.env.VITEST
+      ? {}
+      : {
+          'import.meta.env.VITE_APPTICS_APP_TOKEN': defineApptics('VITE_APPTICS_APP_TOKEN'),
+          'import.meta.env.VITE_APPTICS_ZSOID': defineApptics('VITE_APPTICS_ZSOID'),
+          'import.meta.env.VITE_APPTICS_PROJECT_ID': defineApptics('VITE_APPTICS_PROJECT_ID'),
+        },
+    // The define above folds the guard, but the bundler still records the
+    // dynamic-import edge and EMITS the SDK chunk unreferenced (chunking runs
+    // before dead-code pruning) — and the workbox precache glob then ships the
+    // orphan's bytes. An unconfigured build wants the module out of the graph,
+    // not merely unreachable: marking it external emits nothing. The edge is
+    // dead anyway (the guard folded), so nothing in the output can follow it.
+    build: process.env.VITEST || appticsConfigured ? {} : { rollupOptions: { external: [/appticsSdk/] } },
     plugins: [
       react(),
       VitePWA({

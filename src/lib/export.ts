@@ -10,10 +10,21 @@ export interface ExportColumn<T> {
   value: (row: T) => string | number | null | undefined
 }
 
+/** Formula prefixes a spreadsheet evaluates when a cell starts with one — the
+ *  CSV injection class (a vendor named `=HYPERLINK(...)` used to run on open).
+ *  Guarded with a leading apostrophe, which every mainstream sheet reads as
+ *  "this cell is text". Plain negative numbers are the exception: `-20` is a
+ *  quantity, and sheets treat a bare `-20` as a number, not a formula. */
+const FORMULA_PREFIX = /^[=+\-@\t\r]/
+const PLAIN_NUMBER = /^-?\d+(\.\d+)?$/
+
 /** RFC 4180: quote everything and double the quotes inside, so commas, line breaks
  *  and rupee amounts survive a round trip through Excel. */
-const cell = (v: string | number | null | undefined) =>
-  `"${String(v ?? '').replaceAll('"', '""')}"`
+const cell = (v: string | number | null | undefined) => {
+  const s = String(v ?? '')
+  const text = FORMULA_PREFIX.test(s) && !PLAIN_NUMBER.test(s) ? `'${s}` : s
+  return `"${text.replaceAll('"', '""')}"`
+}
 
 export function toCsv<T>(columns: ExportColumn<T>[], rows: T[]) {
   const lines = [columns.map((c) => cell(c.header)).join(',')]

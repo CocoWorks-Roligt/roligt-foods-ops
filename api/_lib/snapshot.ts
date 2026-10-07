@@ -104,17 +104,50 @@ export function assembleState(schema: typeof T, rows: SnapshotRows): Assembled {
  * The tables a caller may be denied on the READ side — the mirror image of the
  * write gates in commit.ts. Masters stay readable for everyone: they are the
  * reference data every screen resolves names against, and the staff register
- * (the Roster page's master) sits on the open tier; field-level masking of
- * contacts/GSTIN is deliberately NOT attempted here. The day's work is readable
- * by the page that owns it, and the audit trail by the Audit page — an
- * open-tier page, so the operator keeps the trail and only scoped clerks lose
- * it. `ledger`, `counters`, `counterPeriods` and `config` are readable by every
- * signed-in caller: the ledger is the stock arithmetic the whole app runs on.
+ * (the Roster page's master) sits on the open tier. Their CONTACT fields are
+ * masked per MASTER_MASKS below — a master's identity travels everywhere, its
+ * phone book only to the page that owns it. The day's work is readable by the
+ * page that owns it, and the audit trail by the Audit page — an open-tier page,
+ * so the operator keeps the trail and only scoped clerks lose it. `ledger`,
+ * `counters`, `counterPeriods` and `config` are readable by every signed-in
+ * caller: the ledger is the stock arithmetic the whole app runs on.
  */
 const READ_GATED: { key: string; page: ViewId | readonly ViewId[] }[] = [
   ...COLLECTIONS.filter((c) => c.page).map((c) => ({ key: c.key, page: c.page! })),
   { key: 'audits', page: 'audit' },
 ]
+
+/**
+ * The masters contact fields a caller without the master's own page receives
+ * DROPPED (Phase 4's close of the masking note the audit left open): a
+ * vendor's phone/email without page.vendors, a customer's GSTIN/phone/email/
+ * contact person without page.customers. Every field here is rendered by that
+ * master's page alone (Vendors.tsx, Customers.tsx) — nothing functional
+ * consumes them elsewhere, and a caller who cannot write the master (the write
+ * gate demands the same slug) can never round-trip a field they never saw.
+ * Rows are COPIED with the fields deleted, never blanked: the ids and names
+ * every screen resolves against stay intact, and only the masked caller's
+ * projection pays for the copy.
+ */
+const MASTER_MASKS: { key: string; page: string; fields: readonly string[] }[] = [
+  { key: 'vendors', page: 'page.vendors', fields: ['phone', 'email'] },
+  { key: 'customers', page: 'page.customers', fields: ['gst', 'phone', 'email', 'contactPerson'] },
+]
+
+/** One row with the masked fields deleted — the row itself when nothing was
+ *  masked, so untouched arrays keep their original row objects. */
+function maskRow(row: unknown, fields: readonly string[]): unknown {
+  if (typeof row !== 'object' || row === null) return row
+  const copy = { ...(row as Record<string, unknown>) }
+  let touched = false
+  for (const f of fields) {
+    if (copy[f] !== undefined) {
+      delete copy[f]
+      touched = true
+    }
+  }
+  return touched ? copy : row
+}
 
 /**
  * The state keys this caller may not see — CONSTANT per permission set, computed
@@ -147,15 +180,23 @@ export interface ProjectedSnapshot {
  * as "never written" to the client's seeding and as "the server dropped every
  * row" to its three-way merge — either corrupts the next save, which is why the
  * list travels with every body. The substrate itself is never mutated: the next
- * caller — an operator, an admin — still receives the whole plant.
+ * caller — an operator, an admin — still receives the whole plant. Masters
+ * contact fields ride the same copy: MASTER_MASKS drops them per caller (row
+ * copies, substrate rows untouched) — masked fields are not named in
+ * `withheld`, because the client must NOT bridge them back from a stale mirror.
  */
 export function projectSnapshot(snap: Assembled, held: readonly string[]): ProjectedSnapshot {
   const withheld = withheldForCaller(held)
-  if (!snap.state || !withheld.length) return { state: snap.state, revision: snap.revision, withheld }
+  const masks = MASTER_MASKS.filter((m) => !held.includes(m.page))
+  if (!snap.state || (!withheld.length && !masks.length)) {
+    return { state: snap.state, revision: snap.revision, withheld }
+  }
   const drop = new Set(withheld)
   const state: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(snap.state)) {
-    if (!drop.has(key)) state[key] = value
+    if (drop.has(key)) continue
+    const mask = masks.find((m) => m.key === key)
+    state[key] = mask && Array.isArray(value) ? value.map((row) => maskRow(row, mask.fields)) : value
   }
   return { state: state as Partial<AppState>, revision: snap.revision, withheld }
 }

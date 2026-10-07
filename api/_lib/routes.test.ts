@@ -50,8 +50,11 @@ const start = (await import('../auth/start.ts')).default
 const callback = (await import('../auth/callback.ts')).default
 const signout = (await import('../auth/signout.ts')).default
 const session = (await import('../auth/session.ts')).default
+const { signOutUrl } = await import('./session.ts')
+const { __resetAuthThrottle } = await import('./authThrottle.js')
 
 beforeEach(() => {
+  __resetAuthThrottle() // every test's address starts with a fresh bucket
   world.configured = true
   world.signIn = { url: 'https://authkit.workos.io/…', setCookies: ['wos-auth-verifier-x=v1; Path=/'] }
   world.callback = { error: null, returnPathname: '/vendors' }
@@ -81,8 +84,8 @@ function fakeRes() {
   return res as unknown as VercelResponse & typeof res
 }
 
-function fakeReq(url: string, headers: Record<string, string> = {}): VercelRequest {
-  return { headers, url, method: 'GET' } as unknown as VercelRequest
+function fakeReq(url: string, headers: Record<string, string> = {}, method: string = 'GET'): VercelRequest {
+  return { headers, url, method } as unknown as VercelRequest
 }
 
 describe('GET /api/auth/start', () => {
@@ -153,10 +156,10 @@ describe('GET /api/auth/callback', () => {
   })
 })
 
-describe('GET /api/auth/signout', () => {
+describe('POST /api/auth/signout', () => {
   it('302s to the WorkOS logout URL and clears the session cookie', async () => {
     const res = fakeRes()
-    await signout(fakeReq('/api/auth/signout'), res)
+    await signout(fakeReq('/api/auth/signout', {}, 'POST'), res)
     expect(res.status).toHaveBeenCalledWith(302)
     expect(res.setHeader).toHaveBeenCalledWith('Location', world.signOut.logoutUrl)
     expect(res.setHeader).toHaveBeenCalledWith('Set-Cookie', ['wos-session=; Max-Age=0'])
@@ -165,8 +168,44 @@ describe('GET /api/auth/signout', () => {
   it('falls back to / when there is no session to end', async () => {
     world.signOut.logoutUrl = null
     const res = fakeRes()
-    await signout(fakeReq('/api/auth/signout'), res)
+    await signout(fakeReq('/api/auth/signout', {}, 'POST'), res)
     expect(res.setHeader).toHaveBeenCalledWith('Location', '/')
+  })
+
+  it('refuses a GET outright — a link on another site cannot end anyone\'s session', async () => {
+    // SameSite=Lax cookies ride a top-level GET navigation, so a cross-site
+    // <a href="/api/auth/signout"> used to log the operator out (logout CSRF);
+    // Lax never accompanies a cross-site POST, and the SPA's sign-out POSTs.
+    const res = fakeRes()
+    vi.mocked(signOutUrl).mockClear() // earlier tests in this describe called it
+    await signout(fakeReq('/api/auth/signout'), res)
+    expect(res.status).toHaveBeenCalledWith(405)
+    expect(res.setHeader).toHaveBeenCalledWith('Allow', 'POST')
+    expect(vi.mocked(signOutUrl)).not.toHaveBeenCalled() // nothing ran, nothing cleared
+  })
+})
+
+describe('the auth throttle', () => {
+  it('refuses a flood from one address with 429 + Retry-After before any seal is opened', async () => {
+    // Every /api/auth/* request spends the slow session KDF on whatever cookie
+    // values arrive — an unthrottled flood is cheap for the attacker and
+    // expensive for the instance. A fresh bucket holds the sustained minute's
+    // worth (30); the honest device hits these routes a handful of times per
+    // session and never meets the refusal.
+    const codes: number[] = []
+    for (let i = 0; i < 32; i++) {
+      const res = fakeRes()
+      await session(fakeReq('/api/auth/session'), res)
+      codes.push(res.statusCode)
+    }
+    expect(codes.slice(0, 30)).toEqual(Array(30).fill(200))
+    expect(codes.slice(30)).toEqual(Array(2).fill(429))
+    const refused = fakeRes()
+    await session(fakeReq('/api/auth/session'), refused)
+    expect(refused.setHeader).toHaveBeenCalledWith('Retry-After', expect.any(String))
+    expect(refused.json).toHaveBeenCalledWith(
+      expect.objectContaining({ error: expect.stringContaining('Too many auth requests') }),
+    )
   })
 })
 

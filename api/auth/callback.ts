@@ -10,10 +10,17 @@
  * is cured by the sign-in click that waits there.
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { admitAuth, clientIpOf } from '../_lib/authThrottle.js'
 import { clearVerifierCookies, handleAuthCallback, workosConfigured } from '../_lib/session.js'
 import { siteRelative, toWebRequest } from '../_lib/vercel.js'
 
 export default async function (req: VercelRequest, res: VercelResponse) {
+  const retryAfter = admitAuth(clientIpOf(req.headers))
+  if (retryAfter) {
+    res.setHeader('Retry-After', String(retryAfter))
+    res.status(429).json({ error: 'Too many auth requests — try again shortly.' })
+    return
+  }
   if (!workosConfigured()) {
     res.status(503).json({ error: 'Auth is not configured on the server.' })
     return

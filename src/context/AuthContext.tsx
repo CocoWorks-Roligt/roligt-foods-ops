@@ -128,8 +128,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (opts.wipeDevice) clearLocal()
     if (WORKOS_CONFIGURED) {
       // Ends the session at WorkOS and clears the cookie, then lands on '/' —
-      // where the router shows this login screen again.
-      window.location.assign('/api/auth/signout')
+      // where the router shows this login screen again. A synthetic form POST,
+      // not a GET: the route is POST-only (SameSite=Lax cookies ride top-level
+      // GETs, so a cross-site link must not be able to log anyone out), and a
+      // same-site form POST carries the cookie the route needs to end.
+      const form = document.createElement('form')
+      form.method = 'POST'
+      form.action = '/api/auth/signout'
+      document.body.appendChild(form)
+      form.submit()
       return
     }
     // Dev fallback: land on the login screen (no reload) so the role picker is

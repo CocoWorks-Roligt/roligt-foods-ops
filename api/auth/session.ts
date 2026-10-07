@@ -7,11 +7,18 @@
  * rather than a login that can never succeed.
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { admitAuth, clientIpOf } from '../_lib/authThrottle.js'
 import { authenticate, AuthError, devCaller, devHostAllowed, devSessionAllowed } from '../_lib/auth.js'
 import { workosConfigured } from '../_lib/session.js'
 import { toWebRequest } from '../_lib/vercel.js'
 
 export default async function (req: VercelRequest, res: VercelResponse) {
+  const retryAfter = admitAuth(clientIpOf(req.headers))
+  if (retryAfter) {
+    res.setHeader('Retry-After', String(retryAfter))
+    res.status(429).json({ error: 'Too many auth requests — try again shortly.' })
+    return
+  }
   if (!workosConfigured()) {
     // the same host gate authenticate() applies — the flag licenses the
     // process, never a plant domain

@@ -18,6 +18,7 @@ import type { ZohoClient, ZohoRecord } from './zoho.js'
 const T = {
   GRNs: { name: 'GRNs', id: 't-grn', appId: 'f-app', dataJson: 'f-data', fields: {} },
   Vendors: { name: 'Vendors', id: 't-ven', appId: 'f-app', dataJson: 'f-data', fields: {} },
+  Customers: { name: 'Customers', id: 't-cus', appId: 'f-app', dataJson: 'f-data', fields: {} },
   Ledger: { name: 'Ledger', id: 't-led', appId: 'f-app', dataJson: 'f-data', fields: {} },
   'Audit Log': { name: 'Audit Log', id: 't-aud', appId: 'f-app', dataJson: 'f-data', fields: {} },
   Counters: { name: 'Counters', id: 't-cnt', appId: 'f-app', fields: { Series: 'f-series', Next: 'f-next' }, dataJson: undefined },
@@ -843,7 +844,8 @@ describe('projectSnapshot — one substrate, each caller their own view', () => 
   const fullSnap = () =>
     assembleState(T as never, {
       grns: [rec('GRN-1', { id: 'GRN-1', lot: 'LOT-1' })],
-      vendors: [rec('V-1', { id: 'V-1', name: 'Sriram' })],
+      vendors: [rec('V-1', { id: 'V-1', name: 'Sriram', phone: '98450 00001', email: 'sriram@farm.example' })],
+      customers: [rec('C-1', { id: 'C-1', name: 'Hotel Aroma', gst: '29ABCDE1234F1Z5', phone: '99000 00002', contactPerson: 'Ravi' })],
       ledger: [rec('L-1', { id: 'L-1', type: 'GRN', qty_in: 100 })],
       audits: [rec('A-1', { id: 'A-1', action: 'posted' })],
       counters: [{ recordID: 'c1', data: { 'f-series': 'grn', 'f-next': '5' } }],
@@ -891,10 +893,39 @@ describe('projectSnapshot — one substrate, each caller their own view', () => 
     expect(scoped.state && 'grns' in scoped.state).toBe(false)
     // the substrate's own state object is untouched by the projection above…
     expect(snap.state?.grns?.length).toBe(1)
-    // …so the very next caller — an operator — is served the SAME object, whole
-    const whole = projectSnapshot(snap, [])
+    expect(snap.state?.vendors?.[0]?.phone).toBe('98450 00001')
+    // …so the very next caller holding every page is served the SAME object,
+    // whole — masters contacts included
+    const whole = projectSnapshot(snap, EVERY_PAGE)
     expect(whole.state).toBe(snap.state)
     expect(whole.withheld).toEqual([])
+  })
+
+  it('masks masters contacts for callers without the master\'s own page (Phase 4)', () => {
+    // the open tier keeps every master's identity — names resolve everywhere —
+    // but a phone book is not reference data: vendors' phone/email and
+    // customers' GSTIN/phone/contact person travel only with their pages
+    const snap = fullSnap()
+    const operator = projectSnapshot(snap, [])
+    expect(operator.state?.vendors?.[0]?.name).toBe('Sriram')
+    expect('phone' in (operator.state?.vendors?.[0] ?? {})).toBe(false)
+    expect('email' in (operator.state?.vendors?.[0] ?? {})).toBe(false)
+    expect(operator.state?.customers?.[0]?.name).toBe('Hotel Aroma')
+    expect('gst' in (operator.state?.customers?.[0] ?? {})).toBe(false)
+    expect('contactPerson' in (operator.state?.customers?.[0] ?? {})).toBe(false)
+    // a lab tester holds neither masters page — masked the same way, on top of
+    // the day's work their scope already withholds
+    const lab = projectSnapshot(snap, LAB_TESTER)
+    expect('phone' in (lab.state?.vendors?.[0] ?? {})).toBe(false)
+    // masked fields are not withheld keys — the client must not bridge them
+    // back from a stale mirror, and only whole TABLES ride that list
+    expect(operator.withheld).toEqual([])
+    // the page holder sees everything: the Suppliers page IS the phone book
+    const clerk = projectSnapshot(snap, SUPPLIERS_CLERK)
+    expect(clerk.state?.vendors?.[0]?.phone).toBe('98450 00001')
+    expect(clerk.state?.vendors?.[0]?.email).toBe('sriram@farm.example')
+    // their customers stay masked — the Suppliers tick is not the Customers page
+    expect('gst' in (clerk.state?.customers?.[0] ?? {})).toBe(false)
   })
 
   it('answers the same withheld list for an empty plant and a full one — no data-presence leak', () => {

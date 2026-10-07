@@ -3,8 +3,16 @@
  * vars below, so every export here is a no-op there and no SDK is ever fetched.
  * Call sites never guard: call and move on, exactly like WORKOS_CONFIGURED in
  * src/lib/authMode.ts.
+ *
+ * The SDK module is imported DYNAMICALLY inside initApptics, never statically:
+ * APPTICS_CONFIGURED folds to `false` in a production build, which folds the
+ * one dynamic import out of the graph entirely — a static import would drag
+ * appticsSdk.ts (and its `apptics.zoho.*` init hosts) into every production
+ * chunk no matter what the flag says. scripts/assert-no-apptics.mjs fails the
+ * build if those markers ever reach dist/ again (the audit's S3-13).
  */
-import { bootAppticsSdk, sdkSetUser, sdkTrackEvent, sdkTrackScreen } from './appticsSdk'
+/** The loaded SDK module — null until a configured boot resolved it. */
+type AppticsSdk = typeof import('./appticsSdk')
 
 /**
  * Present = staging trial wiring is live. Absent = everything here is inert.
@@ -27,6 +35,9 @@ export type AppticsEventName =
 
 let started = false
 let ready = false
+/** The SDK module once booted — track* helpers call through it, so the only
+ *  static trace of Apptics left in an unconfigured bundle is this file. */
+let sdk: AppticsSdk | null = null
 /** Events fired while the script is still loading; flushed on boot. */
 let pending: Array<() => void> = []
 
@@ -45,12 +56,16 @@ function whenReady(call: () => void): void {
 export function initApptics(): void {
   if (!APPTICS_CONFIGURED || started) return
   started = true
-  void bootAppticsSdk(
-    import.meta.env.VITE_APPTICS_APP_TOKEN!,
-    import.meta.env.VITE_APPTICS_ZSOID!,
-    import.meta.env.VITE_APPTICS_PROJECT_ID!,
-    import.meta.env.VITE_APPTICS_DC,
-  )
+  void import('./appticsSdk')
+    .then((m) => {
+      sdk = m
+      return m.bootAppticsSdk(
+        import.meta.env.VITE_APPTICS_APP_TOKEN!,
+        import.meta.env.VITE_APPTICS_ZSOID!,
+        import.meta.env.VITE_APPTICS_PROJECT_ID!,
+        import.meta.env.VITE_APPTICS_DC,
+      )
+    })
     .then(() => {
       ready = true
       const queue = pending
@@ -66,14 +81,14 @@ export function initApptics(): void {
 
 /** One screen event per route change — the pathname is the screen identity. */
 export function trackPageView(path: string): void {
-  whenReady(() => sdkTrackScreen(path))
+  whenReady(() => sdk?.sdkTrackScreen(path))
 }
 
 export function trackEvent(name: AppticsEventName, properties?: Record<string, string | number | boolean>): void {
-  whenReady(() => sdkTrackEvent(name, properties))
+  whenReady(() => sdk?.sdkTrackEvent(name, properties))
 }
 
 /** Attributes the session to the operator's email; null on the login screen. */
 export function setAppticsUser(email: string | null): void {
-  whenReady(() => sdkSetUser(email))
+  whenReady(() => sdk?.sdkSetUser(email))
 }

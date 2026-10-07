@@ -21,7 +21,7 @@
  * two devices minting the same document number a refused insert instead of one
  * receipt quietly replacing the other while both ledger lines survive.
  */
-import { FUTURE_AT_GRACE_MS, ZohoApiError } from './zoho.js'
+import { FUTURE_AT_GRACE_MS, ZohoApiError, ZohoCasConflictError } from './zoho.js'
 import type { ZohoClient, ZohoRecord } from './zoho.js'
 import type { TableRef } from './baseSchema.js'
 import { T, TABLE_FOR } from './baseSchema.js'
@@ -216,6 +216,41 @@ export class Conflict extends Error {
 }
 
 /**
+ * The version-token plan for one row write — S2-5's cross-instance optimistic
+ * concurrency. The Version column (added to the 21 editable tables of both
+ * bases, 2026-10-07) holds the composite token "<AppID>:<n>"; the criteria
+ * grammar has no AND (every shape answers 500 — probe-version.mjs, 2026-10-07),
+ * so row identity rides INSIDE the token value and the conditional write is one
+ * text equality on it, update-only (`is_upsert_needed: false`; upsert-true on a
+ * no-match mints a duplicate row — pinned live). An empty `records.updated`
+ * answer is the conflict: the row moved between this commit's pre-flight and
+ * its write, on this instance or any other — the one race the per-process
+ * commit queue could never see.
+ *
+ * Rows of tables without the column (ledger, audits, vendor types) keep
+ * today's unconditional keyed upsert. Rows whose token is empty (every legacy
+ * row), malformed, or not this row's own (a hand edit in the Zoho UI) keep
+ * today's shape too and stamp their first token — the live base migrates
+ * lazily, one row per first edit, no backfill; nothing about the client
+ * protocol changes. The strict "<appId>:<digits>" parse is what keeps the
+ * criteria unambiguous: only this row's own token can match it.
+ */
+function versionPlan(
+  table: TableRef,
+  appId: string,
+  stored: ZohoRecord | undefined,
+): { versionFieldId: string; cas: { versionFieldId: string; expected: string } | null; stamp: string } {
+  const versionFieldId = table.fields['Version'] ?? ''
+  if (!versionFieldId) return { versionFieldId: '', cas: null, stamp: '' }
+  const storedToken = stored ? String(stored.data[versionFieldId] ?? '') : ''
+  const n = storedToken.startsWith(appId + ':') ? /^(\d+)$/.exec(storedToken.slice(appId.length + 1)) : null
+  if (n) {
+    return { versionFieldId, cas: { versionFieldId, expected: storedToken }, stamp: `${appId}:${Number(n[1]) + 1}` }
+  }
+  return { versionFieldId, cas: null, stamp: `${appId}:1` }
+}
+
+/**
  * Mapper columns arrive keyed by field NAME (readable, checked against the base by
  * eye); the wire speaks field IDs — `upsertByKey` sends `is_ids_used_in_data: true`,
  * so a name in that map is read as a bogus ID and the live API answers
@@ -350,6 +385,28 @@ const jsonEq = (a: unknown, b: unknown): boolean => canonicalJson(a) === canonic
 
 /** The leading integer of a revision token ('7:ab3' → 7) — 0 for anything unparseable. */
 const revisionNumberOf = (rev: string | undefined): number => parseInt(String(rev ?? ''), 10) || 0
+
+/**
+ * Shared-device provenance (the audit's S3-12). The client stamps an audit
+ * row's actor at QUEUE time (AppContext), but a shared tablet's offline queue
+ * may be drained hours later by whoever signs in next — and the server stamps
+ * the stored actor from the draining session, so the row used to say the
+ * drainer did something they only submitted. The queued-by claim is not
+ * evidence of anything (the payload could have written any name), but when it
+ * is a well-formed email that DIFFERS from the drainer's, recording it in
+ * Details is the honest trail: "who the tablet claims queued this" alongside
+ * "who provably drained it". Malformed or matching claims are dropped — the
+ * details string is not a free-text channel for the payload.
+ */
+const provenanceDetails = (row: Record<string, unknown>, drainer: string): unknown => {
+  const claimed = row.actor
+  if (typeof claimed !== 'string') return row.details
+  const trimmed = claimed.trim()
+  if (!trimmed || trimmed === drainer) return row.details
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(trimmed)) return row.details
+  const suffix = `queued by ${trimmed}`
+  return typeof row.details === 'string' && row.details ? `${row.details}; ${suffix}` : suffix
+}
 
 /**
  * Bumps the revision row to a fresh token and returns it.
@@ -679,8 +736,9 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
   // crafted commit cannot rewrite history, and a retried commit re-posting its own
   // audit rows is a no-op for them (new ids still write normally). Audit actors
   // are stamped from the authenticated caller; the payload's claim about who did
-  // it is not evidence. Every row that actually lands is queued for the
-  // same-commit link fixup below (4b).
+  // it is not evidence — though a well-formed differing claim is preserved in
+  // Details as shared-device provenance (provenanceDetails below). Every row
+  // that actually lands is queued for the same-commit link fixup below (4b).
   const fixupQueue: {
     changeTable: string
     table: (typeof T)[string]
@@ -688,6 +746,7 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
     values: Record<string, unknown>
     spec: (typeof COLLECTIONS)[number] | null
     payload: Record<string, unknown>
+    cas: { versionFieldId: string; expected: string } | null
   }[] = []
   for (const change of changes.tables) {
     const base = TABLE_FOR[change.table]
@@ -703,7 +762,10 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
       const stored = byApp.get(appId)
       if (change.table === 'audits' && stored) continue // insert-only: never rewrite an audit row
       const storedDoc = stored ? storedPayload(table, stored) : null
-      const stamped = change.table === 'audits' ? { ...row, actor: caller.email } : row
+      const stamped =
+        change.table === 'audits'
+          ? { ...row, actor: caller.email, details: provenanceDetails(row, caller.email) }
+          : row
       const incoming = spec ? ((stamped as { data: Record<string, unknown> }).data ?? {}) : stamped
       if (storedDoc && jsonEq(storedDoc, incoming)) continue // idempotent retry: the row is already exactly this
       let values: Record<string, unknown>
@@ -719,7 +781,23 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
           ...(spec ? columnsByFieldId(table, columnsFor(spec.key, doc, links)) : {}),
         }
       }
-      await zoho.upsertByKey(table.id, table.appId, appId, values)
+      // S2-5: stamp the next token and make the write conditional on the token
+      // the pre-flight observed. A row another instance moved in the window
+      // between pre-flight and write refuses the whole commit with the same
+      // 409 'changed' the pre-flight itself produces — the client's adoption
+      // path needs no new shape. (Rows already landed when the conflict fires
+      // are the same recoverable pause a mid-commit lock always was: the retry
+      // skips them free through the jsonEq idempotence check.)
+      const plan = versionPlan(table, appId, stored)
+      if (plan.stamp) values[plan.versionFieldId] = plan.stamp
+      try {
+        await zoho.upsertByKey(table.id, table.appId, appId, values, plan.cas ?? undefined)
+      } catch (e) {
+        if (e instanceof ZohoCasConflictError) {
+          throw new Conflict([{ table: change.table, id: appId, kind: 'changed' }])
+        }
+        throw e
+      }
       wrote = true
       // audits carry no links — everything else may need the 4b pass
       if (change.table !== 'audits') {
@@ -730,6 +808,9 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
           values,
           spec,
           payload: spec ? ((row as { data?: Record<string, unknown> }).data ?? {}) : row,
+          // the fixup's own conditional write gates on the token THIS commit just
+          // stamped — see 4b for what a refusal there means
+          cas: plan.stamp ? { versionFieldId: plan.versionFieldId, expected: plan.stamp } : null,
         })
       }
     }
@@ -793,7 +874,29 @@ async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChan
         if (item.values[fid] === undefined && v !== undefined) gained[fid] = v
       }
       if (!Object.keys(gained).length) continue
-      await zoho.upsertByKey(item.table.id, item.table.appId, item.appId, { ...item.values, ...gained })
+      try {
+        await zoho.upsertByKey(
+          item.table.id,
+          item.table.appId,
+          item.appId,
+          { ...item.values, ...gained },
+          item.cas ?? undefined,
+        )
+      } catch (e) {
+        // The row moved between this commit's own write and its link fixup —
+        // another instance's edit landed inside the window. The fixup is a
+        // cosmetic completion (link columns that left empty), so it SKIPS: re-
+        // sending the full row would overwrite the winner's content, the exact
+        // destruction the conditional write exists to prevent. The links
+        // complete on that row's next save.
+        if (e instanceof ZohoCasConflictError) {
+          console.warn(
+            `[commit] ${item.changeTable} ${item.appId} moved before its link fixup — links deferred to the next save`,
+          )
+          continue
+        }
+        throw e
+      }
       wrote = true
     }
   }
