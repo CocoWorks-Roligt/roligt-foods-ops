@@ -95,10 +95,29 @@ export interface DbSnapshot {
   withheld?: string[]
 }
 
-export async function fetchDb(): Promise<DbSnapshot> {
-  const res = await api('/api/snapshot')
-  if (!res.ok) throw new Error(`Failed to read the plant: ${await res.text()}`)
-  return (await res.json()) as DbSnapshot
+/** One snapshot on the wire at a time, per tab — see fetchDb. */
+let snapshotInFlight: Promise<DbSnapshot> | null = null
+
+export function fetchDb(): Promise<DbSnapshot> {
+  // The boot read, the 20s poll and a conflict adoption can each ask while
+  // another's request still hangs in the server's budget wait, and the browser
+  // simply stacked them (2026-10-07: four pending /api/snapshot from ONE tab
+  // while Zoho choked — every stacked call another read the shared window had
+  // to answer, and the plant looking frozen while they piled up). Concurrent
+  // callers share the in-flight request; every one of them already tolerates a
+  // straddled read (the poll re-checks its revision pair, boot re-reads).
+  if (snapshotInFlight) return snapshotInFlight
+  const run = (async () => {
+    try {
+      const res = await api('/api/snapshot')
+      if (!res.ok) throw new Error(`Failed to read the plant: ${await res.text()}`)
+      return (await res.json()) as DbSnapshot
+    } finally {
+      snapshotInFlight = null
+    }
+  })()
+  snapshotInFlight = run
+  return run
 }
 
 export type SaveResult =

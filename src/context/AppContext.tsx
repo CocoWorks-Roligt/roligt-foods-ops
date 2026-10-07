@@ -313,6 +313,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const revision = useRef('0')
   /** True while a save is in flight, so the poll does not read a half-written plant. */
   const saving = useRef(false)
+  /** True while a poll tick is still out — a tick hanging on the server's budget
+   *  wait is not a reason to fire another (one tab stacked four pending
+   *  snapshots while Zoho choked, 2026-10-07). */
+  const polling = useRef(false)
+  /** The poll stands down until this time when the server answers Throttled —
+   *  its Retry-After names the pause; the fixed cadence would probe through it. */
+  const pollPauseUntil = useRef(0)
 
   /** True while this device's last save was refused for losing a race. */
   const [conflictHeld, setConflictHeld] = useState(false)
@@ -530,6 +537,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let cancelled = false
     const timer = setInterval(async () => {
       if (cancelled || dirty || saving.current) return
+      // One poll out at a time: a tick whose reads still hang on the server's
+      // budget wait answers this tick's question too — firing another just
+      // stacks pending requests against the same choked window.
+      if (polling.current) return
+      if (Date.now() < pollPauseUntil.current) return
+      polling.current = true
       try {
         const rev = await fetchRevision()
         if (cancelled || rev === revision.current) return
@@ -556,9 +569,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const was = synced.current
         setState(installSnapshot(server, was))
         synced.current = server
-      } catch {
+      } catch (e) {
         // A poll that cannot reach the database says nothing new; the save path is
-        // what reports being offline.
+        // what reports being offline. A ThrottledError is more than "said
+        // nothing" — it is the server asking for a pause, and the fixed cadence
+        // would probe right through it, spending reads a choke already refused.
+        if (e instanceof ThrottledError) {
+          pollPauseUntil.current = Date.now() + e.retryAfterSec * 1000
+        }
+      } finally {
+        polling.current = false
       }
     }, 20000)
     return () => {
@@ -657,13 +677,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 // survive it (the doc-chain scan inside adoptServerRows reads
                 // the live state for exactly that).
                 setState((liveNow) => adoptServerRows(liveNow, serverState, result.conflicts))
-              } catch {
+              } catch (e) {
                 // The read can fail offline. Without a retry the flag stayed up
                 // until the operator happened to change something else, so the
                 // plant sat showing a lost race that had already been won. The
                 // tick re-runs the save effect; the 409 it gets back — or the
-                // adoption on success — comes with it.
-                scheduleRetry(5)
+                // adoption on success — comes with it. The server's busy hint is
+                // honored the way the save path honors it: a five-second probe
+                // against a window that just said "wait" is the storm wearing a
+                // different timer.
+                scheduleRetry(e instanceof ThrottledError ? e.retryAfterSec : 5)
               }
             })()
             return

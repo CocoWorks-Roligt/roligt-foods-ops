@@ -8,7 +8,7 @@
  * faked dbApi, so what is counted is the actual component tree React commits.
  */
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppProvider, useApp, useSaveStatus } from './AppContext'
 import { AuthProvider } from './AuthContext'
 import { ToastProvider } from './ToastContext'
@@ -23,6 +23,13 @@ const dbApi = vi.hoisted(() => ({
   fetchRevision: vi.fn(),
   saveDb: vi.fn(),
   UnauthorizedError: class UnauthorizedError extends Error {},
+  ThrottledError: class ThrottledError extends Error {
+    readonly retryAfterSec: number
+    constructor(retryAfterSec: number) {
+      super('The server is busy — your change is saved on this device and will retry.')
+      this.retryAfterSec = retryAfterSec
+    }
+  },
 }))
 vi.mock('../lib/dbApi', () => dbApi)
 vi.mock('../lib/authSession', () => ({
@@ -422,6 +429,83 @@ describe('AppProvider snapshot installs', () => {
       expect(dbApi.saveDb).toHaveBeenCalledTimes(2) // the retry re-ran the save
       expect(conflictNow).toBe(false) // and the success cleared the flag
       expect(screen.getByText('9999900000')).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('AppProvider poll — one tick out at a time, the server\'s pause honored', () => {
+  /**
+   * 2026-10-07, the pending-stack: while Zoho choked on criteria reads, one tab
+   * stacked four pending /api/snapshot requests — every 20s tick fired while the
+   * previous one still hung on the server's budget wait, and the plant read as
+   * frozen while its own client piled pressure on the window that was refusing
+   * it. The poll now keeps one tick in flight, and a Throttled answer (the
+   * server's Retry-After) stands the cadence down instead of probing through it.
+   */
+  const bootDeferred = () =>
+    deferred<{ state: Partial<AppState> | null; revision: string; permissions: string[] }>()
+
+  afterEach(() => vi.useRealTimers())
+
+  it('does not fire another tick while one is still hanging', async () => {
+    vi.useFakeTimers()
+    try {
+      const boot = bootDeferred()
+      dbApi.fetchDb.mockReturnValueOnce(boot.promise)
+      render(
+        <Providers>
+          <Vendors />
+        </Providers>,
+      )
+      const hang = deferred<string>()
+      dbApi.fetchRevision.mockReturnValue(hang.promise)
+      await act(async () => {
+        boot.resolve({ state: plant(), revision: '1', permissions: [] })
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000) // tick 1 leaves — and hangs
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(40_000) // two more cadences pass
+      })
+      expect(dbApi.fetchRevision).toHaveBeenCalledTimes(1) // one tick out, never a stack
+      expect(dbApi.fetchDb).toHaveBeenCalledTimes(1) // the boot read only
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stands down through a Throttled answer, then resumes on its own', async () => {
+    vi.useFakeTimers()
+    try {
+      const boot = bootDeferred()
+      dbApi.fetchDb.mockReturnValueOnce(boot.promise)
+      render(
+        <Providers>
+          <Vendors />
+        </Providers>,
+      )
+      dbApi.fetchRevision
+        .mockRejectedValueOnce(new dbApi.ThrottledError(60))
+        .mockResolvedValue('1')
+      await act(async () => {
+        boot.resolve({ state: plant(), revision: '1', permissions: [] })
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000) // the tick eats a busy hint: stand down 60s
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(40_000) // two cadences pass inside the pause
+      })
+      expect(dbApi.fetchRevision).toHaveBeenCalledTimes(1)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(21_000) // past the Retry-After boundary — one cadence fires
+      })
+      expect(dbApi.fetchRevision).toHaveBeenCalledTimes(2) // probing again on its own
     } finally {
       vi.useRealTimers()
     }
