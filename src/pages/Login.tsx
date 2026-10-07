@@ -49,7 +49,7 @@ export function Login() {
           <div className="login-flow" aria-label="Production flow">
             <span>Receiving</span>
             <span>Extraction</span>
-            <span>Melange</span>
+            <span>Blend</span>
             <span>Packing</span>
             <span>Dispatch</span>
           </div>

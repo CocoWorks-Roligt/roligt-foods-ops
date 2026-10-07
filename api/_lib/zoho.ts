@@ -335,6 +335,26 @@ export class ZohoClient {
       if (res.status === 429) throw new ZohoLockedError()
       const err = errorOf(body)
       if (err !== null && /limit|lock/i.test(err)) throw new ZohoLockedError()
+      // Zoho throttles criteria reads with a bare {"code":400,"message":"BAD REQUEST"}
+      // — no detail, no 429 — when they land too close behind one another (the
+      // 2026-10-07 live incident: the identical call back-to-back 400'd, spaced out
+      // it succeeded 4/4). Every criteria this client builds is well-formed — quotes
+      // are refused before the wire and a genuinely malformed shape answers 200
+      // wrapping INTERNAL SERVER ERROR, never this — so a DETAIL-FREE 400 on a
+      // criteria read is the lock wearing the wrong status. Classified retryable so
+      // the endpoint answers 503 + Retry-After and the client backs off, instead of
+      // a 500 whose save queue re-POSTs every 30s against the same choked window.
+      // 60s, not the 5-minute lock wait: the incident cleared in seconds, this is
+      // pacing, not a breach lock. Scoped to the criteria read alone — a 400
+      // anywhere else is still a hard error.
+      if (
+        res.status === 400 &&
+        path === '/fetchRecordsWithCriteria' &&
+        err !== null &&
+        /^400 bad request$/i.test(err)
+      ) {
+        throw new ZohoLockedError(60)
+      }
       if (res.status >= 400 || err !== null) {
         throw new ZohoApiError(`${method} ${path}`, res.status, text)
       }

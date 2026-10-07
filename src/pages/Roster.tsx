@@ -26,6 +26,9 @@ import type { ShiftAssignment, ShiftName, StaffMember } from '../types'
 
 const SHIFTS: ShiftName[] = ['Morning', 'Evening', 'General']
 const LINES = ['Extraction', 'Melange', 'Packing', 'QC', 'Dispatch', 'General']
+/** Lines are stored data on shift and staff rows — 'Melange' is the value the
+ *  floor has always written; only what a person reads says "Blend". */
+const lineLabel = (l: string) => (l === 'Melange' ? 'Blend' : l)
 const ATTENDANCE_STATUSES = ['Present', 'Absent', 'Leave', 'Half day'] as const
 
 /** The Monday of the week `d` falls in. */
@@ -140,12 +143,12 @@ export function Roster() {
                       type="button"
                       className={`shift-cell${shift ? ' set' : ''}`}
                       onClick={() => openShiftCell(m.id, d)}
-                      title={shift ? `${shift.shift} · ${shift.line}` : 'Set a shift'}
+                      title={shift ? `${shift.shift} · ${lineLabel(shift.line)}` : 'Set a shift'}
                     >
                       {shift ? (
                         <>
                           <span className="shift-tag">{shift.shift}</span>
-                          <span className="small">{shift.line}</span>
+                          <span className="small">{lineLabel(shift.line)}</span>
                         </>
                       ) : (
                         <span className="small">—</span>
@@ -216,7 +219,7 @@ export function Roster() {
                     <div className="cell-sub">{m.role || '—'}</div>
                   </td>
                   <td data-label="Shift">
-                    {shift ? `${shift.shift} · ${shift.line}` : <span className="small">Not rostered</span>}
+                    {shift ? `${shift.shift} · ${lineLabel(shift.line)}` : <span className="small">Not rostered</span>}
                   </td>
                   <td data-label="Marked">
                     <div className="type-tabs attendance-marks">
@@ -453,7 +456,7 @@ export function Roster() {
             >
               {LINES.map((l) => (
                 <option key={l} value={l}>
-                  {l}
+                  {lineLabel(l)}
                 </option>
               ))}
             </Select>

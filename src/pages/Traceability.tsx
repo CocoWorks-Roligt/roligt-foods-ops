@@ -325,7 +325,7 @@ export function Traceability() {
           return (
             <div className="node" key={id}>
               <div className="small">
-                {b && batchKind(b) === 'Melange' ? 'Melange Run' : 'Production Batch'}
+                {b && batchKind(b) === 'Melange' ? 'Blend Run' : 'Production Batch'}
               </div>
               <b>
                 <DocLink doc={id} />

@@ -140,7 +140,7 @@ interface AppContextValue {
   ) => string | null
   updatePurchaseProduct: (
     id: string,
-    input: { name: string; uom: string; description: string },
+    input: { name: string; uom: string; description: string; vendorIds?: string[] },
   ) => string | null
   deletePurchaseProduct: (id: string) => void
   updatePurchaseProductVendors: (id: string, vendorIds: string[]) => void

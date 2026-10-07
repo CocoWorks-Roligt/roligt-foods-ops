@@ -17,7 +17,7 @@ type Stage = 'extraction' | 'melange'
 
 const STAGES: { id: Stage; label: string; blurb: string }[] = [
   { id: 'extraction', label: 'Extraction', blurb: 'Press raw produce into bulk' },
-  { id: 'melange', label: 'Melange', blurb: 'Blend that bulk to a recipe' },
+  { id: 'melange', label: 'Blend', blurb: 'Blend that bulk to a recipe' },
 ]
 
 export function Production() {

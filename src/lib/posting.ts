@@ -437,9 +437,9 @@ export function checkBatch(state: AppState, input: BatchInput, ignoreDoc?: strin
       .filter((c) => !blends.some((b) => b.item === c.item && b.qty > 0))
     if (missing.length) {
       const names = missing.map((c) => itemName(state, c.item)).join(', ')
-      return `${recipe?.name || 'This melange'} is blended from ${names}, and this run draws none. Add ${
+      return `${recipe?.name || 'This blend'} is blended from ${names}, and this run draws none. Add ${
         missing.length > 1 ? 'them' : 'it'
-      }, or pick a different melange.`
+      }, or pick a different blend.`
     }
   }
 

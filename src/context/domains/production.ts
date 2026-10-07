@@ -105,7 +105,7 @@ export function useProduction({ state, setState, nextId, log, showToast, announc
         })
         log(
           draft,
-          blending ? 'Posted melange' : 'Posted production',
+          blending ? 'Posted blend' : 'Posted production',
           id,
           `${blending ? 'Blended' : 'Consumed'} ${fmtRowTotal([...posted.sourceLines, ...posted.blendLines].map((l) => ({ qty: l.qty, uom: l.uom || '' })))} into ${describeOutputs(draft, posted.outputLines)}.`,
         )
@@ -219,7 +219,7 @@ export function useProduction({ state, setState, nextId, log, showToast, announc
         }
         log(
           draft,
-          existing.kind === 'Melange' ? 'Edited melange' : 'Edited production',
+          existing.kind === 'Melange' ? 'Edited blend' : 'Edited production',
           id,
           qtyChanged || moved
             ? `Re-posted ${fmtBatchInput(b)} into ${describeOutputs(draft, batchOutputs(b))}.`
@@ -247,7 +247,7 @@ export function useProduction({ state, setState, nextId, log, showToast, announc
         (x) => x.id !== id && (x.blendLines || []).some((l) => l.lot === id),
       )
       if (blendedInto) {
-        showToast(`Cannot delete: ${blendedInto.id} was blended from this batch. Delete that melange first.`)
+        showToast(`Cannot delete: ${blendedInto.id} was blended from this batch. Delete that blend first.`)
         return
       }
       // The sweep below unwinds the batch's own lines, its QC transfer lines and its

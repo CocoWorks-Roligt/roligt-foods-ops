@@ -87,7 +87,7 @@ export function useBulkProducts({ state, setState, nextId, log, showToast }: Cor
       // which is exactly why the recipe is now the single owner.
       const owner = state.melanges.find((m) => m.outputItem === id)
       if (owner) {
-        showToast(`${existing.name} belongs to the ${owner.name} melange — edit it there.`)
+        showToast(`${existing.name} belongs to the ${owner.name} blend — edit it there.`)
         return null
       }
       setState((prev) => {
@@ -141,13 +141,13 @@ export function useBulkProducts({ state, setState, nextId, log, showToast }: Cor
   const checkMelange = useCallback(
     (input: MelangeInput, id?: string): Problem => {
       const name = input.name.trim()
-      if (!name) return 'Give the melange a name — ABC Juice, Tropical Blend…'
+      if (!name) return 'Give the blend a name — ABC Juice, Tropical Blend…'
       if (state.melanges.some((m) => m.id !== id && m.name.toLowerCase() === name.toLowerCase())) {
         return `${name} already exists.`
       }
       if (input.uom !== 'Litre' && input.uom !== 'Kg') return 'A blend is measured in litres or kilograms.'
       const lines = input.components.filter((c) => c.item && c.share > 0)
-      if (lines.length < 2) return 'A melange blends at least two bulk components.'
+      if (lines.length < 2) return 'A blend mixes at least two bulk components.'
       if (new Set(lines.map((c) => c.item)).size !== lines.length) {
         return 'Each component can only be listed once.'
       }
@@ -201,7 +201,7 @@ export function useBulkProducts({ state, setState, nextId, log, showToast }: Cor
         })
         log(
           draft,
-          'Added melange recipe',
+          'Added blend recipe',
           id,
           `${name} — ${input.components.filter((c) => c.item && c.share > 0).map((c) => `${c.share}% ${itemName(draft, c.item)}`).join(', ')}.`,
         )
@@ -242,7 +242,7 @@ export function useBulkProducts({ state, setState, nextId, log, showToast }: Cor
           item.name = `${m.name} (bulk)`
           item.uom = m.uom
         }
-        log(draft, 'Edited melange recipe', id, m.name)
+        log(draft, 'Edited blend recipe', id, m.name)
         return draft
       })
       showToast(`${input.name.trim()} updated.`)
@@ -258,7 +258,7 @@ export function useBulkProducts({ state, setState, nextId, log, showToast }: Cor
         const m = draft.melanges.find((x) => x.id === id)
         if (!m) return prev
         m.status = status
-        log(draft, 'Updated melange recipe', id, `${m.name} set ${status}.`)
+        log(draft, 'Updated blend recipe', id, `${m.name} set ${status}.`)
         return draft
       })
       showToast('Recipe status updated.')
@@ -288,7 +288,7 @@ export function useBulkProducts({ state, setState, nextId, log, showToast }: Cor
         const draft = deepClone(prev)
         draft.melanges = draft.melanges.filter((x) => x.id !== id)
         draft.items = draft.items.filter((i) => i.id !== m.outputItem)
-        log(draft, 'Deleted melange recipe', id, m.name)
+        log(draft, 'Deleted blend recipe', id, m.name)
         return draft
       })
       showToast(`${m.name} deleted.`)

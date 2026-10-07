@@ -53,11 +53,11 @@ export const PAGES: Record<string, [string, string]> = {
   ],
   production: [
     'Production',
-    'Two stages, one page. Extraction presses produce into bulk; a melange blends that bulk to a recipe. Either way you get a batch with its own lot, its own QC and its own packs.',
+    'Two stages, one page. Extraction presses produce into bulk; a blend mixes that bulk to a recipe. Either way you get a batch with its own lot, its own QC and its own packs.',
   ],
   packing: [
     'Packing',
-    'Fill packs from a batch or melange run\'s bulk output to create finished goods.',
+    'Fill packs from a batch or blend run\'s bulk output to create finished goods.',
   ],
   quality: [
     'Quality Control',

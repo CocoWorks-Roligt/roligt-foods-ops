@@ -82,7 +82,7 @@ export const SENSORY_PRODUCT_GROUPS: SensoryProductGroup[] = [
     focus: 'Coconut freshness; sweetness; clarity; clean finish',
   },
   {
-    name: 'Coconut Melange',
+    name: 'Coconut Blend',
     checkpoints: 'Fruit identity; fruit:coconut balance; acidity; sweetness; natural fruit character',
     defects: 'Fruit oxidation; excessive acidity; muddled fruit flavour; separation; monk-fruit linger',
     focus: 'Fruit ratio; acid balance; sweetness; refreshing finish',

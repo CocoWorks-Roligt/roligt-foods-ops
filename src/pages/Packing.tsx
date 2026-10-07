@@ -306,7 +306,7 @@ export function Packing() {
       <div className="section-head">
         <div>
           <h3>Packing Runs</h3>
-          <span>Fill BiBs, bottles and covers from a batch's or melange's bulk output</span>
+          <span>Fill BiBs, bottles and covers from a batch's or blend's bulk output</span>
         </div>
         <div className="section-head-actions">
           <button className="btn btn-primary" onClick={openForm}>
@@ -490,7 +490,7 @@ export function Packing() {
             </Select>
           </div>
           <div className="field">
-            <label>Batch / melange run</label>
+            <label>Batch / blend run</label>
             <Select
               value={batchId}
               disabled={!bulkItem}

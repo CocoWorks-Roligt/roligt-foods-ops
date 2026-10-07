@@ -15,7 +15,7 @@ import type { CoreDeps } from './deps'
 import { migrateState } from '../../lib/migrate'
 import { deepClone } from '../../lib/utils'
 import type { ProductInput } from '../../lib/posting'
-import type { AppState, Item, LedgerEntry, Product } from '../../types'
+import type { AppState, Item, LedgerEntry, Product, PurchaseProduct, Vendor } from '../../types'
 
 const BULK: Item = {
   id: 'SF-TCW-WATER', name: 'Coconut Water (bulk)', type: 'Semi Finished', uom: 'Litre',
@@ -118,5 +118,76 @@ describe('updateProduct', () => {
     const draft = applied(d, setState)
     expect(draft.products[0].unit).toBe('L')
     expect(draft.products[0].packVolume).toBeCloseTo(0.3, 10)
+  })
+})
+
+/**
+ * The edit dialog's dropped supplier list. The form has always offered the
+ * supplier picker on edit, but its save posted only name/uom/description — a
+ * changed supplier list kept the old one, while the Suppliers button on the
+ * card (updatePurchaseProductVendors) applied it fine. The edit path now
+ * carries vendorIds through, under the same at-least-one-supplier rule add
+ * enforces for anything that is not packing material.
+ */
+describe('updatePurchaseProduct — suppliers', () => {
+  const PP: PurchaseProduct = {
+    id: 'PP-1', name: 'Tender Coconut', category: 'Farm Produce', uom: 'Nos',
+    description: '', vendorIds: ['VEN-1'], itemId: 'RM-PP-1', status: 'Active',
+  }
+  const PM: PurchaseProduct = {
+    ...PP, id: 'PP-2', name: '5 L BiB', category: 'Packing Material', uom: 'Piece',
+    vendorIds: ['VEN-1'], itemId: 'PM-PP-2',
+  }
+  const edit = (over: Partial<{ name: string; uom: string; description: string; vendorIds: string[] }> = {}) => ({
+    name: 'Tender Coconut', uom: 'Nos', description: '', ...over,
+  })
+
+  /** Suppliers survive migration only when the vendor exists — migrate.ts drops
+   *  dead links — so the fixture carries the vendors the products point at. */
+  const vendor = (id: string): Vendor => ({
+    id, name: `Vendor ${id}`, vendorTypeId: id === 'VEN-1' ? 'VT-FARMER' : 'VT-VENDOR',
+    phone: '', area: '', payment: '', status: 'Active',
+  })
+
+  function ppDeps(rows: PurchaseProduct[]) {
+    const base = deps([])
+    const state = migrateState({
+      vendors: [vendor('VEN-1'), vendor('VEN-2'), vendor('VEN-3')],
+      purchaseProducts: rows,
+    })
+    return { ...base, d: { ...base.d, state } }
+  }
+
+  it('applies a changed supplier list from the edit dialog', () => {
+    const { d, setState } = ppDeps([PP])
+    const { result } = renderHook(() => useCatalog(d))
+    expect(result.current.updatePurchaseProduct('PP-1', edit({ vendorIds: ['VEN-2', 'VEN-3'] }))).toBe('PP-1')
+    const draft = applied(d, setState)
+    expect(draft.purchaseProducts[0].vendorIds).toEqual(['VEN-2', 'VEN-3'])
+  })
+
+  it('keeps the existing suppliers when the caller does not mention them', () => {
+    const { d, setState } = ppDeps([PP])
+    const { result } = renderHook(() => useCatalog(d))
+    expect(result.current.updatePurchaseProduct('PP-1', edit({ name: 'Tender Coconuts' }))).toBe('PP-1')
+    const draft = applied(d, setState)
+    expect(draft.purchaseProducts[0].vendorIds).toEqual(['VEN-1'])
+    expect(draft.purchaseProducts[0].name).toBe('Tender Coconuts')
+  })
+
+  it('refuses clearing every supplier off farm produce — the rule add enforces', () => {
+    const { d, setState, showToast } = ppDeps([PP])
+    const { result } = renderHook(() => useCatalog(d))
+    expect(result.current.updatePurchaseProduct('PP-1', edit({ vendorIds: [] }))).toBeNull()
+    expect(setState).not.toHaveBeenCalled()
+    expect(showToast).toHaveBeenCalledWith('Select at least one farmer or vendor.')
+  })
+
+  it('lets a packing material float free of suppliers', () => {
+    const { d, setState } = ppDeps([PM])
+    const { result } = renderHook(() => useCatalog(d))
+    expect(result.current.updatePurchaseProduct('PP-2', edit({ name: '5 L BiB', vendorIds: [] }))).toBe('PP-2')
+    const draft = applied(d, setState)
+    expect(draft.purchaseProducts[0].vendorIds).toEqual([])
   })
 })

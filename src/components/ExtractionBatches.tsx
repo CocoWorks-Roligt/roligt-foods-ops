@@ -339,7 +339,7 @@ export function ExtractionBatches() {
           <h3>Extraction Batches</h3>
           <span>
             Stage 1 — press any produce into bulk, whatever it is. Stage 2 blends that bulk
-            under the Melange tab.
+            under the Blend tab.
           </span>
         </div>
         <div className="section-head-actions">
@@ -352,7 +352,7 @@ export function ExtractionBatches() {
         A batch presses raw material into <b>bulk</b>, kept in the cold room you pick and marked <b>Awaiting QC</b>. One output carries
         the batch cost and the rest are by-products that carry none — coconuts give water plus malai,
         beetroot gives juice plus pomace. Pass all tests in <b>Quality Control</b> to release the
-        batch, then blend it under <b>Melange</b> above or fill packs on <b>Packing</b>.
+        batch, then blend it under <b>Blend</b> above or fill packs on <b>Packing</b>.
       </div>
       <div className="toolbar">
         <input

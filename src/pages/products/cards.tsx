@@ -85,7 +85,7 @@ export function BulkCard({
             {item.id} · measured in {item.uom}
           </div>
         </div>
-        <StatusBadge value={isByProduct(item) ? 'By-product' : melange ? 'Melange' : 'Extraction'} />
+        <StatusBadge value={isByProduct(item) ? 'By-product' : melange ? 'Blend' : 'Extraction'} />
       </div>
       <div className="small">
         {isByProduct(item)

@@ -29,7 +29,7 @@ import type { AppState, StickerField, StickerStage, StickerTemplate, StockRow } 
 /** The stages, in the order the plant works through them. */
 export const STICKER_STAGES: { stage: StickerStage; label: string; blurb: string }[] = [
   { stage: 'raw', label: 'Raw lots', blurb: 'Produce received on a GRN — tag the crates' },
-  { stage: 'bulk', label: 'Bulk batches', blurb: 'What extraction and melanges made' },
+  { stage: 'bulk', label: 'Bulk batches', blurb: 'What extraction and blends made' },
   { stage: 'pack', label: 'Finished packs', blurb: 'Filled packs off a packing run' },
   { stage: 'material', label: 'Packing materials', blurb: 'Bottles, caps, boxes in store' },
   {

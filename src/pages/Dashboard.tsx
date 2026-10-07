@@ -159,7 +159,7 @@ export function Dashboard() {
   const today = [
     ['Goods receipts posted', state.grns.length],
     ['Extraction batches', extractions.length],
-    ['Melange runs', melangeRuns.length],
+    ['Blend runs', melangeRuns.length],
     ['Bulk pressed (extraction only)', pressedLabel],
     ['Average yield per unit issued', yieldLabel],
     ['Spoiled produce', spoiledLabel],

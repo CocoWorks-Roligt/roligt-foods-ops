@@ -644,7 +644,7 @@ export function ProductionPlanning() {
             >
               {STAGES.map((s) => (
                 <option key={s} value={s}>
-                  {s}
+                  {s === 'Melange' ? 'Blend' : s}
                 </option>
               ))}
             </Select>

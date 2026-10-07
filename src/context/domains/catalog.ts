@@ -96,12 +96,26 @@ export function useCatalog({ state, setState, nextId, log, showToast }: CoreDeps
   )
 
   const updatePurchaseProduct = useCallback(
-    (id: string, input: { name: string; uom: string; description: string }): string | null => {
+    (
+      id: string,
+      input: { name: string; uom: string; description: string; vendorIds?: string[] },
+    ): string | null => {
       const existing = state.purchaseProducts.find((p) => p.id === id)
       if (!existing) return null
       const error = checkPurchaseProduct(input, id)
       if (error) {
         showToast(error)
+        return null
+      }
+      // the same rule add enforces: produce names who grew it, a packing
+      // material may float free. Without it the edit dialog could legally
+      // save a farm product with no supplier left.
+      if (
+        existing.category !== 'Packing Material' &&
+        input.vendorIds !== undefined &&
+        !input.vendorIds.length
+      ) {
+        showToast('Select at least one farmer or vendor.')
         return null
       }
       // Stock already received was counted in the old unit and the ledger is never
@@ -118,6 +132,10 @@ export function useCatalog({ state, setState, nextId, log, showToast }: CoreDeps
         p.name = input.name.trim()
         p.uom = input.uom
         p.description = input.description
+        // The edit dialog has always offered the supplier picker; the save used
+        // to drop it here, so a changed supplier list silently kept the old one
+        // (the Suppliers button on the card worked, the edit form did not).
+        if (input.vendorIds) p.vendorIds = [...input.vendorIds]
         const item = draft.items.find((i) => i.id === p.itemId)
         if (item) {
           item.name = p.name

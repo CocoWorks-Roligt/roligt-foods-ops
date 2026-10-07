@@ -143,7 +143,10 @@ function createdBy(state: AppState, id: string): AuditEntry[] {
   if (!q) return []
   return state.audits
     .filter(
-      (a) => a.doc === q.batchId && (a.action === 'Posted production' || a.action === 'Posted melange'),
+      // 'Posted melange' is the pre-rename spelling — rows already stored keep it
+      (a) =>
+        a.doc === q.batchId &&
+        (a.action === 'Posted production' || a.action === 'Posted melange' || a.action === 'Posted blend'),
     )
     .sort((x, y) => x.time.localeCompare(y.time))
     .slice(0, 1)

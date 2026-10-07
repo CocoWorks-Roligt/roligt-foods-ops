@@ -146,6 +146,36 @@ describe('ZohoClient', () => {
     await expect(c.upsertByKey('T1', 'F', 'k', {})).rejects.toBeInstanceOf(ZohoLockedError)
   })
 
+  it('classifies the detail-free 400 on a criteria read as throttling — the burst-400 incident shape', async () => {
+    // 2026-10-07: back-to-back criteria reads answered exactly this body while the
+    // identical spaced call succeeded 4/4 — a throttle wearing 400's clothes. It
+    // must surface retryable (503 + Retry-After server-side) so the client backs
+    // off instead of re-POSTing its queue every 30s at the choked window.
+    const calls: { url: string; init?: RequestInit }[] = []
+    const c = new ZohoClient({ fetchImpl: fakeFetch(calls, [
+      { status: 400, body: { error: { code: 400, message: 'BAD REQUEST' } } },
+    ]), env: ENV })
+    const err = await c.fetchByKeyIn('T1', 'F', ['K']).then(
+      () => null,
+      (e: unknown) => e,
+    )
+    expect(err).toBeInstanceOf(ZohoLockedError)
+    expect((err as ZohoLockedError).retryAfterSec).toBe(60)
+  })
+
+  it('still fails hard on a criteria 400 that carries detail, and on a bare 400 off the criteria path', async () => {
+    // a real malformed request explains itself; and the retryable reading is
+    // scoped to the criteria read alone — a bare 400 on a write stays a hard error
+    const detailed = new ZohoClient({ fetchImpl: fakeFetch([], [
+      { status: 400, body: { error: { code: 400, message: 'BAD REQUEST: criteria syntax' } } },
+    ]), env: ENV })
+    await expect(detailed.fetchByKeyIn('T1', 'F', ['K'])).rejects.toBeInstanceOf(ZohoApiError)
+    const write = new ZohoClient({ fetchImpl: fakeFetch([], [
+      { status: 400, body: { error: { code: 400, message: 'BAD REQUEST' } } },
+    ]), env: ENV })
+    await expect(write.upsertByKey('T1', 'F', 'k', {})).rejects.toBeInstanceOf(ZohoApiError)
+  })
+
   it('maps a non-JSON 500 to ZohoApiError', async () => {
     const calls: { url: string; init?: RequestInit }[] = []
     const c = new ZohoClient({ fetchImpl: fakeFetch(calls, [

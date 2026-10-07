@@ -212,7 +212,7 @@ export function MelangeRuns() {
   const viewSections: DetailSection[] = viewing
     ? [
         {
-          title: 'Melange run',
+          title: 'Blend run',
           fields: [
             { label: 'Run', value: viewing.id },
             { label: 'Blended on', value: fmtDate(viewing.date) },
@@ -281,7 +281,7 @@ export function MelangeRuns() {
       <div className="card">
         <div className="section-head">
           <div>
-            <h3>Melange runs</h3>
+            <h3>Blend runs</h3>
             <span>Blend the bulk extraction made. The blend gets its own lot, QC and packs.</span>
           </div>
           <div className="section-head-actions">
@@ -291,11 +291,11 @@ export function MelangeRuns() {
               disabled={!activeRecipes.length}
               title={
                 !activeRecipes.length
-                  ? 'Add a melange on Products & Materials first'
+                  ? 'Add a blend on Products & Materials first'
                   : undefined
               }
             >
-              + New Melange Run
+              + New Blend Run
             </button>
           </div>
         </div>
@@ -328,7 +328,7 @@ export function MelangeRuns() {
 
         <div className="toolbar">
           <input
-            placeholder="Search run or melange"
+            placeholder="Search run or blend"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -340,7 +340,7 @@ export function MelangeRuns() {
           columns={[
             { k: 'id', label: 'Run', kind: 'text' },
             { k: 'date', label: 'Date', kind: 'date' },
-            { k: 'melange', label: 'Melange' },
+            { k: 'melange', label: 'Blend' },
             { k: 'out', label: 'Blend out', kind: 'num' },
             { k: 'loss', label: 'Loss', kind: 'num' },
             { k: 'cost', label: 'Cost / unit', kind: 'num' },
@@ -353,7 +353,7 @@ export function MelangeRuns() {
               <tr>
                 <SortHeader label="Run" k="id" first="desc" sort={sort} onToggle={toggle} />
                 <SortHeader label="Date" k="date" first="desc" sort={sort} onToggle={toggle} />
-                <SortHeader label="Melange" k="melange" sort={sort} onToggle={toggle} />
+                <SortHeader label="Blend" k="melange" sort={sort} onToggle={toggle} />
                 <SortHeader label="Components" k="components" first="desc" sort={sort} onToggle={toggle} />
                 <SortHeader label="Blend Out" k="out" first="desc" sort={sort} onToggle={toggle} />
                 <SortHeader label="Loss" k="loss" first="desc" sort={sort} onToggle={toggle} />
@@ -368,7 +368,7 @@ export function MelangeRuns() {
                   <td colSpan={9} className="empty">
                     <EmptyState
                       filtered={!!search}
-                      empty="No melange runs yet."
+                      empty="No blend runs yet."
                       onClear={() => setSearch('')}
                     />
                   </td>
@@ -384,7 +384,7 @@ export function MelangeRuns() {
                         <b>{b.id}</b>
                       </td>
                       <td data-label="Date">{fmtDate(b.date)}</td>
-                      <td data-label="Melange">{batchLabel(state, b)}</td>
+                      <td data-label="Blend">{batchLabel(state, b)}</td>
                       <td data-label="Components">
                         {(b.blendLines || []).map((l) => (
                           <div key={`${l.item}-${l.lot}`}>
@@ -431,7 +431,7 @@ export function MelangeRuns() {
 
       <DetailView
         open={!!viewing}
-        title={viewing ? `${viewing.id} · ${batchLabel(state, viewing)}` : 'Melange run'}
+        title={viewing ? `${viewing.id} · ${batchLabel(state, viewing)}` : 'Blend run'}
         sections={viewSections}
         onClose={closeView}
         record={viewing?.id}
@@ -439,15 +439,15 @@ export function MelangeRuns() {
 
       <Modal
         open={runOpen}
-        title={editingRun ? `Edit ${editingRun.id} · ${batchLabel(state, editingRun)}` : 'New Melange Run'}
-        saveLabel={editingRun ? 'Save Changes' : 'Post Melange'}
+        title={editingRun ? `Edit ${editingRun.id} · ${batchLabel(state, editingRun)}` : 'New Blend Run'}
+        saveLabel={editingRun ? 'Save Changes' : 'Post Blend'}
         onClose={() => {
           setRunOpen(false)
           setRunEditId('')
         }}
         onSave={() => {
           if (!selected) {
-            showToast('Select a melange.')
+            showToast('Select a blend.')
             return
           }
           if (!(outTotal > 0)) {
@@ -479,9 +479,9 @@ export function MelangeRuns() {
             <input type="datetime-local" value={date} onChange={(e) => setDate(e.target.value)} />
           </div>
           <div className="field span-2">
-            <label>Melange</label>
+            <label>Blend</label>
             <Select value={melangeId} disabled={locked} onChange={(e) => pickRecipe(e.target.value)}>
-              <option value="">Select melange</option>
+              <option value="">Select blend</option>
               {activeRecipes.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.name} · {m.components.map((c) => `${c.share}%`).join(' / ')}
@@ -524,7 +524,7 @@ export function MelangeRuns() {
           </div>
           <div className="subform-body">
             {!selected ? (
-              <div className="small">Pick a melange and its components are laid out here.</div>
+              <div className="small">Pick a blend and its components are laid out here.</div>
             ) : (
               <>
                 <div className="subform-row pack-row blend-row pack-row-head">

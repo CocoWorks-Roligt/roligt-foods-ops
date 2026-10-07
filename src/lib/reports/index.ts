@@ -75,8 +75,8 @@ export const REPORTS: ReportDef[] = [
     title: 'Production report',
     family: 'Production',
     method:
-      'Net-new bulk = extraction outputs + mélange outputs − bulk a mélange drew, so blended litres already counted at extraction are not counted twice. Packs are counted off packing runs.',
-    blurb: 'What was made, month by month — extractions, melanges, net-new bulk, packs, yield and cost trends.',
+      'Net-new bulk = extraction outputs + blend outputs − bulk a blend drew, so blended litres already counted at extraction are not counted twice. Packs are counted off packing runs.',
+    blurb: 'What was made, month by month — extractions, blends, net-new bulk, packs, yield and cost trends.',
     sources: 'Production batches + packing runs',
     compare: true,
     ranged: true,

@@ -100,7 +100,7 @@ export function MelangeRecipes() {
       <div className="card products-panel">
         <div className="section-head">
           <div>
-            <h3>Melanges (blends)</h3>
+            <h3>Blends</h3>
             <span>
               A recipe for blending the bulks above into one — ABC is apple, beetroot and carrot
               in fixed shares. Each recipe is its own bulk product, so packs can be filled from it.
@@ -108,7 +108,7 @@ export function MelangeRecipes() {
           </div>
           <div className="section-head-actions">
             <button className="btn btn-primary" onClick={openNew}>
-              + Add Melange
+              + Add Blend
             </button>
           </div>
         </div>
@@ -181,8 +181,8 @@ export function MelangeRecipes() {
 
       <Modal
         open={open}
-        title={editId ? `Edit ${editId}` : 'Add Melange'}
-        saveLabel={editId ? 'Save Changes' : 'Save Melange'}
+        title={editId ? `Edit ${editId}` : 'Add Blend'}
+        saveLabel={editId ? 'Save Changes' : 'Save Blend'}
         onClose={() => {
           setOpen(false)
           setEditId('')
@@ -197,7 +197,7 @@ export function MelangeRecipes() {
       >
         <div className="form-grid">
           <div className="field span-2">
-            <label>Melange name</label>
+            <label>Blend name</label>
             <input
               value={recipe.name}
               placeholder="e.g. ABC Juice"
@@ -315,7 +315,7 @@ export function MelangeRecipes() {
         <div className="note">
           {editId
             ? 'Runs already posted keep the shares they were blended at — a recipe change only guides the next run.'
-            : `Saving creates "${recipe.name.trim() || 'the melange'} (bulk)" as its own bulk product, so blended stock is never mixed up with the bulks it was made from. Blend it on the Production page, then add a pack filled from it.`}
+            : `Saving creates "${recipe.name.trim() || 'the blend'} (bulk)" as its own bulk product, so blended stock is never mixed up with the bulks it was made from. Blend it on the Production page, then add a pack filled from it.`}
         </div>
       </Modal>
     </>

@@ -64,10 +64,10 @@ function docSections(state: AppState, id: string): { title: string; sections: De
       if (!b) return null
       const reports = labReportSection(state, b.id)
       return {
-        title: `${ref.kind === 'melange' ? 'Melange run' : 'Production batch'} · ${b.id}`,
+        title: `${ref.kind === 'melange' ? 'Blend run' : 'Production batch'} · ${b.id}`,
         sections: [
           {
-            title: ref.kind === 'melange' ? 'Melange run' : 'Batch',
+            title: ref.kind === 'melange' ? 'Blend run' : 'Batch',
             fields: [
               { label: 'Run' , value: b.id },
               { label: ref.kind === 'melange' ? 'Blended on' : 'Produced on', value: fmtDate(b.date) },

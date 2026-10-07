@@ -447,7 +447,7 @@ function ProductionView({ def }: { def: ReportDef }) {
   const columns: ExportColumn<typeof report.rows[number]>[] = [
     { header: 'Month', value: (r) => monthLabel(r.month) },
     { header: 'Extractions', value: (r) => r.extractions },
-    { header: 'Mélange runs', value: (r) => r.melanges },
+    { header: 'Blend runs', value: (r) => r.melanges },
     { header: 'Net-new bulk', value: (r) => fmtUoms(r.netNew) },
     { header: 'Spoiled', value: (r) => fmtUoms(r.spoiled) },
     { header: 'Avg yield', value: (r) => r.avgYield.map((y) => `${y.pair}: ${y.avg}`).join('; ') },
@@ -469,7 +469,7 @@ function ProductionView({ def }: { def: ReportDef }) {
         <div className="metric">
           <div className="label">Batches</div>
           <div className="value">{t.extractions + t.melanges}</div>
-          <div className="sub">{t.extractions} extractions · {t.melanges} mélange</div>
+          <div className="sub">{t.extractions} extractions · {t.melanges} blend</div>
         </div>
         <div className="metric">
           <div className="label">Packs filled</div>
@@ -512,7 +512,7 @@ function ProductionView({ def }: { def: ReportDef }) {
                 <tr key={r.month}>
                   <td data-label="Month">{monthLabel(r.month)}</td>
                   <td data-label="Extractions" className="cell-num">{r.extractions}</td>
-                  <td data-label="Mélange" className="cell-num">{r.melanges}</td>
+                  <td data-label="Blend" className="cell-num">{r.melanges}</td>
                   <td data-label="Net-new bulk" className="cell-num">{fmtUoms(r.netNew)}</td>
                   <td data-label="Spoiled" className="cell-num">{fmtUoms(r.spoiled)}</td>
                   <td data-label="Avg yield" className="cell-num">

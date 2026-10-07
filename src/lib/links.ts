@@ -39,7 +39,7 @@ export interface DocRef {
 export const KIND_LABEL: Record<DocKind, string> = {
   grn: 'Goods receipt',
   batch: 'Production batch',
-  melange: 'Melange run',
+  melange: 'Blend run',
   qc: 'QC record',
   packing: 'Packing run',
   material: 'Packing material receipt',

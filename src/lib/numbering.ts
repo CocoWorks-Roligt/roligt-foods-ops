@@ -88,7 +88,7 @@ export const NUMBER_SERIES: SeriesDef[] = [
   series('grn', 'Procurement', 'Goods receipt (GRN)', 'One per load received at the gate', 'RFTC', '{P}{YYYY}{N}'),
   series('lot', 'Procurement', 'Raw material lot', 'The lot a receipt puts into store', 'LOT', '{P}-{YYYYMMDD}-{N}', 3),
   series('batch', 'Production', 'Extraction batch', 'A pressing run', 'BAT'),
-  series('melangeBatch', 'Production', 'Melange run', 'A blend against a recipe', 'MEL'),
+  series('melangeBatch', 'Production', 'Blend run', 'A blend against a recipe', 'MEL'),
   series('packing', 'Production', 'Packing run', 'Bulk filled into packs', 'PKG'),
   series('order', 'Sales', 'Customer order', 'What a customer asked for', 'ORD'),
   series('dispatch', 'Sales', 'Dispatch', 'One line of goods leaving', 'DSP'),
@@ -105,7 +105,7 @@ export const NUMBER_SERIES: SeriesDef[] = [
   series('purchaseProduct', 'Masters', 'Purchase product', 'What may be bought, and from whom', 'PP', PLAIN),
   series('product', 'Masters', 'Pack product', 'A finished-goods SKU', 'FG', PLAIN),
   series('bulkProduct', 'Masters', 'Bulk product', 'A semi-finished output', 'SF', PLAIN),
-  series('melange', 'Masters', 'Melange recipe', 'A blend the plant can run', 'MLG', PLAIN),
+  series('melange', 'Masters', 'Blend recipe', 'A blend the plant can run', 'MLG', PLAIN),
   series('storageLocation', 'Masters', 'Storage area', 'A cold room, dry store or hold area', 'LOC', PLAIN),
   series('staff', 'Masters', 'Staff member', 'Someone on the plant roster', 'STF', PLAIN),
 ]

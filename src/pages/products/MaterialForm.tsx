@@ -59,6 +59,7 @@ export function MaterialForm({
               name: form.name,
               uom: form.uom,
               description: form.description,
+              vendorIds: form.vendorIds,
             })
           : addPurchaseProduct(form)
         if (ok) (onSaved || onClose)()
@@ -77,6 +78,10 @@ export function MaterialForm({
           <label>Category</label>
           <Select
             value={form.category}
+            // Frozen while editing: the category picked the item's type and id
+            // prefix when it was created, so it cannot move afterwards — better
+            // locked than silently dropped on save the way suppliers once were.
+            disabled={!!editId}
             onChange={(e) =>
               setForm((f) => ({ ...f, category: e.target.value as PurchaseCategory }))
             }
