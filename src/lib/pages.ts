@@ -69,6 +69,9 @@ export const PAGE_CATALOG: readonly PageRow[] = [
   { id: 'customers', path: '/customers', label: 'Customers', slug: 'page.customers', tier: 'masters' },
   { id: 'purchase-products', path: '/purchase-products', label: 'Products & Materials', slug: 'page.purchase-products', tier: 'masters' },
   { id: 'test-parameters', path: '/test-parameters', label: 'Test Parameters', slug: 'page.test-parameters', tier: 'masters' },
+  // The licences/permits register: an online, standalone page (its rows are not a
+  // synced collection), so its tick carries /api/compliance/* and nothing else.
+  { id: 'compliance', path: '/compliance', label: 'Compliance', slug: 'page.compliance', tier: 'masters' },
   // Settings and Administration are pages like any other: their screens are
   // their permission (page.settings carries the config keys, the admin pages
   // carry the user/role admin APIs), so an administrator is just a role with

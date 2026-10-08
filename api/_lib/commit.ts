@@ -73,6 +73,7 @@ const CONFIG_NUMBER_KEYS = [
   'yieldTolerance',
   'pmTolerance',
   'expiryAlertDays',
+  'complianceLeadDays',
   'lowStockPacks',
   'stickerWidthMm',
   'stickerHeightMm',
@@ -235,7 +236,7 @@ export class Conflict extends Error {
  * protocol changes. The strict "<appId>:<digits>" parse is what keeps the
  * criteria unambiguous: only this row's own token can match it.
  */
-function versionPlan(
+export function versionPlan(
   table: TableRef,
   appId: string,
   stored: ZohoRecord | undefined,

@@ -45,6 +45,7 @@ export const SCHEMAS: Record<string, Record<string, TableRef>> = {
     "Audit Log": {"name":"Audit Log","id":"JwjpIQ","appId":"S656ng","dataJson":"ay6fbg","fields":{"Doc":"OxrNnQ","Action":"QyRcww","Details":"h1-AaA","Actor":"Yso8yQ","Time":"JFSOPQ","App ID":"S656ng","Data JSON":"ay6fbg"}},
     "Sticker Templates": {"name":"Sticker Templates","id":"wUvRcw","appId":"QMqz2g","dataJson":"aLAsCQ","fields":{"Name":"MT3l2Q","Stage":"8no5PA","Template JSON":"w91cXg","App ID":"QMqz2g","Data JSON":"aLAsCQ","Version":"v66iYA"}},
     "Sticker Prints": {"name":"Sticker Prints","id":"1gipcg","appId":"YumHUw","dataJson":"ZjTelw","fields":{"Doc No":"hZ279A","Stage":"SUO-Ew","Title":"eDrNrA","Printed At":"TYbl7A","Qty":"1KQxtg","App ID":"YumHUw","Data JSON":"ZjTelw"}},
+    "Compliance Documents": {"name":"Compliance Documents","id":"skl6qw","appId":"B--Q2Q","dataJson":"oAc1zg","fields":{"Title":"8mhywA","Expires On":"m_GWmg","Version":"1ixbTQ","App ID":"B--Q2Q","Data JSON":"oAc1zg"}},
   },
   // synced from topup-state.gerc53fe.json
   "gerc53fe9f1e44e5f4a13809d9bd47367ba9d": {

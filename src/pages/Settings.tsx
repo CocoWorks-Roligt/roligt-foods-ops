@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Select } from '../components/Select'
+import { DEFAULT_COMPLIANCE_LEAD_DAYS } from '../lib/complianceRules'
 import { DEFAULT_CONTROL_SAMPLE_DAYS } from '../lib/controlSamples'
 import { useApp } from '../context/AppContext'
 import {
@@ -318,6 +319,42 @@ export function Settings() {
           onClick={() => saveSection(['controlSampleDays'])}
         >
           Save Control Samples
+        </button>
+      </div>
+
+      <div className="section-head" style={{ marginTop: 28 }}>
+        <div>
+          <h3>Compliance Reminders</h3>
+          <span>How far ahead of a licence's expiry its reminder email fires</span>
+        </div>
+      </div>
+      <div className="form-grid">
+        <div className="field">
+          <label>Remind this many days before expiry</label>
+          <input
+            type="number"
+            min={1}
+            step={1}
+            value={config.complianceLeadDays ?? DEFAULT_COMPLIANCE_LEAD_DAYS}
+            onChange={(e) => setConfig((c) => ({ ...c, complianceLeadDays: Number(e.target.value) }))}
+          />
+        </div>
+      </div>
+      <div className="note">
+        One email per document, sent to the addresses on the document itself when it comes inside this
+        window (and once, worded as expired, for anything that already lapsed without a reminder).
+        Renewing a document on the Compliance page re-arms it for the next expiry.
+      </div>
+      <div style={{ marginTop: 14 }}>
+        <button
+          className="btn btn-primary"
+          disabled={
+            !Number.isInteger(config.complianceLeadDays ?? DEFAULT_COMPLIANCE_LEAD_DAYS) ||
+            (config.complianceLeadDays ?? DEFAULT_COMPLIANCE_LEAD_DAYS) < 1
+          }
+          onClick={() => saveSection(['complianceLeadDays'])}
+        >
+          Save Compliance Reminders
         </button>
       </div>
 

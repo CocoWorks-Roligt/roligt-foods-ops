@@ -108,6 +108,10 @@ export const PAGES: Record<string, [string, string]> = {
     'Test Parameters',
     'The report types a product is tested on and what each one tests — parameters for a lab certificate, weighted attributes for a scored evaluation.',
   ],
+  compliance: [
+    'Compliance',
+    'Licences, permits and certificates — who issued them, when they expire, and one reminder email before each does.',
+  ],
   settings: ['Settings', 'Operational tolerances and plant configuration.'],
   audit: ['Audit Log', 'Every posting, in order. Entries are never edited or removed.'],
   'admin-users': [

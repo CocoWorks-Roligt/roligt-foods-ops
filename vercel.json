@@ -5,5 +5,11 @@
     "api/commit.ts": { "maxDuration": 300 },
     "api/**/*.ts": { "maxDuration": 60 }
   },
+  "crons": [
+    {
+      "path": "/api/compliance/remind",
+      "schedule": "30 3 * * *"
+    }
+  ],
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }

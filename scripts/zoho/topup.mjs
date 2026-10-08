@@ -226,6 +226,78 @@ if (!state.tables['Sticker Prints']?.done) {
   }
 }
 
+// 2b. Compliance Documents table (fork-owned): the standalone online register behind
+//     the Compliance page — licenses/permits/certificates with expiry reminders.
+//     Deliberately NOT in TABLE_FOR and not a COLLECTIONS spec: the snapshot sweep
+//     must stay exactly 26 reads, so /api/compliance/* reads this table on demand.
+//     Resumable via the done flag, same contract as Sticker Prints above.
+if (!state.tables['Compliance Documents']?.done) {
+  if (DRY) {
+    if (!state.tables['Compliance Documents'] && !listing.some((t) => t.name === 'Compliance Documents')) {
+      plan.push('+ Compliance Documents table (Title, Expires On, Version + App ID + Data JSON + starter-row sweep)')
+    } else {
+      plan.push('~ Compliance Documents exists but its state is not done — run without --dry-run to finish it')
+    }
+  } else {
+    let st = state.tables['Compliance Documents']
+    if (!st) {
+      const created = (await api('POST', '/tables', { base_id: TARGET, table_name: 'Compliance Documents' })).tables.created[0]
+      st = state.tables['Compliance Documents'] = { id: created.tableID, fields: {} }
+      save()
+      console.log('+ Compliance Documents table')
+    }
+    // Plain text columns only — never an attachment column (a string there makes Zoho
+    // silently drop every field after it in the same upsert; see mappers.ts). The file
+    // bytes live in Vercel Blob; the Data JSON carries the object key.
+    const LABELS = ['Title', 'Expires On', 'Version']
+    const fs = await fieldsOf(st.id)
+    for (const f of fs) {
+      const n = fname(f)
+      if (n && !st.fields[n] && !/^field/i.test(n)) st.fields[n] = fid(f)
+    }
+    const defaults = fs.filter((f) => /^field/i.test(fname(f) || ''))
+    if (defaults.length) {
+      const prim = defaults[0]
+      await api('PUT', '/fields', { base_id: TARGET, table_id: st.id, field_id: fid(prim), field_name: LABELS[0], type: 23 })
+      delete st.fields[fname(prim)]
+      st.fields[LABELS[0]] = fid(prim)
+      st.primary = fid(prim)
+      save()
+      console.log(`  ~ Compliance Documents.${LABELS[0]} (claimed default ${fname(prim)})`)
+      for (const d of defaults.slice(1)) {
+        await api('DELETE', '/fields', { base_id: TARGET, table_id: st.id, field_id: fid(d) })
+        delete st.fields[fname(d)]
+        console.log(`  - Compliance Documents: dropped default ${fname(d)}`)
+      }
+      save()
+    }
+    for (const label of LABELS) {
+      if (st.fields[label]) continue
+      const c = (await api('POST', '/fields', { base_id: TARGET, table_id: st.id, type: 23 })).fields.created[0]
+      await api('PUT', '/fields', { base_id: TARGET, table_id: st.id, field_id: fid(c), field_name: label, type: 23 })
+      st.fields[label] = fid(c)
+      save()
+      console.log(`  + Compliance Documents.${label}`)
+    }
+    st.appId = await ensureTextField(st.id, 'Compliance Documents', 'App ID')
+    st.dataJson = st.fields['Data JSON'] = await ensureTextField(st.id, 'Compliance Documents', 'Data JSON')
+    // best-effort sweep of the starter rows — cosmetic, never fatal
+    try {
+      const r = await api('POST', '/fetchRecordsWithCriteria', { base_id: TARGET, table_id: st.id, count: 100 })
+      const recs = r.records?.fetched ?? r.records?.data ?? []
+      const ids = recs.map((x) => x.recordID ?? x.recordId).filter(Boolean)
+      for (const rid of ids) {
+        await api('DELETE', '/records', { base_id: TARGET, table_id: st.id, record_id: rid })
+      }
+      if (ids.length) console.log(`  - Compliance Documents: swept ${ids.length} starter records`)
+    } catch (e) {
+      console.log(`  ! Compliance Documents starter-record sweep skipped: ${String(e.message || e).slice(0, 140)}`)
+    }
+    st.done = true
+    save()
+  }
+}
+
 // 3. Config rows: app_revision / app_config — upsert by the string criteria form
 //    (the array-shaped criteria errors; pinned by the Task 4 probe).
 const cfg = state.tables['Config']

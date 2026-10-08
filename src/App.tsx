@@ -45,6 +45,7 @@ const Storage = lazy(() => import('./pages/Storage').then((m) => ({ default: m.S
 const Stickers = lazy(() => import('./pages/Stickers').then((m) => ({ default: m.Stickers })))
 const ControlSamples = lazy(() => import('./pages/ControlSamples').then((m) => ({ default: m.ControlSamples })))
 const TestParameters = lazy(() => import('./pages/TestParameters').then((m) => ({ default: m.TestParameters })))
+const Compliance = lazy(() => import('./pages/Compliance').then((m) => ({ default: m.Compliance })))
 const Traceability = lazy(() => import('./pages/Traceability').then((m) => ({ default: m.Traceability })))
 const Vendors = lazy(() => import('./pages/Vendors').then((m) => ({ default: m.Vendors })))
 const UsersAdmin = lazy(() => import('./pages/admin/Users').then((m) => ({ default: m.Users })))
@@ -125,6 +126,7 @@ function AuthGate() {
             <Route path="customers" element={<RequirePage viewId="customers"><Customers /></RequirePage>} />
             <Route path="purchase-products" element={<RequirePage viewId="purchase-products"><PurchaseProducts /></RequirePage>} />
             <Route path="test-parameters" element={<RequirePage viewId="test-parameters"><TestParameters /></RequirePage>} />
+            <Route path="compliance" element={<RequirePage viewId="compliance"><Compliance /></RequirePage>} />
             <Route path="settings" element={<RequirePage viewId="settings"><Settings /></RequirePage>} />
             <Route path="audit" element={<RequirePage viewId="audit"><Audit /></RequirePage>} />
             <Route path="admin/users" element={<RequirePage viewId="admin-users"><UsersAdmin /></RequirePage>} />

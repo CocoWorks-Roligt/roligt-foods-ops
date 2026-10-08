@@ -43,8 +43,16 @@ if (TARGET === 'production' && HATCH !== 'production') {
 const BFF_KEYS = [
   'ZOHO_BASE_ID', 'ZOHO_CLIENT_ID', 'ZOHO_CLIENT_SECRET', 'ZOHO_REFRESH_TOKEN', 'ZOHO_DC',
   'WORKOS_API_HOSTNAME', 'WORKOS_CLIENT_ID', 'WORKOS_API_KEY', 'WORKOS_COOKIE_PASSWORD', 'WORKOS_ORG_ID',
+  'CRON_SECRET',
 ]
-const OPTIONAL_KEYS = ['WORKOS_REDIRECT_URI', 'VITE_WORKOS_CLIENT_ID']
+// optional integrations the BFF reads when present — the mail sender and the
+// Cloudflare R2 document store; absent means the feature answers 503, not that
+// the deploy is broken, so they never gate the WORKOS completeness check
+const OPTIONAL_KEYS = [
+  'WORKOS_REDIRECT_URI', 'VITE_WORKOS_CLIENT_ID',
+  'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'MAIL_FROM', 'MAIL_REPLY_TO',
+  'R2_ACCOUNT_ID', 'R2_BUCKET', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY',
+]
 const APPTICS_KEYS = ['VITE_APPTICS_PROJECT_ID', 'VITE_APPTICS_ZSOID', 'VITE_APPTICS_APP_TOKEN', 'VITE_APPTICS_DC']
 // never leave this checkout, whatever the source file says
 const REFUSED_KEYS = ['ALLOW_DEV_SESSION', 'ALLOW_DEV_HOSTS']

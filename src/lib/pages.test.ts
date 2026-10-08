@@ -21,7 +21,7 @@ describe('PAGE_CATALOG', () => {
     // …and runtime: they are all of them, unique, and the display map agrees
     expect(new Set(ids).size).toBe(PAGE_CATALOG.length)
     expect([...ids].sort()).toEqual(Object.keys(PAGES).sort())
-    expect(PAGE_CATALOG.length).toBe(26)
+    expect(PAGE_CATALOG.length).toBe(27)
   })
 
   it('has unique paths and unique slugs', () => {

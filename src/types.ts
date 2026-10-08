@@ -31,6 +31,7 @@ export type ViewId =
   | 'customers'
   | 'purchase-products'
   | 'test-parameters'
+  | 'compliance'
   | 'settings'
   | 'audit'
   | 'admin-users'
@@ -69,6 +70,8 @@ export interface Config {
   testCategories?: TestCategoryDef[]
   /** Days a control sample is kept, counted from the day it was produced. */
   controlSampleDays?: number
+  /** Days before a compliance document's expiry the single reminder email fires. */
+  complianceLeadDays?: number
 }
 
 /**

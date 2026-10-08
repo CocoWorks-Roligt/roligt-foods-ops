@@ -53,6 +53,10 @@ const authSignout = (await import('../api/auth/signout.ts')).default
 const authSession = (await import('../api/auth/session.ts')).default
 const adminUsers = (await import('../api/admin/users.ts')).default
 const adminRoles = (await import('../api/admin/roles.ts')).default
+const complianceDocuments = (await import('../api/compliance/documents.ts')).default
+const complianceUpload = (await import('../api/compliance/upload.ts')).default
+const complianceFile = (await import('../api/compliance/file.ts')).default
+const complianceRemind = (await import('../api/compliance/remind.ts')).default
 
 const API_ROUTES = {
   '/api/snapshot': snapshotHandler,
@@ -64,6 +68,10 @@ const API_ROUTES = {
   '/api/auth/session': authSession,
   '/api/admin/users': adminUsers,
   '/api/admin/roles': adminRoles,
+  '/api/compliance/documents': complianceDocuments,
+  '/api/compliance/upload': complianceUpload,
+  '/api/compliance/file': complianceFile,
+  '/api/compliance/remind': complianceRemind,
 }
 
 const DIST = join(root, 'dist')
