@@ -17,6 +17,8 @@
  */
 import { ZohoClient } from './zoho.js'
 import { SCHEMAS } from './baseSchema.js'
+import { D1Client } from './d1.js'
+import { useD1, type Store } from './store.js'
 
 /**
  * Throw when env names a base the generated schemas don't carry. Unset stays allowed:
@@ -45,3 +47,15 @@ assertBaseMatch(process.env)
 // outcome, where sleeping to the minute's end was a death sentence for a
 // half-applied commit.
 export const zoho = new ZohoClient({ maxWaitMs: 45_000 })
+
+/**
+ * The D1 migration's cutover switch: D1_DATABASE_ID present ⇒ the D1 engine
+ * serves; absent ⇒ the Zoho engine this file always built. Both instances stay
+ * cheap to hold — the Zoho client makes no calls in D1 mode and the D1 client
+ * is nothing but three strings until a route uses it — so one deployment image
+ * can serve either engine by env alone (rollback on cutover day = remove
+ * D1_DATABASE_ID, redeploy, nothing else). The engines are selected in
+ * engine.ts; this module only owns construction.
+ */
+export const d1 = useD1() ? new D1Client() : null
+export const store: Store = d1 ?? zoho

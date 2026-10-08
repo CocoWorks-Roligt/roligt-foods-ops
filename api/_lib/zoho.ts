@@ -13,6 +13,7 @@
  *     creates — a retried commit after a partial failure re-writes the same row instead
  *     of duplicating a ledger line.
  */
+import { LockedError } from './store.js'
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>
 
@@ -26,11 +27,9 @@ export class ZohoApiError extends Error {
     super(`${op} → HTTP ${status}: ${body.slice(0, 300)}`)
   }
 }
-export class ZohoLockedError extends Error {
-  readonly retryAfterSec: number
+export class ZohoLockedError extends LockedError {
   constructor(retryAfterSec = 300) {
-    super('Zoho Tables rate-limit lock engaged — retry shortly')
-    this.retryAfterSec = retryAfterSec
+    super(retryAfterSec, 'Zoho Tables rate-limit lock engaged — retry shortly')
   }
 }
 /**

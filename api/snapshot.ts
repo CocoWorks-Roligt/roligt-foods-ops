@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { ZohoLockedError } from './_lib/zoho.js'
+import { LockedError } from './_lib/store.js'
 import { authenticate, AuthError } from './_lib/auth.js'
 import { admitSnapshot } from './_lib/snapshotThrottle.js'
 import { projectSnapshot, readSnapshotCached } from './_lib/snapshot.js'
@@ -35,7 +35,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
       res.status(401).json({ error: e.message })
       return
     }
-    if (e instanceof ZohoLockedError) {
+    if (e instanceof LockedError) {
       res.setHeader('Retry-After', String(e.retryAfterSec))
       res.status(503).json({ error: 'Zoho is rate-limited — try again shortly.' })
       return

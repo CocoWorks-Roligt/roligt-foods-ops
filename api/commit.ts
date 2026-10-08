@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { ZohoLockedError } from './_lib/zoho.js'
+import { LockedError } from './_lib/store.js'
 import { authenticate, AuthError } from './_lib/auth.js'
 import { commitChanges, Conflict, Forbidden, Malformed, validateChanges } from './_lib/commit.js'
 import { admitCommit } from './_lib/commitThrottle.js'
@@ -80,7 +80,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
       res.status(409).json({ error: e.message, conflicts: e.conflicts })
       return
     }
-    if (e instanceof ZohoLockedError) {
+    if (e instanceof LockedError) {
       res.setHeader('Retry-After', String(e.retryAfterSec))
       res.status(503).json({ error: 'Zoho is rate-limited — the change is saved on this device and will retry.' })
       return

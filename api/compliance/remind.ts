@@ -25,7 +25,8 @@ import { zoho } from '../_lib/shared.js'
 import { T } from '../_lib/baseSchema.js'
 import { writeAdminAudit } from '../_lib/adminAudit.js'
 import { versionPlan } from '../_lib/commit.js'
-import { ZohoCasConflictError, ZohoLockedError } from '../_lib/zoho.js'
+import { ZohoCasConflictError } from '../_lib/zoho.js'
+import { LockedError } from '../_lib/store.js'
 import { docFromRow, docTable, markSentPatch, rowValues } from '../_lib/compliance.js'
 import { sendMail } from '../_lib/mailer.js'
 import {
@@ -126,7 +127,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
     }
     res.status(200).json({ ok: true, due: due.length, sent, failed })
   } catch (e) {
-    if (e instanceof ZohoLockedError) {
+    if (e instanceof LockedError) {
       res.setHeader('Retry-After', String(e.retryAfterSec))
       res.status(503).json({ error: 'Zoho is rate-limited — the next scheduled run retries.' })
       return
