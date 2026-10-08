@@ -11,8 +11,8 @@
  */
 import { readFileSync, existsSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { fileURLToPath, dirname } from 'node:url'
-import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const CW = join(HERE, '..', '..')
@@ -38,11 +38,11 @@ if (!ACCOUNT || !TOKEN || !DATABASE) {
 const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8'))
 const URL_QUERY = `${process.env.D1_API_BASE || 'https://api.cloudflare.com'}/client/v4/accounts/${ACCOUNT}/d1/database/${DATABASE}/query`
 
-async function query(sql) {
+async function query(sql, params = []) {
   const res = await fetch(URL_QUERY, {
     method: 'POST',
     headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ sql, params: [] }),
+    body: JSON.stringify({ sql, params }),
   })
   const json = await res.json().catch(() => null)
   if (!json?.success) throw new Error(`query refused (HTTP ${res.status}): ${JSON.stringify(json?.errors ?? json).slice(0, 300)}`)

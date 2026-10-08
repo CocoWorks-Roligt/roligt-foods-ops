@@ -74,19 +74,29 @@ async function token() {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 let lastRead = 0
 async function api(method, path, params = {}) {
-  const rgap = 2500 - (Date.now() - lastRead)
-  if (rgap > 0) await sleep(rgap)
-  lastRead = Date.now()
-  const url = new URL('https://tables.zoho.in/api/v1' + path)
-  for (const [k, v] of Object.entries(params))
-    if (v !== undefined && v !== null) url.searchParams.set(k, typeof v === 'object' ? JSON.stringify(v) : String(v))
-  const res = await fetch(url, { method, headers: { Authorization: 'Zoho-oauthtoken ' + (await token()) } })
-  const text = await res.text()
-  let j
-  try { j = JSON.parse(text) } catch { throw new Error(`${method} ${path} → HTTP ${res.status}: ${text.slice(0, 200)}`) }
-  const e = j?.error || Object.values(j || {}).map((n) => n && n.error).find(Boolean)
-  if (e) throw new Error(`${method} ${path}: ${JSON.stringify(e)}`)
-  return j
+  for (let attempt = 0; ; attempt++) {
+    const rgap = 2500 - (Date.now() - lastRead)
+    if (rgap > 0) await sleep(rgap)
+    lastRead = Date.now()
+    const url = new URL('https://tables.zoho.in/api/v1' + path)
+    for (const [k, v] of Object.entries(params))
+      if (v !== undefined && v !== null) url.searchParams.set(k, typeof v === 'object' ? JSON.stringify(v) : String(v))
+    const res = await fetch(url, { method, headers: { Authorization: 'Zoho-oauthtoken ' + (await token()) } })
+    const text = await res.text()
+    let j
+    try { j = JSON.parse(text) } catch { throw new Error(`${method} ${path} → HTTP ${res.status}: ${text.slice(0, 200)}`) }
+    const e = j?.error || Object.values(j || {}).map((n) => n && n.error).find(Boolean)
+    if (!e) return j
+    // the bare detail-free 400 on reads is Zoho's burst throttle (the app client
+    // classifies it as a 60 s lock — zoho.ts) — back off and retry, it is not a refusal
+    const burst = e.code === 400 && /bad request/i.test(String(e.message ?? ''))
+    if (burst && attempt < 3) {
+      console.log(`  ~ Zoho burst throttle on ${path} — waiting 60 s (attempt ${attempt + 1}/3)`)
+      await sleep(60_000)
+      continue
+    }
+    throw new Error(`${method} ${path}: ${JSON.stringify(e)}`)
+  }
 }
 
 const recordsFrom = (j) => j.records?.fetched ?? j.records?.data ?? j.data?.records ?? []
@@ -134,16 +144,18 @@ function rowsToStatements(prefix, rowsSql) {
   const stmts = []
   let cur = []
   let bytes = 0
-  for (const r of rowsSql) {
-    if (cur.length && bytes + r.length > 48_000) {
-      stmts.push(`${prefix}\n  ${cur.join(',\n  ')}`)
-      cur = []
-      bytes = 0
-    }
-    cur.push(r)
-    bytes += r.length
+  const flush = () => {
+    if (cur.length) stmts.push(`${prefix}\n  ${cur.join(',\n  ')}`)
+    cur = []
+    bytes = 0
   }
-  if (cur.length) stmts.push(`${prefix}\n  ${cur.join(',\n  ')}`)
+  for (const r of rowsSql) {
+    const row = `(${r})`
+    if (cur.length && bytes + row.length > 48_000) flush()
+    cur.push(row)
+    bytes += row.length
+  }
+  flush()
   return stmts
 }
 
