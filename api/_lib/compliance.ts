@@ -37,11 +37,13 @@ export interface ComplianceRow {
   version: string
 }
 
-/** The doc inside a row, or null for a hand-staged row with no parsable Data JSON. */
-export function docFromRow(table: TableRef, row: ZohoRecord): ComplianceDoc | null {
-  if (!table.dataJson) return null
-  const raw = row.data[table.dataJson]
-  if (typeof raw !== 'string' || !raw) return null
+/**
+ * A stored document string → the doc, or null. The one parse every engine
+ * shares: Zoho hands it the Data JSON column, D1 hands it the documents row's
+ * json — a hand-staged or unparsable payload is never a conflict, just not a
+ * document.
+ */
+export function parseDocJson(raw: string): ComplianceDoc | null {
   try {
     const parsed = JSON.parse(raw) as ComplianceDoc
     return parsed && typeof parsed.id === 'string' ? parsed : null
@@ -50,9 +52,26 @@ export function docFromRow(table: TableRef, row: ZohoRecord): ComplianceDoc | nu
   }
 }
 
+/** The doc inside a row, or null for a hand-staged row with no parsable Data JSON. */
+export function docFromRow(table: TableRef, row: ZohoRecord): ComplianceDoc | null {
+  if (!table.dataJson) return null
+  const raw = row.data[table.dataJson]
+  if (typeof raw !== 'string' || !raw) return null
+  return parseDocJson(raw)
+}
+
 export function rowVersion(table: TableRef, row: ZohoRecord): string {
   const versionFieldId = table.fields['Version'] ?? ''
   return versionFieldId ? String(row.data[versionFieldId] ?? '') : ''
+}
+
+/** Soonest expiry first, undated documents after those, expired before upcoming. */
+export function sortComplianceRows<T extends ComplianceRow>(rows: T[]): T[] {
+  return rows.sort((a, b) => {
+    const ak = a.doc.expiresOn ?? '9999-12-31'
+    const bk = b.doc.expiresOn ?? '9999-12-31'
+    return ak === bk ? a.doc.title.localeCompare(b.doc.title) : ak < bk ? -1 : 1
+  })
 }
 
 export function rowsToDocs(table: TableRef, rows: ZohoRecord[]): ComplianceRow[] {
@@ -61,13 +80,7 @@ export function rowsToDocs(table: TableRef, rows: ZohoRecord[]): ComplianceRow[]
     const doc = docFromRow(table, row)
     if (doc) out.push({ doc, version: rowVersion(table, row) })
   }
-  // soonest expiry first, undated documents after those, expired before upcoming
-  out.sort((a, b) => {
-    const ak = a.doc.expiresOn ?? '9999-12-31'
-    const bk = b.doc.expiresOn ?? '9999-12-31'
-    return ak === bk ? a.doc.title.localeCompare(b.doc.title) : ak < bk ? -1 : 1
-  })
-  return out
+  return sortComplianceRows(out)
 }
 
 /**

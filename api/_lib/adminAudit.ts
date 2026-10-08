@@ -16,10 +16,13 @@
  * how an admin action came to sleep out a rate-limit window mid-request.
  */
 import type { ZohoClient } from './zoho.js'
+import type { D1Client } from './d1.js'
 import { T } from './baseSchema.js'
 import { auditColumns } from './mappers.js'
 import { bumpRevisionTo, columnsByFieldId } from './commit.js'
 import { cachedRevision, invalidateSnapshotCache, readRevision } from './snapshot.js'
+import { bumpStatement } from './d1Commit.js'
+import { noteD1Revision } from './d1Snapshot.js'
 import type { Caller } from './auth.js'
 
 function auditId(): string {
@@ -62,4 +65,37 @@ export async function writeAdminAudit(
   // The bump is this process's own knowledge of the plant at its newest — keep
   // the snapshot cache's revision current with it instead of dropping to cold.
   invalidateSnapshotCache(token)
+}
+
+/**
+ * The D1 arm — the same filing as ONE atomic batch: the audit insert (insert-
+ * only, ON CONFLICT DO NOTHING) and the shared revision-bump statement, so an
+ * admin action can never land its trail row without the poll announcing it.
+ * The Zoho arm tolerates exactly that split (row upsert, then a bump that can
+ * fail after it); here the batch removes the window. The fresh token feeds the
+ * read memos directly (noteD1Revision) — the state memo self-invalidates by
+ * its revision key, which is the D1 side's whole invalidation story.
+ */
+export async function writeAdminAuditD1(
+  d1: D1Client,
+  caller: Caller,
+  action: string,
+  doc: string,
+  details: string,
+): Promise<void> {
+  const row = { id: auditId(), at: new Date().toISOString(), actor: caller.email, action, doc, details }
+  const out = await d1.batch<{ value?: unknown }>([
+    {
+      sql: `INSERT INTO documents(collection, id, json, version, updated_at) VALUES ('audits', ?, ?, 1, ?)
+        ON CONFLICT(collection, id) DO NOTHING`,
+      params: [row.id, JSON.stringify(row), row.at],
+    },
+    bumpStatement(),
+  ])
+  const token = out[1].results[0]?.value
+  if (typeof token !== 'string' || !token) {
+    // unreachable while the schema's seed row stands — the honest error if it does not
+    throw new Error('The app_revision row is missing — the audit landed but no poll will announce it.')
+  }
+  noteD1Revision(token)
 }

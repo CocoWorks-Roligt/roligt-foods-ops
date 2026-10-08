@@ -34,8 +34,17 @@ CREATE TABLE IF NOT EXISTS counters (
 -- error so the whole commit batch rolls back, when the REST batch is atomic
 -- (Design A — pinned by scripts/d1/probe.mjs before the engine trusts it).
 -- Every write batch empties it first: DELETE FROM _assert_changed;
+-- The constraint is NAMED "_assert_changed" — exactly the string the engines'
+-- /_assert_changed/ pattern searches for — because SQLite words a CHECK
+-- failure "CHECK constraint failed: <constraint name>", so the name IS the
+-- message the engines recognize their assert trip by.
 CREATE TABLE IF NOT EXISTS _assert_changed (
-  n INTEGER NOT NULL CHECK (n = 1)
+  n INTEGER NOT NULL,
+  CONSTRAINT _assert_changed CHECK (n = 1)
 );
 
-INSERT OR IGNORE INTO meta(setting, value) VALUES ('app_revision', '0:seed');
+-- Seeded as '0' — the exact token a fresh Zoho base serves — so an empty
+-- database reads as never-written (assembleState's everWritten check) and the
+-- first client seeds it. The dump's INSERT OR REPLACE lands the real token
+-- over this at import.
+INSERT OR IGNORE INTO meta(setting, value) VALUES ('app_revision', '0');

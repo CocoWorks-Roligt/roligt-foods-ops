@@ -33,8 +33,10 @@ vi.mock('./auth.ts', () => ({
   AuthError: class AuthError extends Error {},
 }))
 
-vi.mock('./shared.ts', () => ({
-  zoho: {
+vi.mock('./shared.ts', () => {
+  // the same client serves as both `zoho` and `store` — the engine seam hands
+  // the register whichever face it asks for, and the Zoho arm is what answers
+  const client = {
     baseId: 'dhorj90a2ded0152a4f1d94ae8ce4ece09a5c',
     fetchAll: vi.fn(async (tableId: string) => (world.fetchAllImpl ? world.fetchAllImpl(tableId) : [])),
     fetchByKeyIn: vi.fn(async (_t: string, _k: string, ids: string[]) => (world.byKey ? world.byKey(ids) : [])),
@@ -46,13 +48,16 @@ vi.mock('./shared.ts', () => ({
       world.deletes.push(args)
       return undefined
     }),
-  },
-}))
+  }
+  return { zoho: client, store: client }
+})
 
 vi.mock('./adminAudit.ts', () => ({
   writeAdminAudit: vi.fn(async (_z: unknown, caller: unknown, action: string, docTitle: string, details: string) => {
     world.audits.push([caller, action, docTitle, details])
   }),
+  // the D1 arm must bind for engine.ts even though these routes never take it
+  writeAdminAuditD1: vi.fn(),
 }))
 
 vi.mock('./mailer.ts', () => ({
