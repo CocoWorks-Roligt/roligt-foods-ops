@@ -6,10 +6,12 @@ import {
   invalidateSnapshotCache,
   noteCommitApplied,
   noteRevision,
+  parseZohoRows,
   projectSnapshot,
   readRevisionMemoized,
   readSnapshotCached,
   withheldForCaller,
+  type SnapshotRows,
 } from './snapshot.js'
 import { TABLE_FOR, T as LIVE_T } from './baseSchema.js'
 import { PAGE_CATALOG } from '../../src/lib/pages.js'
@@ -30,9 +32,13 @@ const rec = (appId: string, json: unknown, extra: Record<string, unknown> = {}):
   data: { 'f-app': appId, ...(json === undefined ? {} : { 'f-data': JSON.stringify(json) }), ...extra },
 })
 
+// The engine seam split assembleState into the Zoho-row parse and the pure
+// assembly; this composition is the one the sweep itself uses.
+const assemble = (rows: SnapshotRows) => assembleState(parseZohoRows(T as never, rows))
+
 describe('assembleState', () => {
   it('maps collections, ledger, audits, counters and config back into the app shape', () => {
-    const state = assembleState(T as never, {
+    const state = assemble({
       grns: [rec('GRN-1', { id: 'GRN-1', lot: 'LOT-1', total: 100 })],
       vendors: [rec('V-1', { id: 'V-1', name: 'Sriram' })],
       ledger: [rec('L-1', { id: 'L-1', type: 'GRN', qty_in: 100 })],
@@ -58,7 +64,7 @@ describe('assembleState', () => {
   })
 
   it('returns null state when nothing was ever posted', () => {
-    const state = assembleState(T as never, {
+    const state = assemble({
       grns: [], vendors: [], ledger: [], audits: [], counters: [], config: [],
     })
     expect(state.state).toBeNull()
@@ -69,7 +75,7 @@ describe('assembleState', () => {
     // The scratch base's seed rows have App IDs but empty Data JSON. Such a row is not
     // a document, so the key must stay absent — `migrateState` seeds a collection
     // only when it is missing, and an empty array would read as "deliberately empty".
-    const state = assembleState(T as never, {
+    const state = assemble({
       grns: [rec('GRN-1', undefined), rec('GRN-2', { id: 'GRN-2', lot: 'LOT-2' })],
       vendors: [rec('V-1', undefined)],
       ledger: [], audits: [], counters: [], config: [],
@@ -85,7 +91,7 @@ describe('assembleState', () => {
     // Reading them back with the generic doc decoder left qtyIn/itemType undefined, the
     // stock fold turned into NaN and a posted receipt never showed as stock. Pinned by
     // the live gate against the scratch base, 2026-09-22.
-    const state = assembleState(T as never, {
+    const state = assemble({
       ledger: [
         rec('L-9', {
           id: 'L-9', type: 'Receipt', doc: 'RFTC20260001', item: 'RM-TCW-COCO', item_type: 'Raw Material',
@@ -112,7 +118,7 @@ describe('assembleState', () => {
     // detector would reset the running number on every boot. Such a row must be
     // ignored even when Config has nothing to say about the period. Pinned live
     // 2026-09-22.
-    const state = assembleState(T as never, {
+    const state = assemble({
       grns: [rec('GRN-1', { id: 'GRN-1', lot: 'LOT-1' })],
       vendors: [], ledger: [], audits: [],
       counters: [{ recordID: 'c1', data: { 'f-series': 'period:grn', 'f-next': '' } }],
@@ -127,7 +133,7 @@ describe('assembleState', () => {
     // must say "deliberately empty" ([]), which migrateState will NOT reseed. Rows
     // that exist without Data JSON mean the table was staged but never written to;
     // the key stays absent so first-boot seeding still happens.
-    const state = assembleState(T as never, {
+    const state = assemble({
       grns: [rec('GRN-1', { id: 'GRN-1', lot: 'LOT-1' })], // someone has written something
       vendors: [], // wiped
       ledger: [rec('L-1', undefined)], // staged without Data JSON
@@ -842,7 +848,7 @@ describe('projectSnapshot — one substrate, each caller their own view', () => 
   const EVERY_PAGE = PAGE_CATALOG.map((p) => p.slug)
 
   const fullSnap = () =>
-    assembleState(T as never, {
+    assemble({
       grns: [rec('GRN-1', { id: 'GRN-1', lot: 'LOT-1' })],
       vendors: [rec('V-1', { id: 'V-1', name: 'Sriram', phone: '98450 00001', email: 'sriram@farm.example' })],
       customers: [rec('C-1', { id: 'C-1', name: 'Hotel Aroma', gst: '29ABCDE1234F1Z5', phone: '99000 00002', contactPerson: 'Ravi' })],
@@ -929,7 +935,7 @@ describe('projectSnapshot — one substrate, each caller their own view', () => 
   })
 
   it('answers the same withheld list for an empty plant and a full one — no data-presence leak', () => {
-    const empty = assembleState(T as never, {
+    const empty = assemble({
       grns: [], vendors: [], ledger: [], audits: [], counters: [], config: [],
     })
     expect(empty.state).toBeNull()

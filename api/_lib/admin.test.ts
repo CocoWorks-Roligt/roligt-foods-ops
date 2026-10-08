@@ -100,7 +100,9 @@ vi.mock('./shared.ts', async () => {
     }
     return new Response(JSON.stringify({ records: { fetched: [] } }), { status: 200 })
   }
-  return { zoho: new ZohoClient({ fetchImpl, env: {} as Record<string, string | undefined>, writesPerMin: 100_000 }) }
+  // `store` is the engine seam's handle on the same client (shared.ts export).
+  const client = new ZohoClient({ fetchImpl, env: {} as Record<string, string | undefined>, writesPerMin: 100_000 })
+  return { zoho: client, store: client }
 })
 
 vi.mock('./snapshot.ts', () => ({

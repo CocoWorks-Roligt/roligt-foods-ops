@@ -26,7 +26,9 @@ export class LockedError extends Error {
 
 export type Store = ZohoClient | D1Client
 
-/** True when the D1 engine serves this deployment (the cutover switch). */
-export function useD1(): boolean {
+/** True when the D1 engine serves this deployment (the cutover switch). Not
+ *  named useD1 — the `use` prefix reads as a React hook to the react-hooks
+ *  lint rule, and this predicate has nothing to do with hooks. */
+export function d1Enabled(): boolean {
   return Boolean(process.env.D1_DATABASE_ID && process.env.D1_API_TOKEN && process.env.D1_ACCOUNT_ID)
 }

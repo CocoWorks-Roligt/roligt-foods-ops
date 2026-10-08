@@ -58,7 +58,9 @@ vi.mock('./shared.ts', async () => {
   // 26/min held the whole file's ledger at exactly 26 — the first added test
   // pushed fire #8 of the refill loop into a full window and every test after
   // inherited the poisoned budget. Uncapped here on purpose.
-  return { zoho: new ZohoClient({ fetchImpl, env: {} as Record<string, string | undefined>, readsPerMin: 100_000 }) }
+  // `store` is the engine seam's handle on the same client (shared.ts export).
+  const client = new ZohoClient({ fetchImpl, env: {} as Record<string, string | undefined>, readsPerMin: 100_000 })
+  return { zoho: client, store: client }
 })
 
 vi.mock('./snapshot.ts', async () => {

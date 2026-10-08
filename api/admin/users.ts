@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { authenticate, AuthError, type Caller } from '../_lib/auth.js'
 import { LockedError } from '../_lib/store.js'
-import { zoho } from '../_lib/shared.js'
-import { writeAdminAudit } from '../_lib/adminAudit.js'
+import { store } from '../_lib/shared.js'
+import { writeAdminAudit } from '../_lib/engine.js'
 import {
   createPasswordResetLink,
   createUserWithRoles,
@@ -143,7 +143,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
         // Audited first: a failure after this leaves a trail row recording the
         // attempt, never an un-audited landed action — and the row's own
         // reset-link action names the state to check.
-        await writeAdminAudit(zoho, caller, 'user created', email, `roles: ${roleSlugs.join(', ') || 'none'}`)
+        await writeAdminAudit(store, caller, 'user created', email, `roles: ${roleSlugs.join(', ') || 'none'}`)
         await createUserWithRoles({ email, name: body.name, roleSlugs })
         try {
           const link = await createPasswordResetLink(email)
@@ -172,7 +172,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
           res.status(403).json({ error: 'A password link for this member would hand over more access than you hold — ask a full admin.' })
           return
         }
-        await writeAdminAudit(zoho, caller, 'password link minted', row.email, 'one-time link; the holder sets this user’s password')
+        await writeAdminAudit(store, caller, 'password link minted', row.email, 'one-time link; the holder sets this user’s password')
         const link = await createPasswordResetLink(row.email)
         extra.resetUrl = link.url
         extra.expiresAt = link.expiresAt
@@ -198,7 +198,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
           res.status(400).json({ error: 'Refused — this would leave nobody able to manage users. Grant another admin first.' })
           return
         }
-        await writeAdminAudit(zoho, caller, 'user deactivated', row.email, 'organization membership deactivated; their session retires within a minute')
+        await writeAdminAudit(store, caller, 'user deactivated', row.email, 'organization membership deactivated; their session retires within a minute')
         await deactivateUser(membershipId)
         break
       }
@@ -213,7 +213,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
           res.status(400).json({ error: 'That user is not in the organization — perhaps already removed.' })
           return
         }
-        await writeAdminAudit(zoho, caller, 'user reactivated', row.email, 'organization membership reactivated')
+        await writeAdminAudit(store, caller, 'user reactivated', row.email, 'organization membership reactivated')
         await reactivateUser(membershipId)
         break
       }
@@ -239,7 +239,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
           res.status(400).json({ error: 'Refused — this would leave nobody able to manage users. Grant another admin first.' })
           return
         }
-        await writeAdminAudit(zoho, caller, 'user roles set', membershipId, `roles: ${roleSlugs.join(', ') || 'none'}`)
+        await writeAdminAudit(store, caller, 'user roles set', membershipId, `roles: ${roleSlugs.join(', ') || 'none'}`)
         await setUserRoles(membershipId, roleSlugs)
         break
       }
@@ -265,7 +265,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
           res.status(400).json({ error: 'Refused — this would leave nobody able to manage users. Grant another admin first.' })
           return
         }
-        await writeAdminAudit(zoho, caller, 'user access removed', row.email, 'organization membership deleted; the WorkOS account survives')
+        await writeAdminAudit(store, caller, 'user access removed', row.email, 'organization membership deleted; the WorkOS account survives')
         await removeMembership(membershipId)
         break
       }
@@ -289,7 +289,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
           res.status(400).json({ error: 'Refused — this would leave nobody able to manage users. Grant another admin first.' })
           return
         }
-        await writeAdminAudit(zoho, caller, 'user deleted', row.email, 'WorkOS account permanently deleted, memberships with it')
+        await writeAdminAudit(store, caller, 'user deleted', row.email, 'WorkOS account permanently deleted, memberships with it')
         await deleteUserAccount(userId)
         break
       }

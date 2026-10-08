@@ -18,7 +18,7 @@
 import { ZohoClient } from './zoho.js'
 import { SCHEMAS } from './baseSchema.js'
 import { D1Client } from './d1.js'
-import { useD1, type Store } from './store.js'
+import { d1Enabled, type Store } from './store.js'
 
 /**
  * Throw when env names a base the generated schemas don't carry. Unset stays allowed:
@@ -57,5 +57,5 @@ export const zoho = new ZohoClient({ maxWaitMs: 45_000 })
  * D1_DATABASE_ID, redeploy, nothing else). The engines are selected in
  * engine.ts; this module only owns construction.
  */
-export const d1 = useD1() ? new D1Client() : null
+export const d1 = d1Enabled() ? new D1Client() : null
 export const store: Store = d1 ?? zoho

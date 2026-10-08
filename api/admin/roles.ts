@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { authenticate, AuthError } from '../_lib/auth.js'
 import { LockedError } from '../_lib/store.js'
-import { zoho } from '../_lib/shared.js'
-import { writeAdminAudit } from '../_lib/adminAudit.js'
+import { store } from '../_lib/shared.js'
+import { writeAdminAudit } from '../_lib/engine.js'
 import {
   createRole,
   ensurePermissions,
@@ -97,7 +97,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
         }
         // Audited first: a failure after this leaves a trail row recording the
         // attempt, never an un-audited landed action.
-        await writeAdminAudit(zoho, caller, 'role created', slug, name)
+        await writeAdminAudit(store, caller, 'role created', slug, name)
         await createRole(slug, name)
         break
       }
@@ -143,7 +143,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
             return
           }
         }
-        await writeAdminAudit(zoho, caller, 'role permissions set', slug, `permissions: ${permissions.join(', ') || 'none'}`)
+        await writeAdminAudit(store, caller, 'role permissions set', slug, `permissions: ${permissions.join(', ') || 'none'}`)
         await setRolePermissions(slug, permissions)
         break
       }
