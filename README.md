@@ -182,6 +182,11 @@ A feature that adds a table or field lands as declarative data in `topup.mjs`,
 then runs once per base. `scripts/zoho/make-scratch.mjs` builds a disposable
 scratch base for e2e — run the sync on it afterwards.
 
+**Is Zoho throttling us right now?** `node scripts/zoho/probe-live-status.mjs [base-id]`
+makes two read-only criteria reads 8 s apart against a base's Config table (the
+exact shape `readRevision` makes) and prints a verdict. It defaults to the
+production base and reads its credentials from `.zoho.env` (gitignored).
+
 The day's work (receive, produce, pack, dispatch) is open to every signed-in
 caller; masters, the staff register, settings, audit removals and user
 administration each need their page's tick from `src/lib/permissions.ts` —
@@ -229,6 +234,21 @@ document numbering — can be read on its own. If you are adding a rule, it goes
 Worth reading first, in this order: `src/types.ts` (the domain, heavily commented),
 `src/lib/stock.ts` (how a balance is derived), `src/lib/posting.ts` (what each document
 is allowed to do and the ledger lines it writes).
+
+## Docs
+
+Design notes, runbooks and audits live in `docs/`, one file per topic, dated:
+
+| Doc | What it covers |
+|---|---|
+| `docs/d1-migration-2026-10-09.md` | The cutover runbook — Zoho Tables → Cloudflare D1 |
+| `docs/d1-load-test-2026-10-09.md` | D1 load test on scratch, the growth curve, and the documented limits |
+| `docs/pack-catalog-2026-10-09.md` | Packs created once with recipes assigned inside them; packs as D1 records |
+| `docs/role-access-and-blend-components-2026-10-09.md` | Role-user CRUD, and blend components |
+| `docs/compliance-register-2026-10-08.md` | Compliance register — licence PDFs, expiry dates, reminder email |
+| `docs/adversarial-audit-2026-10-07.md` | Five-pass adversarial audit and its remediation plan |
+| `docs/zoho-version-probe-results.md` | Raw results of the Version-column (optimistic concurrency) probe, written by `scripts/zoho/probe-version.mjs` |
+| `docs/zoho-books-integration-2026-09-28.md` | Plan for pushing invoices and bills to Zoho Books (not implemented yet) |
 
 ## Things to know before changing anything
 
