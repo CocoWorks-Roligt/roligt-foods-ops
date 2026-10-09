@@ -1,10 +1,9 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { ZohoLockedError } from './_lib/zoho.js'
+import { LockedError } from './_lib/store.js'
 import { authenticate, AuthError } from './_lib/auth.js'
-import { commitChanges, Conflict, Forbidden, Malformed, validateChanges } from './_lib/commit.js'
+import { commitChanges, invalidateSnapshotCache, Conflict, Forbidden, Malformed, validateChanges } from './_lib/engine.js'
 import { admitCommit } from './_lib/commitThrottle.js'
-import { invalidateSnapshotCache } from './_lib/snapshot.js'
-import { zoho } from './_lib/shared.js'
+import { store } from './_lib/shared.js'
 import { toWebRequest } from './_lib/vercel.js'
 import type { StateChanges } from '../src/lib/sync.js'
 
@@ -50,7 +49,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
       res.status(429).json({ error: 'Too many commits from this account — the change is still saved on this device and will retry.' })
       return
     }
-    const { token: revision, wrote } = await commitChanges(zoho, caller, body.changes)
+    const { token: revision, wrote } = await commitChanges(store, caller, body.changes)
     if (wrote) {
       // This process has now changed the base with its own hands — anything it
       // cached about the old plant is spent, even though the revision moved too.
@@ -80,7 +79,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
       res.status(409).json({ error: e.message, conflicts: e.conflicts })
       return
     }
-    if (e instanceof ZohoLockedError) {
+    if (e instanceof LockedError) {
       res.setHeader('Retry-After', String(e.retryAfterSec))
       res.status(503).json({ error: 'Zoho is rate-limited — the change is saved on this device and will retry.' })
       return

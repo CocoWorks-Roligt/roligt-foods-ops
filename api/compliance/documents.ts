@@ -5,22 +5,22 @@
  * through the same version discipline as commits: the client sends the Version
  * token it last saw as baseVersion, the pre-flight read compares it with the
  * row's stored token, and a mismatch refuses with the commit route's 409
- * 'changed' shape; the write itself is conditional on that token (versionPlan
- * + CAS), so a row moved in the window between read and write refuses the same
- * way. Every mutation writes its audit row and bumps the revision exactly the
- * way admin actions do, so the change reaches every client's Audit page on its
- * next poll. The documents table is not a synced collection — this route is
- * its only reader, and the snapshot sweep never spends a read on it.
+ * 'changed' shape; the write itself is conditional on that token, so a row
+ * moved in the window between read and write refuses the same way. Every
+ * mutation writes its audit row and bumps the revision exactly the way admin
+ * actions do, so the change reaches every client's Audit page on its next
+ * poll. The register is not a synced collection — this route is its only
+ * reader, and the snapshot sweep never spends a read on it; which store serves
+ * it is the engine seam's business (complianceStore.ts), not this route's.
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { authenticate, AuthError } from '../_lib/auth.js'
-import { ZohoApiError, ZohoCasConflictError, ZohoLockedError } from '../_lib/zoho.js'
-import { zoho } from '../_lib/shared.js'
-import { writeAdminAudit } from '../_lib/adminAudit.js'
+import { LockedError } from '../_lib/store.js'
+import { store } from '../_lib/shared.js'
+import { complianceStore, writeAdminAudit } from '../_lib/engine.js'
 import { admitCommit } from '../_lib/commitThrottle.js'
-import { versionPlan } from '../_lib/commit.js'
 import { toWebRequest } from '../_lib/vercel.js'
-import { canonicalDoc, carryReminderState, docFromRow, docTable, normalizeDocPayload, rowValues, rowVersion, rowsToDocs } from '../_lib/compliance.js'
+import { canonicalDoc, carryReminderState, normalizeDocPayload } from '../_lib/compliance.js'
 
 type Body = {
   action?: 'save' | 'remove'
@@ -38,10 +38,10 @@ export default async function (req: VercelRequest, res: VercelResponse) {
       res.status(403).json({ error: 'You do not have permission to manage compliance documents.' })
       return
     }
-    const table = docTable()
+    const cs = complianceStore(store)
 
     if (req.method === 'GET') {
-      res.status(200).json({ docs: rowsToDocs(table, await zoho.fetchAll(table.id)) })
+      res.status(200).json({ docs: await cs.list() })
       return
     }
 
@@ -76,9 +76,9 @@ export default async function (req: VercelRequest, res: VercelResponse) {
         return
       }
       const incoming = normalized.doc
-      const [stored] = await zoho.fetchByKeyIn(table.id, table.appId, [incoming.id])
-      const storedDoc = stored ? docFromRow(table, stored) : null
-      const storedVersion = stored ? rowVersion(table, stored) : ''
+      const stored = await cs.fetch(incoming.id)
+      const storedDoc = stored?.doc ?? null
+      const storedVersion = stored?.version ?? ''
       const baseVersion = typeof body.baseVersion === 'string' ? body.baseVersion : null
       // the client's own precondition: it edited what it last saw, or refuses
       if (baseVersion !== null && baseVersion !== storedVersion) {
@@ -96,21 +96,16 @@ export default async function (req: VercelRequest, res: VercelResponse) {
         res.status(200).json({ ok: true, doc: storedDoc, version: storedVersion })
         return
       }
-      const plan = versionPlan(table, doc.id, stored)
-      try {
-        await zoho.upsertByKey(table.id, table.appId, doc.id, rowValues(table, doc, plan.stamp), plan.cas ?? undefined)
-      } catch (e) {
-        if (e instanceof ZohoCasConflictError) {
-          res.status(409).json({
-            error: 'This document was saved by someone else first — reload and re-apply your change.',
-            conflicts: [{ id: doc.id, kind: 'changed' }],
-          })
-          return
-        }
-        throw e
+      const outcome = await cs.save(doc, stored ? storedVersion : null)
+      if (!outcome.saved) {
+        res.status(409).json({
+          error: 'This document was saved by someone else first — reload and re-apply your change.',
+          conflicts: [{ id: doc.id, kind: 'changed' }],
+        })
+        return
       }
-      await writeAdminAudit(zoho, caller, 'compliance document saved', doc.title, `expires ${doc.expiresOn ?? '—'}`)
-      res.status(200).json({ ok: true, doc, version: plan.stamp })
+      await writeAdminAudit(store, caller, 'compliance document saved', doc.title, `expires ${doc.expiresOn ?? '—'}`)
+      res.status(200).json({ ok: true, doc, version: outcome.version })
       return
     }
 
@@ -120,37 +115,27 @@ export default async function (req: VercelRequest, res: VercelResponse) {
         res.status(400).json({ error: 'A document id is required.' })
         return
       }
-      const [stored] = await zoho.fetchByKeyIn(table.id, table.appId, [id])
+      const stored = await cs.fetch(id)
       // already gone — the outcome the caller asked for
       if (!stored) {
         res.status(200).json({ ok: true })
         return
       }
       const baseVersion = typeof body.baseVersion === 'string' ? body.baseVersion : null
-      if (baseVersion !== null && baseVersion !== rowVersion(table, stored)) {
+      if (baseVersion !== null && baseVersion !== stored.version) {
         res.status(409).json({
           error: 'This document was saved by someone else first — reload and re-apply your change.',
           conflicts: [{ id, kind: 'changed' }],
         })
         return
       }
-      const storedDoc = docFromRow(table, stored)
-      try {
-        await zoho.deleteRecord(table.id, stored.recordID)
-      } catch (e) {
-        // a refusal is not proof the row is gone — only a confirming read may
-        // decide (the same tolerance the commit engine's removes carry)
-        if (!(e instanceof ZohoApiError)) throw e
-        const survivors = await zoho.fetchByKeyIn(table.id, table.appId, [id])
-        if (survivors.length) throw e
-        console.warn(`[compliance/documents] ${id} vanished before its delete landed — skipped`)
-      }
+      await cs.remove(id, stored.handle)
       await writeAdminAudit(
-        zoho,
+        store,
         caller,
         'compliance document removed',
-        storedDoc?.title ?? id,
-        `was expiring ${storedDoc?.expiresOn ?? '—'}`,
+        stored.doc?.title ?? id,
+        `was expiring ${stored.doc?.expiresOn ?? '—'}`,
       )
       res.status(200).json({ ok: true })
       return
@@ -162,9 +147,9 @@ export default async function (req: VercelRequest, res: VercelResponse) {
       res.status(401).json({ error: e.message })
       return
     }
-    if (e instanceof ZohoLockedError) {
+    if (e instanceof LockedError) {
       res.setHeader('Retry-After', String(e.retryAfterSec))
-      res.status(503).json({ error: 'Zoho is rate-limited — nothing was changed. Try again shortly.' })
+      res.status(503).json({ error: 'The store is rate-limited — nothing was changed. Try again shortly.' })
       return
     }
     console.error('[compliance/documents]', e)

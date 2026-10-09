@@ -14,7 +14,7 @@ import { Modal } from '../components/Modal'
 import { Select } from '../components/Select'
 import { StatusBadge } from '../components/StatusBadge'
 import { useApp } from '../context/AppContext'
-import { bulkItems, fmtBulk } from '../lib/batches'
+import { blendComponentItems, fmtBulk } from '../lib/batches'
 import { DRAWABLE } from '../lib/posting'
 import { itemName as lookupItemName, poolByLot } from '../lib/stock'
 import { QTY_EPSILON } from '../lib/utils'
@@ -42,7 +42,8 @@ export function MelangeRecipes() {
   const [recipe, setRecipe] = useState(blankRecipe)
 
   const itemName = (id: string) => lookupItemName(state, id)
-  const bulks = useMemo(() => bulkItems(state), [state])
+  /** Every bulk, and every raw material bought ready to use — a flavour, an essence. */
+  const bulks = useMemo(() => blendComponentItems(state), [state])
 
   /** Same rule the posting engine enforces: a blend cannot list itself as a part. */
   const recipeBulks = useMemo(() => {
@@ -88,9 +89,11 @@ export function MelangeRecipes() {
     name: recipe.name,
     uom: recipe.uom,
     description: recipe.description,
-    components: recipe.components
-      .filter((c) => c.item && num(c.share) > 0)
-      .map((c) => ({ item: c.item, share: num(c.share) }) as MelangeComponent),
+    // Raw rows, shares normalised — checkMelange refuses a half-filled row with a
+    // reason instead of payload() dropping it without a word (the blend would
+    // store fewer components than the screen showed). Fully blank rows are
+    // dropped by the domain, harmlessly.
+    components: recipe.components.map((c) => ({ item: c.item, share: num(c.share) }) as MelangeComponent),
   })
 
   const shareTotal = recipe.components.reduce((a, c) => a + num(c.share), 0)
@@ -103,7 +106,9 @@ export function MelangeRecipes() {
             <h3>Blends</h3>
             <span>
               A recipe for blending the bulks above into one — ABC is apple, beetroot and carrot
-              in fixed shares. Each recipe is its own bulk product, so packs can be filled from it.
+              in fixed shares. A raw material bought ready to use, like a flavour or an essence,
+              can go in as it is. Each recipe is its own bulk product, so packs can be filled from
+              it.
             </span>
           </div>
           <div className="section-head-actions">
@@ -115,7 +120,7 @@ export function MelangeRecipes() {
 
         {!state.melanges.length ? (
           <div className="empty vendors-empty">
-            No melanges yet. Add one — name it ABC Juice, pick the bulks it blends and the share of
+            No blends yet. Add one — name it ABC Juice, pick the bulks it blends and the share of
             each — and it becomes its own bulk product you can blend, test and pack.
           </div>
         ) : (
@@ -240,8 +245,8 @@ export function MelangeRecipes() {
           <div className="subform-body">
             {!bulks.length ? (
               <div className="note warning-note">
-                No bulk product exists yet. Add one in the <b>Bulk</b> section above and it appears
-                here.
+                Nothing to blend yet. Add a bulk product in the <b>Bulk</b> section above, or a raw
+                material with &ldquo;Needs extraction&rdquo; unticked, and it appears here.
               </div>
             ) : null}
             {recipe.components.map((c, idx) => (
@@ -257,10 +262,10 @@ export function MelangeRecipes() {
                     }))
                   }
                 >
-                  <option value="">Select bulk product</option>
+                  <option value="">Select component</option>
                   {recipeBulks
-                    // A bulk already on another line cannot be a second component —
-                    // one blend, one share per bulk.
+                    // An item already on another line cannot be a second component —
+                    // one blend, one share per item.
                     .filter(
                       (b) =>
                         b.id === c.item ||

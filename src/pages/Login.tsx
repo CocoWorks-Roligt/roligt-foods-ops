@@ -106,6 +106,7 @@ export function Login() {
                       <option value="Admin">Admin</option>
                       <option value="Operator">Operator</option>
                       <option value="QualityTester">Quality Tester</option>
+                      <option value="Npd">NPD</option>
                     </Select>
                     <span style={{ display: 'block', marginTop: 8, fontSize: 13 }}>
                       Dev fallback active (no WorkOS env). You will sign in as{' '}

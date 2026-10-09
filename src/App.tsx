@@ -41,6 +41,7 @@ const LiveReports = lazy(() => import('./pages/LiveReports').then((m) => ({ defa
 const ReportView = lazy(() => import('./pages/ReportView').then((m) => ({ default: m.ReportView })))
 const Settings = lazy(() => import('./pages/Settings').then((m) => ({ default: m.Settings })))
 const StockIssues = lazy(() => import('./pages/StockIssues').then((m) => ({ default: m.StockIssues })))
+const Npd = lazy(() => import('./pages/Npd').then((m) => ({ default: m.Npd })))
 const Storage = lazy(() => import('./pages/Storage').then((m) => ({ default: m.Storage })))
 const Stickers = lazy(() => import('./pages/Stickers').then((m) => ({ default: m.Stickers })))
 const ControlSamples = lazy(() => import('./pages/ControlSamples').then((m) => ({ default: m.ControlSamples })))
@@ -118,6 +119,7 @@ function AuthGate() {
             <Route path="dispatch" element={<RequirePage viewId="dispatch"><DispatchPage /></RequirePage>} />
             <Route path="inventory" element={<RequirePage viewId="inventory"><Inventory /></RequirePage>} />
             <Route path="stock-issues" element={<RequirePage viewId="stock-issues"><StockIssues /></RequirePage>} />
+            <Route path="npd" element={<RequirePage viewId="npd"><Npd /></RequirePage>} />
             <Route path="packing-materials" element={<RequirePage viewId="packing-materials"><PackingMaterials /></RequirePage>} />
             <Route path="storage" element={<RequirePage viewId="storage"><Storage /></RequirePage>} />
             <Route path="stickers" element={<RequirePage viewId="stickers"><Stickers /></RequirePage>} />

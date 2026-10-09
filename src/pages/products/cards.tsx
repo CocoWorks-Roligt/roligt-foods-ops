@@ -1,8 +1,10 @@
 import { StatusBadge } from '../../components/StatusBadge'
 import { useApp } from '../../context/AppContext'
+import { bulksFrom, sourceItemOf } from '../../lib/batches'
 import { isByProduct } from '../../lib/posting'
-import { bulkItemOf, bulkUomForUnit, formatSize } from '../../lib/packs'
-import type { Item, Product, PurchaseProduct } from '../../types'
+import { itemName } from '../../lib/stock'
+import { bulkItemOf, bulkUomForUnit, formatSize, packLabel, toBase, type PackDef } from '../../lib/packs'
+import type { Item, PurchaseProduct } from '../../types'
 
 /** The cards each master section lays out. One file, so they stay a family. */
 
@@ -19,6 +21,10 @@ export function PurchaseCard({
   onEdit: () => void
   onDelete: () => void
 }) {
+  const { state } = useApp()
+  const item = state.items.find((i) => i.id === product.itemId)
+  const raw = item?.type === 'Raw Material'
+  const extracted = raw && !item.directUse ? bulksFrom(state, item.id) : []
   return (
     <article className="vendor-card product-card">
       <div className="vendor-card-top">
@@ -48,6 +54,24 @@ export function PurchaseCard({
           )}
         </div>
       </div>
+      {!raw ? null : item.directUse ? (
+        <div className="small">Used in blends as bought — no extraction.</div>
+      ) : (
+        <div className="chip-row">
+          <span className="chip-row-label">Extracted into</span>
+          <div className="supplier-chips">
+            {!extracted.length ? (
+              <span className="small">No bulk product yet</span>
+            ) : (
+              extracted.map((b) => (
+                <span className="supplier-chip" key={b.id}>
+                  {b.name}
+                </span>
+              ))
+            )}
+          </div>
+        </div>
+      )}
       <div className="row-actions">
         <button className="btn btn-light" type="button" onClick={onEditSuppliers}>
           Suppliers
@@ -74,8 +98,13 @@ export function BulkCard({
 }) {
   const { state } = useApp()
   const melange = state.melanges.find((m) => m.outputItem === item.id)
-  const packs = state.products.filter((p) => bulkItemOf(p) === item.id)
+  // Pack labels, not SKU names: several recipes fill the same 5 L BiB, and the bulk's
+  // question is which physical packs draw it.
+  const packs = [...new Set(
+    state.products.filter((p) => bulkItemOf(p) === item.id).map(packLabel),
+  )]
   const used = state.ledger.some((l) => l.item === item.id)
+  const source = sourceItemOf(item)
   return (
     <article className="vendor-card product-card">
       <div className="vendor-card-top">
@@ -91,8 +120,12 @@ export function BulkCard({
         {isByProduct(item)
           ? 'Thrown off alongside a batch’s main output. Carries none of the batch cost.'
           : melange
-            ? `Blended to the ${melange.name} melange.`
+            ? `Made by the ${melange.name} blend.`
             : 'Booked by a production batch as its output.'}
+        {melange ? null : source
+          ? ` Extracted from ${itemName(state, source)}.`
+          : ' Not linked to a raw material yet — edit it to name the one it is extracted from.'}
+        {melange ? null : item.qcExempt ? ' Skips QC.' : ' Goes through QC.'}
       </div>
       <div className="chip-row">
         <span className="chip-row-label">Filled into</span>
@@ -100,9 +133,9 @@ export function BulkCard({
           {!packs.length ? (
             <span className="small">No pack yet</span>
           ) : (
-            packs.map((p) => (
-              <span className="supplier-chip" key={p.id}>
-                {p.name}
+            packs.map((label) => (
+              <span className="supplier-chip" key={label}>
+                {label}
               </span>
             ))
           )}
@@ -125,40 +158,55 @@ export function BulkCard({
   )
 }
 
-export function PackCard({
-  product,
+/** One pack as the catalog holds it: the physical format, with a chip per recipe
+ *  (each chip is that recipe's finished SKU). Retire is the off-ramp that keeps
+ *  history — a pack with stock behind it refuses Delete and says so. */
+export function PackDefCard({
+  def,
   onEdit,
+  onRetire,
   onDelete,
 }: {
-  product: Product
+  def: PackDef
   onEdit: () => void
+  onRetire: () => void
   onDelete: () => void
 }) {
   const { state } = useApp()
-  const filledFrom = state.items.find((i) => i.id === bulkItemOf(product))
-  const packed = state.ledger.some((l) => l.item === product.id)
+  const packed = def.members.some((m) => state.ledger.some((l) => l.item === m.id))
   return (
     <article className="vendor-card product-card">
       <div className="vendor-card-top">
         <div className="vendor-card-title">
-          <h4>{product.name}</h4>
+          <h4>{def.name}</h4>
           <div className="small">
-            {product.id} · {product.type} · {formatSize(product.size, product.unit)}
+            {def.type} · {formatSize(def.size, def.unit)} · {def.members.length} recipe
+            {def.members.length === 1 ? '' : 's'}
           </div>
         </div>
-        <StatusBadge value={filledFrom?.name || 'Unlinked'} />
+        {def.retired ? <StatusBadge value="Retired" /> : null}
       </div>
       <div className="small">
-        Holds {product.packVolume} {bulkUomForUnit(product.unit) === 'Kg' ? 'kg' : 'L'} of{' '}
-        {filledFrom?.name || 'bulk'} per pack · {product.shelfLifeDays} day shelf life
+        Holds {toBase(def.size, def.unit)} {bulkUomForUnit(def.unit) === 'Kg' ? 'kg' : 'L'} per
+        pack · {def.members[0]?.shelfLifeDays ?? '—'} day shelf life
+      </div>
+      <div className="chip-row">
+        <span className="chip-row-label">Recipes</span>
+        <div className="supplier-chips">
+          {def.members.map((m) => (
+            <span className="supplier-chip" key={m.id}>
+              {m.name}
+            </span>
+          ))}
+        </div>
       </div>
       <div className="chip-row">
         <span className="chip-row-label">Consumes</span>
         <div className="supplier-chips">
-          {!product.bom.length ? (
+          {!def.bom.length ? (
             <span className="small">Nothing</span>
           ) : (
-            product.bom.map((b) => (
+            def.bom.map((b) => (
               <span className="supplier-chip" key={b.item}>
                 {b.qty} × {state.items.find((i) => i.id === b.item)?.name || b.item}
               </span>
@@ -170,10 +218,13 @@ export function PackCard({
         <button className="btn btn-light" type="button" onClick={onEdit}>
           Edit
         </button>
+        <button className="btn btn-light" type="button" onClick={onRetire}>
+          {def.retired ? 'Restore' : 'Retire'}
+        </button>
         <button
           className="btn btn-danger"
           type="button"
-          title={packed ? 'Already packed — has stock history' : undefined}
+          title={packed ? 'Already packed — has stock history; retire it instead' : undefined}
           onClick={onDelete}
         >
           Delete

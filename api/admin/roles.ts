@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { authenticate, AuthError } from '../_lib/auth.js'
-import { ZohoLockedError } from '../_lib/zoho.js'
-import { zoho } from '../_lib/shared.js'
-import { writeAdminAudit } from '../_lib/adminAudit.js'
+import { LockedError } from '../_lib/store.js'
+import { store } from '../_lib/shared.js'
+import { writeAdminAudit } from '../_lib/engine.js'
 import {
   createRole,
   ensurePermissions,
@@ -97,7 +97,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
         }
         // Audited first: a failure after this leaves a trail row recording the
         // attempt, never an un-audited landed action.
-        await writeAdminAudit(zoho, caller, 'role created', slug, name)
+        await writeAdminAudit(store, caller, 'role created', slug, name)
         await createRole(slug, name)
         break
       }
@@ -143,7 +143,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
             return
           }
         }
-        await writeAdminAudit(zoho, caller, 'role permissions set', slug, `permissions: ${permissions.join(', ') || 'none'}`)
+        await writeAdminAudit(store, caller, 'role permissions set', slug, `permissions: ${permissions.join(', ') || 'none'}`)
         await setRolePermissions(slug, permissions)
         break
       }
@@ -157,7 +157,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
       res.status(401).json({ error: e.message })
       return
     }
-    if (e instanceof ZohoLockedError) {
+    if (e instanceof LockedError) {
       // the audit write is the first write now — a lock here changed nothing
       res.setHeader('Retry-After', String(e.retryAfterSec))
       res.status(503).json({ error: 'Zoho is rate-limited — nothing was changed. Try again shortly.' })

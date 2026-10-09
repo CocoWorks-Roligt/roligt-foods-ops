@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { ZohoLockedError } from './_lib/zoho.js'
+import { LockedError } from './_lib/store.js'
 import { authenticate, AuthError } from './_lib/auth.js'
-import { readRevisionMemoized } from './_lib/snapshot.js'
-import { zoho } from './_lib/shared.js'
+import { readRevisionMemoized } from './_lib/engine.js'
+import { store } from './_lib/shared.js'
 import { toWebRequest } from './_lib/vercel.js'
 
 export default async function (req: VercelRequest, res: VercelResponse) {
@@ -14,14 +14,14 @@ export default async function (req: VercelRequest, res: VercelResponse) {
     // Memoized + single-flighted: every client polls every 20s, and polls that
     // land within a few seconds of each other share one Zoho read instead of
     // each spending budget the sweep and commit paths need.
-    const revision = await readRevisionMemoized(zoho)
+    const revision = await readRevisionMemoized(store)
     res.status(200).json({ revision })
   } catch (e) {
     if (e instanceof AuthError) {
       res.status(401).json({ error: e.message })
       return
     }
-    if (e instanceof ZohoLockedError) {
+    if (e instanceof LockedError) {
       res.setHeader('Retry-After', String(e.retryAfterSec))
       res.status(503).json({ error: 'Zoho is rate-limited — try again shortly.' })
       return

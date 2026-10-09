@@ -33,6 +33,7 @@ export type CollectionKey =
   | 'purchaseProducts'
   | 'storageLocations'
   | 'items'
+  | 'packs'
   | 'products'
   | 'melanges'
   | 'grns'
@@ -94,6 +95,9 @@ export const COLLECTIONS: CollectionSpec[] = [
   { key: 'purchaseProducts', table: 'purchase_products', id: byId, writePermission: 'page.purchase-products' },
   { key: 'storageLocations', table: 'storage_locations', id: byId, writePermission: 'page.storage' },
   { key: 'items', table: 'items', id: byId, writePermission: 'page.purchase-products' },
+  // D1 has no table-per-collection read penalty. Zoho deliberately omits this
+  // master from its 26-read sweep and derives it from products instead.
+  { key: 'packs', table: 'packs', id: byId, writePermission: 'page.purchase-products' },
   { key: 'products', table: 'products', id: byId, writePermission: 'page.purchase-products' },
   { key: 'melanges', table: 'melanges', id: byId, writePermission: 'page.purchase-products' },
   { key: 'testParameters', table: 'test_parameters', id: byId, writePermission: 'page.test-parameters' },
@@ -108,7 +112,9 @@ export const COLLECTIONS: CollectionSpec[] = [
   { key: 'orders', table: 'orders', id: byId, page: 'orders' },
   { key: 'qcs', table: 'qcs', id: byId, page: 'quality' },
   { key: 'dispatches', table: 'dispatches', id: byId, page: 'dispatch' },
-  { key: 'stockIssues', table: 'stock_issues', id: byId, page: 'stock-issues' },
+  // NPD's use records are stock issues (reason 'NPD use'), so the NPD page's holder
+  // writes this collection too — and through it the ledger lines that ride along.
+  { key: 'stockIssues', table: 'stock_issues', id: byId, page: ['stock-issues', 'npd'] },
   { key: 'labReports', table: 'lab_reports', id: byId, page: ['quality', 'reports'] },
   { key: 'shifts', table: 'shifts', id: byId, page: 'roster' },
   { key: 'attendance', table: 'attendance', id: byId, page: 'roster' },

@@ -9,32 +9,29 @@
  * idempotent per document, because a sent reminder marks the expiry it fired
  * for and that mark is what "due" checks.
  *
- * Budget: exactly two reads (Config for the lead window, the documents table)
- * plus at most one write per due document and one audit row + revision bump —
- * and the audit only when something was actually sent, so a quiet day spends
+ * Budget: exactly two reads (the lead window from config, the register) plus
+ * at most one write per due document and one audit row + revision bump — and
+ * the audit only when something was actually sent, so a quiet day spends
  * nothing but the reads. Each send marks its document only AFTER the email
  * provider answered 2xx; a refusal or a crash leaves the marker unset and the
- * next run retries. A concurrent human edit that wins the CAS on the mark is
- * swallowed on purpose — the email already went out, the edit is the newer
- * truth, and the marker rides the stale token only until tomorrow's run
- * re-evaluates the renewed row.
+ * next run retries. A concurrent human edit that wins the version race on the
+ * mark is swallowed on purpose — the email already went out, the edit is the
+ * newer truth, and the marker rides the stale token only until tomorrow's run
+ * re-evaluates the renewed row. Which store serves the reads and the marks is
+ * the engine seam's business (complianceStore.ts), not this route's.
  */
 import { createHash, timingSafeEqual } from 'node:crypto'
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { zoho } from '../_lib/shared.js'
-import { T } from '../_lib/baseSchema.js'
-import { writeAdminAudit } from '../_lib/adminAudit.js'
-import { versionPlan } from '../_lib/commit.js'
-import { ZohoCasConflictError, ZohoLockedError } from '../_lib/zoho.js'
-import { docFromRow, docTable, markSentPatch, rowValues } from '../_lib/compliance.js'
+import { store } from '../_lib/shared.js'
+import { complianceStore, writeAdminAudit } from '../_lib/engine.js'
+import { LockedError } from '../_lib/store.js'
+import { markSentPatch } from '../_lib/compliance.js'
 import { sendMail } from '../_lib/mailer.js'
 import {
-  DEFAULT_COMPLIANCE_LEAD_DAYS,
   isDue,
   reminderHtml,
   reminderSubject,
   todayKeyIST,
-  type ComplianceDoc,
 } from '../../src/lib/complianceRules.js'
 
 /** Hash-then-compare: equal length by construction, no early exit on bytes. */
@@ -42,21 +39,6 @@ function bearerOk(header: string, secret: string): boolean {
   const expected = createHash('sha256').update(`Bearer ${secret}`).digest()
   const received = createHash('sha256').update(header).digest()
   return timingSafeEqual(received, expected)
-}
-
-/** The lead window from the Config table's app_config row — default when unset or malformed. */
-async function readLeadDays(): Promise<number> {
-  const cfg = T['Config']
-  const rows = await zoho.fetchAll(cfg.id)
-  const row = rows.find((r) => r.data[cfg.fields['Setting']] === 'app_config')
-  if (!row) return DEFAULT_COMPLIANCE_LEAD_DAYS
-  try {
-    const parsed = JSON.parse(String(row.data[cfg.fields['Value']] ?? '{}')) as { complianceLeadDays?: unknown }
-    const n = Number(parsed.complianceLeadDays)
-    return Number.isFinite(n) && n >= 0 && n <= 365 ? Math.floor(n) : DEFAULT_COMPLIANCE_LEAD_DAYS
-  } catch {
-    return DEFAULT_COMPLIANCE_LEAD_DAYS
-  }
 }
 
 export default async function (req: VercelRequest, res: VercelResponse) {
@@ -71,18 +53,14 @@ export default async function (req: VercelRequest, res: VercelResponse) {
     return
   }
   try {
-    const table = docTable()
-    const [leadDays, rows] = await Promise.all([readLeadDays(), zoho.fetchAll(table.id)])
+    const cs = complianceStore(store)
+    const [leadDays, rows] = await Promise.all([cs.leadDays(), cs.list()])
     const today = todayKeyIST()
-    const due: { doc: ComplianceDoc; record: (typeof rows)[number] }[] = []
-    for (const record of rows) {
-      const doc = docFromRow(table, record)
-      if (doc && isDue(doc, today, leadDays)) due.push({ doc, record })
-    }
+    const due = rows.filter(({ doc }) => isDue(doc, today, leadDays))
 
     let sent = 0
     let failed = 0
-    for (const { doc, record } of due) {
+    for (const { doc, version } of due) {
       try {
         await sendMail({
           to: doc.remindEmails,
@@ -95,17 +73,10 @@ export default async function (req: VercelRequest, res: VercelResponse) {
         console.error('[compliance/remind] reminder failed for', doc.id, e)
         continue // unmarked — the next run retries this document
       }
-      const plan = versionPlan(table, doc.id, record)
-      try {
-        await zoho.upsertByKey(table.id, table.appId, doc.id, rowValues(table, markSentPatch(doc), plan.stamp), plan.cas ?? undefined)
-        sent++
-      } catch (e) {
-        if (e instanceof ZohoCasConflictError) {
-          sent++
-          console.warn('[compliance/remind] the marker lost a race with an edit for', doc.id, '— the next run re-evaluates the saved row')
-          continue
-        }
-        throw e
+      sent++ // the email went out — the marker is bookkeeping, never a reason to refire
+      const landed = await cs.markSent(markSentPatch(doc), version)
+      if (!landed) {
+        console.warn('[compliance/remind] the marker lost a race with an edit for', doc.id, '— the next run re-evaluates the saved row')
       }
     }
 
@@ -114,7 +85,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
     if (sent > 0) {
       try {
         await writeAdminAudit(
-          zoho,
+          store,
           { email: 'compliance-reminders', permissions: [] },
           'compliance reminders sent',
           `${sent} of ${due.length} due`,
@@ -126,9 +97,9 @@ export default async function (req: VercelRequest, res: VercelResponse) {
     }
     res.status(200).json({ ok: true, due: due.length, sent, failed })
   } catch (e) {
-    if (e instanceof ZohoLockedError) {
+    if (e instanceof LockedError) {
       res.setHeader('Retry-After', String(e.retryAfterSec))
-      res.status(503).json({ error: 'Zoho is rate-limited — the next scheduled run retries.' })
+      res.status(503).json({ error: 'The store is rate-limited — the next scheduled run retries.' })
       return
     }
     console.error('[compliance/remind]', e)

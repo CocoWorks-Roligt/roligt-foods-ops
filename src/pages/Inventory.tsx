@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { MoveStockModal } from '../components/MoveStockModal'
+import { SendStockModal } from '../components/SendStockModal'
+import { sendable } from '../lib/npd'
 import { Select } from '../components/Select'
 import { DocLink } from '../components/DocLink'
 import { EmptyState } from '../components/EmptyState'
@@ -36,6 +38,7 @@ export function Inventory() {
   const [type, setType] = useState('')
   const [place, setPlace] = useState('')
   const [moving, setMoving] = useState<StockRow | null>(null)
+  const [sending, setSending] = useState<StockRow | null>(null)
 
   const nonPmRows = useMemo(() => rows.filter((r) => r.itemType !== 'Packing Material'), [rows])
 
@@ -194,7 +197,8 @@ export function Inventory() {
             <h3>Stock Snapshot</h3>
             <span>
               Raw material, bulk and finished goods, added up from the stock ledger.
-              Packing material has its own page.
+              Packing material has its own page. Send takes a sample to testing or hands stock
+              to NPD.
             </span>
           </div>
           <div className="section-head-actions">
@@ -319,6 +323,15 @@ export function Inventory() {
                               Move
                             </button>
                           ) : null}
+                          {single && sendable(single) ? (
+                            <button
+                              className="btn btn-light"
+                              type="button"
+                              onClick={() => setSending(single)}
+                            >
+                              Send
+                            </button>
+                          ) : null}
                         </div>
                       </td>
                     </tr>,
@@ -338,13 +351,24 @@ export function Inventory() {
                                     {fmtQty(r.qty)} {r.uom} at {inr(r.unitCost)} · {inr(r.value)}
                                   </div>
                                 </div>
-                                <button
-                                  className="btn btn-light"
-                                  type="button"
-                                  onClick={() => setMoving(r)}
-                                >
-                                  Move
-                                </button>
+                                <div className="row-actions">
+                                  <button
+                                    className="btn btn-light"
+                                    type="button"
+                                    onClick={() => setMoving(r)}
+                                  >
+                                    Move
+                                  </button>
+                                  {sendable(r) ? (
+                                    <button
+                                      className="btn btn-light"
+                                      type="button"
+                                      onClick={() => setSending(r)}
+                                    >
+                                      Send
+                                    </button>
+                                  ) : null}
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -360,6 +384,7 @@ export function Inventory() {
       </div>
 
       <MoveStockModal row={moving} onClose={() => setMoving(null)} />
+      <SendStockModal row={sending} onClose={() => setSending(null)} />
     </>
   )
 }

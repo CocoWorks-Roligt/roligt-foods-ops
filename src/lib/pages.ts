@@ -57,6 +57,10 @@ export const PAGE_CATALOG: readonly PageRow[] = [
   { id: 'packing-materials', path: '/packing-materials', label: 'Packing Materials', slug: 'page.packing-materials', tier: 'open' },
   { id: 'stock-issues', path: '/stock-issues', label: 'Stock Issues', slug: 'page.stock-issues', tier: 'open' },
   { id: 'storage', path: '/storage', label: 'Storage', slug: 'page.storage', tier: 'open' },
+  // What production hands to new product development, what NPD used it for, and the
+  // monthly report. An "NPD" role is page.npd alone: its tick carries the NPD use
+  // records (the stock issues collection, see tables.ts) and nothing else.
+  { id: 'npd', path: '/npd', label: 'NPD', slug: 'page.npd', tier: 'open' },
   { id: 'stickers', path: '/stickers', label: 'Stickers', slug: 'page.stickers', tier: 'open' },
   { id: 'traceability', path: '/traceability', label: 'Traceability', slug: 'page.traceability', tier: 'open', group: 'Records' },
   { id: 'reports', path: '/reports', label: 'Lab Reports', slug: 'page.reports', tier: 'open' },

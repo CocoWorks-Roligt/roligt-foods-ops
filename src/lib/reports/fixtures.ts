@@ -513,6 +513,7 @@ export function fixtureState(): AppState {
       item('FG-TCW-5L', 'OG Tender Coconut Water 5 L', 'Finished Goods', 'Pack', 30),
       item('FG-MALAI', 'Malai Pack', 'Finished Goods', 'Kg', 10),
     ],
+    packs: [],
     products: [],
     melanges: [
       { id: 'MEL-0001', name: 'ABC Melange', outputItem: 'SF-ABC', uom: 'Litre', components: [], description: '', status: 'Active' },

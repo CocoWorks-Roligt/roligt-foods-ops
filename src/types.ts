@@ -6,7 +6,7 @@
  * numbering series. The values here are the ones `public.app_user.role` is checked
  * against in the database, so the screen and the row-level policies cannot disagree.
  */
-export type Role = 'Operator' | 'QualityTester' | 'Admin'
+export type Role = 'Operator' | 'QualityTester' | 'Npd' | 'Admin'
 
 export type ViewId =
   | 'dashboard'
@@ -23,6 +23,7 @@ export type ViewId =
   | 'inventory'
   | 'packing-materials'
   | 'stock-issues'
+  | 'npd'
   | 'stickers'
   | 'traceability'
   | 'roster'
@@ -219,7 +220,7 @@ export interface PurchaseProduct {
  * kinds of thing while a bulk store and a quarantine shelf were the same one. There
  * is one list of storage areas now, and this says what each area is.
  */
-export type StorageType = 'Cold Room' | 'Dry Store' | 'Hold Area'
+export type StorageType = 'Cold Room' | 'Dry Store' | 'Hold Area' | 'NPD Area'
 
 /**
  * A physical place stock can sit — a cold room, a dry store, a hold shelf. One
@@ -237,7 +238,7 @@ export interface StorageLocation {
   label: string
   /** One line explaining what belongs here. */
   holds: string
-  /** Cold room, dry store or hold area. Decides what may be kept here. */
+  /** Cold room, dry store, hold area or NPD area. Decides what may be kept here. */
   type: StorageType
   status: string
 }
@@ -250,6 +251,19 @@ export interface Item {
   lotControlled: boolean
   reorder: number
   costMethod: string
+  /** Raw material only: bought ready to use — a flavour, an essence — so it goes into
+   *  blends as it arrives and is never extracted. Absent on everything the plant
+   *  presses, which is every raw material saved before this existed. */
+  directUse?: boolean
+  /** Bulk only: the raw material extraction presses this out of — tender coconut for
+   *  both the water and the malai. Absent on a blend's own bulk (its recipe says what
+   *  went in) and on bulks saved before the link existed; coconut water and malai
+   *  answer for themselves through `sourceItemOf`. */
+  sourceItem?: string
+  /** Bulk only: its lots skip QC — booked straight to Released, no QC record raised.
+   *  Read when a batch is posted and copied onto the output line, so changing it later
+   *  never restates a lot already made. A blend's own bulk always goes through QC. */
+  qcExempt?: boolean
 }
 
 export interface BomLine {
@@ -286,11 +300,38 @@ export interface Product {
   /** Printed on the dispatch label. */
   mrp?: number
   bom: BomLine[]
+  /** The physical pack this SKU is one recipe of — "5 L BiB", "4 × 120 ml bottle".
+   *  The pack is not a record of its own: the SKUs that share this name, type, size
+   *  and unit ARE the pack (lib/packs.ts groups them), so a pack edit is a write
+   *  onto every member and no second copy of the pack can drift out of step.
+   *  Absent on packs saved before the pack catalog existed; the label then derives
+   *  from the rest of the row. */
+  packName?: string
+  /** The first-class physical format this SKU fills. Older Zoho rows do not carry
+   * this yet; migrateState deterministically backfills it from their format. */
+  packId?: string
+  /** A pack the plant no longer fills. Hidden from new packing runs and planning,
+   *  kept everywhere history reads it — stock, stickers, dispatch. */
+  retired?: boolean
   /** Semi-finished item this pack is filled from — coconut water, malai, an ABC
    *  melange. What decides which bulk a packing run may draw for this pack. */
   bulkItem?: string
   /** @deprecated derived from `bulkItem`'s unit; kept so older packs still read */
   medium?: PackMedium
+}
+
+/** One physical format the plant buys and fills. Its member SKUs carry only
+ * their recipe/commercial facts; the legacy physical fields on Product remain a
+ * compatibility projection while Zoho is still an available rollback engine. */
+export interface Pack {
+  id: string
+  name: string
+  type: string
+  size: number
+  unit: PackUnit
+  packVolume: number
+  bom: BomLine[]
+  retired?: boolean
 }
 
 export interface Grn {
@@ -376,6 +417,9 @@ export interface BulkOutputLine {
   qty: number
   uom: string
   costShare: number
+  /** Booked without QC, because the bulk was QC-exempt when this batch was posted.
+   *  The line keeps the decision so a later change to the bulk cannot restate it. */
+  qcExempt?: boolean
 }
 
 /** Extraction presses raw material into bulk; a melange blends bulks into one. */
@@ -869,6 +913,7 @@ export interface AppState {
   purchaseProducts: PurchaseProduct[]
   storageLocations: StorageLocation[]
   items: Item[]
+  packs: Pack[]
   products: Product[]
   melanges: Melange[]
   grns: Grn[]
@@ -961,7 +1006,26 @@ export const ISSUE_REASONS = [
   'Other',
 ] as const
 
-export type IssueReason = (typeof ISSUE_REASONS)[number]
+/**
+ * What NPD records against the stock it holds. Not among ISSUE_REASONS on purpose:
+ * the Stock Issues page never offers it, and NPD stock is used only from the NPD page.
+ */
+export const NPD_USE = 'NPD use'
+
+export type IssueReason = (typeof ISSUE_REASONS)[number] | typeof NPD_USE
+
+/** What NPD used its stock for — the categories the monthly report groups by. */
+export const NPD_PURPOSES = [
+  'New product trial',
+  'Recipe / formulation',
+  'Shelf-life study',
+  'Tasting / sensory',
+  'Customer sample',
+  'Wasted / discarded',
+  'Other',
+] as const
+
+export type NpdPurpose = (typeof NPD_PURPOSES)[number]
 
 /**
  * One line of an issue: a specific stock row and how much of it went.
@@ -1003,4 +1067,6 @@ export interface StockIssue {
   lines: StockIssueLine[]
   /** What left, at the cost the stock carried. */
   value: number
+  /** NPD use only: what the stock was used for. `notes` carries the reason in words. */
+  npdPurpose?: NpdPurpose
 }

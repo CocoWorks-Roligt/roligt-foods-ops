@@ -20,7 +20,7 @@ import { Select } from './Select'
 import { SortHeader, SortSelect, sortRows, useTableSort, type SortAccessors } from './tableSort'
 import { StatusBadge } from './StatusBadge'
 import { useApp } from '../context/AppContext'
-import { batchLabel, batchLossToMain, batchOutputs, bulkItems, fmtBatchInput, fmtBulk, itemUom, mainOutput } from '../lib/batches'
+import { batchLabel, batchLossToMain, batchOutputs, blendComponentItems, fmtBatchInput, fmtBulk, itemUom, mainOutput } from '../lib/batches'
 import { useLinkedView } from '../lib/linkedView'
 import { DRAWABLE, defaultBulkStore, postedLocation } from '../lib/posting'
 import {
@@ -61,7 +61,8 @@ export function MelangeRuns() {
   )
 
   const itemName = (id: string) => lookupItemName(state, id)
-  const bulks = useMemo(() => bulkItems(state), [state])
+  /** Bulk, and raw material bought ready to use — both can go into a blend. */
+  const bulks = useMemo(() => blendComponentItems(state), [state])
 
   const editingRun = runEditId ? state.batches.find((b) => b.id === runEditId) : undefined
   /** Blend that has been packed, re-blended or moved by QC is costed off this run. */
@@ -75,17 +76,19 @@ export function MelangeRuns() {
     [editingRun, rows, state],
   )
 
-  /** Every bulk lot that could go into a blend: anything on hand and not rejected. */
-  const blendableLots = useMemo(
-    () =>
-      poolByLot(
-        formRows.filter(
-          (r) =>
-            r.itemType === 'Semi Finished' && DRAWABLE.includes(r.status) && r.qty > QTY_EPSILON,
-        ),
+  /** Every lot that could go into a blend: any bulk on hand and not rejected, and the
+   *  received lots of a raw material used as bought. */
+  const blendableLots = useMemo(() => {
+    const direct = new Set(bulks.filter((i) => i.type === 'Raw Material').map((i) => i.id))
+    return poolByLot(
+      formRows.filter(
+        (r) =>
+          (r.itemType === 'Semi Finished' || direct.has(r.item)) &&
+          DRAWABLE.includes(r.status) &&
+          r.qty > QTY_EPSILON,
       ),
-    [formRows],
-  )
+    )
+  }, [bulks, formRows])
 
   const activeRecipes = state.melanges.filter((m) => m.status === 'Active')
   const selected = state.melanges.find((m) => m.id === melangeId)
@@ -313,15 +316,15 @@ export function MelangeRuns() {
         {!activeRecipes.length ? (
           <div className="note warning-note melange-setup-note">
             <span>
-              There are no melanges yet. A melange names the blend and the share of each bulk in
-              it — add one and it becomes a bulk product you can run here.
+              There are no blends yet. A blend recipe names the share of each component in it —
+              add one and it becomes a bulk product you can run here.
             </span>
             <button
               className="btn btn-primary"
               type="button"
               onClick={() => navigate('/purchase-products')}
             >
-              Add a melange
+              Add a blend
             </button>
           </div>
         ) : null}
@@ -454,6 +457,30 @@ export function MelangeRuns() {
             showToast('Enter how much blend came out of the run.')
             return
           }
+          // A draw missing its lot or its quantity used to be filtered out of
+          // blendLines silently — the run then consumed less stock than the screen
+          // showed. Refuse with the reason instead; a bulk with nothing left to
+          // draw gets its own words.
+          const noStock = draws.find(
+            (d) => d.item && num(d.qty) > 0 && !d.lot && !blendableLots.some((r) => r.item === d.item),
+          )
+          if (noStock) {
+            showToast(
+              `No lot of ${lookupItemName(state, noStock.item)} is available to draw — its stock may already be fully used.`,
+            )
+            return
+          }
+          const incomplete = draws.filter(
+            (d) => (d.item || d.lot || num(d.qty) > 0) && !(d.item && d.lot && num(d.qty) > 0),
+          )
+          if (incomplete.length) {
+            showToast(
+              incomplete.length === 1
+                ? 'One component drawn is incomplete — give it a bulk, a batch lot and a quantity, or remove it.'
+                : `${incomplete.length} components drawn are incomplete — each needs a bulk, a batch lot and a quantity.`,
+            )
+            return
+          }
           const input = {
             date,
             kind: 'Melange' as const,
@@ -530,7 +557,7 @@ export function MelangeRuns() {
                 <div className="subform-row pack-row blend-row pack-row-head">
                   <span>Component</span>
                   <span>Target</span>
-                  <span>Batch lot</span>
+                  <span>Lot</span>
                   <span>Qty</span>
                   <span>Actual</span>
                   <span />
@@ -552,7 +579,7 @@ export function MelangeRuns() {
                           )
                         }
                       >
-                        <option value="">Select bulk</option>
+                        <option value="">Select component</option>
                         {runBulks.map((b) => (
                           <option key={b.id} value={b.id}>
                             {b.name}

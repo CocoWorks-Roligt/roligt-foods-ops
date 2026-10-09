@@ -16,16 +16,16 @@ import { Select } from './Select'
 import { SortHeader, SortSelect, sortRows, useTableSort, type SortAccessors } from './tableSort'
 import { StatusBadge } from './StatusBadge'
 import { EmptyState } from './EmptyState'
+import { SendStockModal } from './SendStockModal'
 import { useApp } from '../context/AppContext'
 import { useLinkedView } from '../lib/linkedView'
+import { sendable } from '../lib/npd'
 import { defaultBulkStore, isByProduct, postedLocation } from '../lib/posting'
 
 /** "1 piece", "960 pieces" — the unit is stored singular. */
 const plural = (uom: string, n: number) => (n === 1 ? uom : `${uom}s`)
 import {
   COCONUT_ITEM,
-  MALAI_ITEM,
-  WATER_ITEM,
   batchInputQty,
   batchInputUom,
   batchLabel,
@@ -34,17 +34,22 @@ import {
   batchYield,
   usableYield,
   bulkItems,
+  bulksFrom,
   fmtBulk,
+  isDirectUse,
   mainOutput,
+  sourceItemOf,
 } from '../lib/batches'
 import {
   itemName as lookupItemName,
+  locationLabel,
   poolByLot,
+  stockRowKey,
   stockRowsExcluding,
   areaChoices,
 } from '../lib/stock'
-import { fmtDate, fmtQty, inr, toLocalInputValue } from '../lib/utils'
-import type { Batch } from '../types'
+import { fmtDate, fmtQty, inr, statusLabel, toLocalInputValue } from '../lib/utils'
+import type { Batch, StockRow } from '../types'
 import { keyed, keyedAll, type Keyed } from '../lib/rows'
 
 /** A raw-material issue as the form holds it: the stock row picked, and how much of it. */
@@ -87,11 +92,18 @@ export function ExtractionBatches() {
   const locked = !!editing && state.ledger.some((l) => l.lot === editing.id && l.doc !== editing.id)
 
   // Editing re-issues the produce, so the lots this batch already took have to stay
-  // on offer — measured as they stood before it was posted.
+  // on offer — measured as they stood before it was posted. A raw material bought
+  // ready to use is never pressed; it goes straight into blends.
   const rmLots = useMemo(() => {
     const source = editing ? stockRowsExcluding(state, editing.id) : rows
     return poolByLot(
-      source.filter((r) => r.itemType === 'Raw Material' && r.status === 'Available' && r.qty > 0),
+      source.filter(
+        (r) =>
+          r.itemType === 'Raw Material' &&
+          r.status === 'Available' &&
+          r.qty > 0 &&
+          !isDirectUse(state.items.find((i) => i.id === r.item)),
+      ),
     )
   }, [editing, rows, state])
 
@@ -144,6 +156,8 @@ export function ExtractionBatches() {
 
   const viewing = viewId ? state.batches.find((b) => b.id === viewId) : undefined
   const qcRecords = viewing ? state.qcs.filter((q) => q.batchId === viewing.id) : []
+  /** Outputs booked under a bulk that skips QC — released as booked, never tested. */
+  const qcSkipped = viewing ? batchOutputs(viewing).filter((o) => o.qcExempt) : []
 
   /** Every pack filled from a batch, each linked to the run that filled it. */
   const packedFrom = (batchId: string) => {
@@ -178,6 +192,41 @@ export function ExtractionBatches() {
       </>
     )
   }
+  /**
+   * What of the batch's output is still on hand, each with a Send to testing or NPD.
+   * The send dialog opens over the page, not the record view, so the view closes first.
+   */
+  const [sending, setSending] = useState<StockRow | null>(null)
+  const onHandNow = (batchId: string) => {
+    const left = rows.filter((r) => r.lot === batchId && r.qty > 0 && r.itemType === 'Semi Finished')
+    if (!left.length) return 'Nothing left on hand'
+    return (
+      <>
+        {left.map((r, i) => (
+          <Fragment key={stockRowKey(r)}>
+            {i ? ' · ' : ''}
+            {fmtBulk(r.qty, r.uom)} {itemName(r.item)} in {locationLabel(state, r.location)} (
+            {statusLabel(r.status)})
+            {sendable(r) ? (
+              <>
+                {' '}
+                <button
+                  className="btn btn-light"
+                  type="button"
+                  onClick={() => {
+                    closeView()
+                    setSending(r)
+                  }}
+                >
+                  Send to testing / NPD
+                </button>
+              </>
+            ) : null}
+          </Fragment>
+        ))}
+      </>
+    )
+  }
   const labReports = viewing ? labReportSection(state, viewing.id) : null
   const viewSections: DetailSection[] = viewing
     ? [
@@ -190,12 +239,18 @@ export function ExtractionBatches() {
             { label: 'Status', value: viewing.status },
             {
               label: 'QC records',
-              value: qcRecords.length ? (
+              value: qcRecords.length || qcSkipped.length ? (
                 <>
                   {qcRecords.map((q, i) => (
                     <Fragment key={q.id}>
                       {i ? ' · ' : ''}
                       <DocLink doc={q.id} /> {itemName(q.item || '')} {q.disposition}
+                    </Fragment>
+                  ))}
+                  {qcSkipped.map((o, i) => (
+                    <Fragment key={o.item}>
+                      {qcRecords.length || i ? ' · ' : ''}
+                      {itemName(o.item)} skips QC
                     </Fragment>
                   ))}
                 </>
@@ -250,6 +305,11 @@ export function ExtractionBatches() {
             {
               label: 'Blended into',
               value: blendedInto(viewing.id),
+              wide: true,
+            },
+            {
+              label: 'On hand now',
+              value: onHandNow(viewing.id),
               wide: true,
             },
           ],
@@ -312,19 +372,32 @@ export function ExtractionBatches() {
   }
 
   /**
-   * Coconuts have always come out as water plus malai, so picking a coconut lot fills
-   * that in — while an operator pressing beetroot still names their own outputs.
+   * Picking a lot fills in the bulks that raw material is extracted into — water and
+   * malai for coconut — with the cost on the first that is not a by-product. Only an
+   * empty output list is filled; outputs already named are the operator's.
    */
   const suggestOutputs = (item: string) => {
-    if (item !== COCONUT_ITEM) return
+    const made = bulksFrom(state, item).filter((b) => pressable.includes(b))
+    if (!made.length) return
+    const ordered = [...made.filter((b) => !isByProduct(b)), ...made.filter((b) => isByProduct(b))]
     setOutRows((all) =>
       all.some((o) => o.item)
         ? all
-        : [
-            keyed({ item: WATER_ITEM, qty: '' as number | '', main: true }),
-            keyed({ item: MALAI_ITEM, qty: '' as number | '', main: false }),
-          ],
+        : ordered.map((b, i) =>
+            keyed({ item: b.id, qty: '' as number | '', main: i === 0 && !isByProduct(b) }),
+          ),
     )
+  }
+
+  /** The raw materials this batch issues — its outputs must be bulks extracted from them. */
+  const issuedItems = new Set(lotRows.map((r) => r.item).filter(Boolean))
+  /** A bulk the press can book here: linked to an issued raw material, or not linked to
+   *  any yet (made before bulks named their source). Until a lot is picked every
+   *  pressable bulk is offered. */
+  const offerable = (b: (typeof bulks)[number]) => {
+    if (!pressable.includes(b)) return false
+    const source = sourceItemOf(b)
+    return !source || !issuedItems.size || issuedItems.has(source)
   }
 
   const issued = lotRows.reduce((a, r) => a + num(r.qty), 0)
@@ -507,6 +580,8 @@ export function ExtractionBatches() {
         record={viewing?.id}
       />
 
+      <SendStockModal row={sending} onClose={() => setSending(null)} />
+
       <Modal
         open={open}
         title={editing ? `Edit ${editing.id} · ${batchLabel(state, editing)}` : 'New Extraction Batch'}
@@ -681,8 +756,9 @@ export function ExtractionBatches() {
           <div className="subform-body">
             {!pressable.length ? (
               <div className="note warning-note">
-                No bulk product exists yet. Add one on the <b>Products &amp; Materials</b> page — a name and whether
-                it is measured in litres or kilograms — and it appears here.
+                No bulk product exists yet. Add one on the <b>Products &amp; Materials</b> page — a name, the raw
+                material it is extracted from and whether it is measured in litres or kilograms — and it
+                appears here.
               </div>
             ) : null}
             <div className="subform-row pack-row pack-row-head">
@@ -721,7 +797,7 @@ export function ExtractionBatches() {
                     {/* A bulk already saved on this row stays selectable so an old batch
                         can still be opened and corrected. */}
                     {bulks
-                      .filter((b) => b.id === row.item || pressable.includes(b))
+                      .filter((b) => b.id === row.item || offerable(b))
                       .map((b) => (
                         <option key={b.id} value={b.id}>
                           {b.name}

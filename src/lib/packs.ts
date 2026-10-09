@@ -1,4 +1,4 @@
-import type { PackMedium, PackUnit, Product } from '../types'
+import type { BomLine, Pack, PackMedium, PackUnit, Product } from '../types'
 
 /**
  * A pack's size is entered in whatever unit the format is sold in — a bottle in ml,
@@ -52,3 +52,119 @@ export const bulkItemOf = (p: Product) =>
  * formats under their drink (orders, planning) names them the same way.
  */
 export const drinkName = (name: string) => name.replace(/ \(bulk\)$/i, '')
+
+// ── the pack catalog ─────────────────────────────────────────────────────────
+//
+// On D1 a pack is a first-class master and each finished SKU points at it. Zoho
+// cannot afford another swept table, so legacy snapshots derive the same master
+// deterministically from their product projections until cutover.
+
+/** What a pack is called wherever it is listed: the name the office gave it, or
+ *  — for packs saved before names existed — the format and size read aloud. */
+export const packLabel = (p: Pick<Product, 'packName' | 'size' | 'unit' | 'type'>) =>
+  p.packName || `${formatSize(p.size, p.unit)} ${p.type}`
+
+/** The key a pack with these physicals groups under — same name/type/size/unit is
+ *  the same pack, so saving one that matches another merges into it. */
+export const packKeyOfDef = (name: string, type: string, size: number, unit: PackUnit) =>
+  `${name}|${type}|${size}|${unit}`
+
+/** Members of one pack share this key; a different key is a different pack. */
+const packKeyOf = (p: Product) => packKeyOfDef(packLabel(p), p.type, p.size, p.unit)
+
+/** Stable id for a format which predates the D1 packs collection. The text is
+ * deliberately readable: it is only a local/document key, never a display name. */
+export const legacyPackIdOf = (p: Product) => `PACK:${packKeyOf(p)}`
+
+/** The pack masters represented by legacy product rows. */
+export function derivePacks(products: Product[]): Pack[] {
+  const byId = new Map<string, Pack>()
+  for (const p of products) {
+    const id = p.packId || legacyPackIdOf(p)
+    if (byId.has(id)) continue
+    byId.set(id, {
+      id,
+      name: packLabel(p),
+      type: p.type,
+      size: p.size,
+      unit: p.unit,
+      packVolume: p.packVolume,
+      bom: p.bom.map((b) => ({ ...b })),
+      retired: p.retired,
+    })
+  }
+  return [...byId.values()]
+}
+
+/** Normalise a snapshot around first-class masters. Missing masters are legacy
+ * rows from Zoho/the initial D1 import and are derived exactly once by stable id. */
+export function materializePacks(products: Product[], stored: Pack[]): { products: Product[]; packs: Pack[] } {
+  const masters = new Map(stored.map((p) => [p.id, { ...p, bom: p.bom.map((b) => ({ ...b })) }]))
+  const nextProducts = products.map((p) => {
+    const packId = p.packId || legacyPackIdOf(p)
+    if (!masters.has(packId)) {
+      masters.set(packId, {
+        id: packId,
+        name: packLabel(p),
+        type: p.type,
+        size: p.size,
+        unit: p.unit,
+        packVolume: p.packVolume,
+        bom: p.bom.map((b) => ({ ...b })),
+        retired: p.retired,
+      })
+    }
+    return p.packId === packId ? p : { ...p, packId }
+  })
+  return { products: nextProducts, packs: [...masters.values()] }
+}
+
+/** One pack as the catalog shows it: the physical format, with a member SKU per
+ *  recipe filled into it. */
+export interface PackDef {
+  /** The stored pack id — pass back to `savePack` to say which pack is being edited. */
+  key: string
+  /** The physical identity used only to detect an intentional merge on create. */
+  physicalKey: string
+  name: string
+  type: string
+  size: number
+  unit: PackUnit
+  /** What one pack is made of. Members are written together, so they agree; the
+   *  first member answers while an offline edit is still converging. */
+  bom: BomLine[]
+  retired: boolean
+  /** One SKU per recipe assigned to this pack, named by the SKU. */
+  members: Product[]
+}
+
+/** Every pack, one entry per stored physical format, ordered by name. The optional
+ * masters argument keeps direct callers/tests over old product-only data working. */
+export function packDefs(products: Product[], stored?: Pack[]): PackDef[] {
+  const legacyView = stored === undefined
+  const { products: members, packs } = materializePacks(products, stored ?? [])
+  return packs
+    .map((p) => {
+      const physicalKey = packKeyOfDef(p.name, p.type, p.size, p.unit)
+      const packMembers = members.filter((m) => m.packId === p.id).sort((a, b) => a.name.localeCompare(b.name))
+      return {
+        // Product-only callers retain the old derived-view key during the
+        // transition; actual app state always supplies its pack masters.
+        key: legacyView ? physicalKey : p.id,
+        physicalKey,
+        name: p.name,
+        type: p.type,
+        size: p.size,
+        unit: p.unit,
+        bom: p.bom.map((b) => ({ ...b })),
+        retired: legacyView ? packMembers.every((m) => m.retired) : !!p.retired,
+        members: packMembers,
+      }
+    })
+    .filter((p) => p.members.length)
+    .sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/** The pack a product belongs to, as `packDefs` would build it. */
+export const packDefOf = (products: Product[], product: Product, packs: Pack[] = []): PackDef | undefined =>
+  packDefs(products, packs).find((d) => d.members.some((m) => m.id === product.id))

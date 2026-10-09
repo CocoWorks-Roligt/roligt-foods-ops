@@ -1,9 +1,10 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { ZohoLockedError } from './_lib/zoho.js'
+import { LockedError } from './_lib/store.js'
 import { authenticate, AuthError } from './_lib/auth.js'
 import { admitSnapshot } from './_lib/snapshotThrottle.js'
-import { projectSnapshot, readSnapshotCached } from './_lib/snapshot.js'
-import { zoho } from './_lib/shared.js'
+import { projectSnapshot } from './_lib/snapshot.js'
+import { readSnapshotCached } from './_lib/engine.js'
+import { store } from './_lib/shared.js'
 import { toWebRequest } from './_lib/vercel.js'
 
 export default async function (req: VercelRequest, res: VercelResponse) {
@@ -22,7 +23,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
       res.status(429).json({ error: 'Too many snapshot reads from this account — try again shortly.' })
       return
     }
-    const snap = await readSnapshotCached(zoho)
+    const snap = await readSnapshotCached(store)
     // Read-side authorization (the audit's S2-6): the substrate is assembled
     // once per revision and shared by every caller, so the projection to THIS
     // caller's pages happens here, per request — the tables they may not see
@@ -35,7 +36,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
       res.status(401).json({ error: e.message })
       return
     }
-    if (e instanceof ZohoLockedError) {
+    if (e instanceof LockedError) {
       res.setHeader('Retry-After', String(e.retryAfterSec))
       res.status(503).json({ error: 'Zoho is rate-limited — try again shortly.' })
       return

@@ -14,7 +14,7 @@ import { defaultRawStore, checkArea, postedLocation } from '../../lib/posting'
 import { itemName } from '../../lib/stock'
 import { deepClone, nowISO, uid } from '../../lib/utils'
 import type { Grn } from '../../types'
-import { POSTED } from './deps'
+import { POSTED, goneFromDevice } from './deps'
 import type { CoreDeps } from './deps'
 
 export function useProcurement({ state, setState, nextId, nextLot, log, showToast, announcement }: CoreDeps) {
@@ -116,7 +116,10 @@ export function useProcurement({ state, setState, nextId, nextLot, log, showToas
   const updateGrn = useCallback(
     (id: string, input: GrnInput): string | null => {
       const existing = state.grns.find((x) => x.id === id)
-      if (!existing) return null
+      if (!existing) {
+        showToast(goneFromDevice('GRN'))
+        return null
+      }
       const math = priceGrn(input)
       if (!math.ok) {
         showToast(math.error)
@@ -222,7 +225,10 @@ export function useProcurement({ state, setState, nextId, nextLot, log, showToas
   const deleteGrn = useCallback(
     (id: string) => {
       const g = state.grns.find((x) => x.id === id)
-      if (!g) return
+      if (!g) {
+        showToast(goneFromDevice('GRN', 'try again'))
+        return
+      }
       if (state.ledger.some((l) => l.lot === g.lot && l.qtyOut > 0)) {
         showToast('Cannot delete: coconuts from this lot have already been used in production.')
         return

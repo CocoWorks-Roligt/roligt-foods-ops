@@ -1,4 +1,4 @@
-import type { PurchaseCategory, PurchaseProduct } from '../../types'
+import type { Item, PurchaseCategory, PurchaseProduct } from '../../types'
 
 /**
  * The plain data the Products & Materials forms share, kept out of the component
@@ -39,6 +39,8 @@ export interface MaterialDraft {
   uom: string
   description: string
   vendorIds: string[]
+  /** Raw material only: bought ready to use, so it goes into blends without extraction. */
+  directUse: boolean
 }
 
 export const blankMaterial = (category: PurchaseCategory, uom: string): MaterialDraft => ({
@@ -47,12 +49,15 @@ export const blankMaterial = (category: PurchaseCategory, uom: string): Material
   uom,
   description: '',
   vendorIds: [],
+  directUse: false,
 })
 
-export const materialFrom = (p: PurchaseProduct): MaterialDraft => ({
+/** `item` is the stock item the product books against, which carries the extraction flag. */
+export const materialFrom = (p: PurchaseProduct, item?: Item): MaterialDraft => ({
   name: p.name,
   category: p.category,
   uom: p.uom,
   description: p.description || '',
   vendorIds: [...(p.vendorIds || [])],
+  directUse: !!item?.directUse,
 })

@@ -26,7 +26,8 @@ import type { ReportWindow } from './params.ts'
 import { localDay } from '../utils.ts'
 
 const RECEIPT_TYPES = ['Receipt', 'PM Receipt']
-const ISSUE_TYPES = ['Production Consume', 'Packing Consume', 'Stock Issue']
+// A raw material bought ready to use leaves the store on a blend draw, not a pressing.
+const ISSUE_TYPES = ['Production Consume', 'Melange Consume', 'Packing Consume', 'Stock Issue']
 
 export interface ItemFlowRow {
   item: string

@@ -41,3 +41,7 @@ gui-test-screenshots/
 # zoho probe credentials (staged from .env, never commit)
 .zoho.env
 .zoho-token.json
+
+# D1 migration artifacts — data dumps of the plant, never commit
+scripts/d1/dump-*.sql
+scripts/d1/dump-*.manifest.json

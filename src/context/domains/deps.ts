@@ -44,6 +44,15 @@ export interface CoreDeps {
 export const POSTED = 'ok'
 
 /**
+ * The stale-copy refusal every document edit and delete shares: the row left this
+ * device's copy while the dialog was open (a reload, or a colleague's delete
+ * adopted by the poll). Saying so beats closing silently — and beats toasting a
+ * write that did not land.
+ */
+export const goneFromDevice = (noun: string, then = 'edit it again'): string =>
+  `That ${noun} is no longer in this device’s copy — reload the page and ${then}.`
+
+/**
  * A packing-material receipt as the form states it. Shared by add and edit.
  *
  * Raised on the Procurement page beside a produce receipt, because receiving a pallet

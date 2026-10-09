@@ -37,8 +37,8 @@ import {
   type MelangeInput,
   type MoveStockInput,
   type OrderAllocation,
+  type PackDefInput,
   type PackingInput,
-  type ProductInput,
   type QcUpdate,
   type StorageLocationInput,
 } from '../lib/posting'
@@ -48,6 +48,7 @@ import { formatDocNo, periodKeyFor, ruleFor } from '../lib/numbering'
 import {
   type StockIssueInput,
 } from '../lib/issues'
+import { type SendToNpdInput } from '../lib/npd'
 import { itemName, overdrawnLots, stockRows, type OverdrawnLot } from '../lib/stock'
 import {
   type StickerJob,
@@ -77,8 +78,9 @@ export type {
   DispatchInput,
   MelangeInput,
   MoveStockInput,
+  SendToNpdInput,
   PackingInput,
-  ProductInput,
+  PackDefInput,
   QcUpdate,
   StorageLocationInput,
 }
@@ -136,17 +138,17 @@ interface AppContextValue {
   updateCustomer: (id: string, patch: Omit<Customer, 'id' | 'status'>) => string | null
   deleteCustomer: (id: string) => void
   addPurchaseProduct: (
-    input: Omit<PurchaseProduct, 'id' | 'status' | 'itemId'> & { itemId?: string },
+    input: Omit<PurchaseProduct, 'id' | 'status' | 'itemId'> & { itemId?: string; directUse?: boolean },
   ) => string | null
   updatePurchaseProduct: (
     id: string,
-    input: { name: string; uom: string; description: string; vendorIds?: string[] },
+    input: { name: string; uom: string; description: string; vendorIds?: string[]; directUse?: boolean },
   ) => string | null
   deletePurchaseProduct: (id: string) => void
   updatePurchaseProductVendors: (id: string, vendorIds: string[]) => void
-  addProduct: (input: ProductInput) => string | null
-  updateProduct: (id: string, input: ProductInput) => string | null
-  deleteProduct: (id: string) => void
+  savePack: (defKey: string | null, input: PackDefInput) => string | null
+  retirePack: (defKey: string, retired: boolean) => void
+  deletePack: (defKey: string) => void
   addBulkProduct: (input: BulkProductInput) => string | null
   updateBulkProduct: (id: string, input: BulkProductInput) => string | null
   deleteBulkProduct: (id: string) => void
@@ -159,6 +161,8 @@ interface AppContextValue {
   deletePackingStock: (doc: string) => void
   updateControlSample: (runId: string, index: number, patch: ControlSamplePatch) => string | null
   moveStock: (input: MoveStockInput) => string | null
+  /** Hands stock to NPD — a move into an NPD area that takes it out of production for good. */
+  sendToNpd: (input: SendToNpdInput) => string | null
   addStorageLocation: (input: StorageLocationInput) => string | null
   updateStorageLocation: (id: string, patch: StorageLocationInput) => string | null
   setStorageLocationStatus: (id: string, status: string) => void
@@ -390,7 +394,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const forbidden = useCallback(
     (what: string, perm: PermissionKey | readonly PermissionKey[]) => {
       if (canAny(permissions, ...(Array.isArray(perm) ? perm : [perm]))) return false
-      showToast(`${what} is an admin task — ask an administrator.`)
+      // Not "an admin task" — roster or Storage are ordinary pages a scoped role
+      // can hold; what the caller lacks is the permission itself, and that is
+      // the reason to state.
+      showToast(`${what} needs a permission your role does not hold — ask an administrator to grant it.`)
       return true
     },
     [permissions, showToast],

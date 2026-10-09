@@ -2014,12 +2014,21 @@ table tbody tr.subrow > td {
   align-items: center;
 }
 
-/* A fill line names its pack by format and size instead of by product, so the two
-   pickers share the width the single product column used to take. */
+/* A fill line names its pack straight by its catalog label — "5 L BiB" — so the one
+   picker takes back the width the product column used to have. */
 .fill-row {
   grid-template-columns:
-    minmax(0, 1.5fr) minmax(0, 1.6fr) minmax(0, 0.9fr)
-    minmax(0, 0.7fr) minmax(0, 1.1fr) auto;
+    minmax(0, 3fr) minmax(0, 0.9fr) minmax(0, 0.7fr)
+    minmax(0, 1.1fr) auto;
+}
+
+/* A recipe row pairs each bulk with the finished SKU it is filled as, then that
+   SKU's own shelf-life clocks and price. */
+.recipe-row {
+  grid-template-columns:
+    minmax(0, 1.6fr) minmax(0, 1.6fr) minmax(0, 0.8fr)
+    minmax(0, 0.8fr) minmax(0, 0.9fr) auto;
+  align-items: center;
 }
 
 /* A blend line carries a lot code where a packing line carries a size, so the
@@ -2274,6 +2283,10 @@ table tbody tr.subrow > td {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
   .pack-row > *:first-child {
+    grid-column: 1 / -1;
+  }
+  /* The recipe's bulk gets the same full-width first line the pack picker gets. */
+  .recipe-row > *:first-child {
     grid-column: 1 / -1;
   }
   /* Column captions cannot survive the stack — each field keeps its placeholder. */

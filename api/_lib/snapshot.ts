@@ -6,7 +6,8 @@
  */
 import { FUTURE_AT_GRACE_MS } from './zoho.js'
 import type { ReadScope, ZohoClient, ZohoRecord } from './zoho.js'
-import { T, TABLE_FOR } from './baseSchema.js'
+import { T, TABLE_FOR, type TableRef } from './baseSchema.js'
+import { ZOHO_WIRE_TABLES, stateKeyFor } from './registry.js'
 import { rowToDoc } from './mappers.js'
 import { COLLECTIONS, ledgerFromRow, auditFromRow } from '../../src/lib/tables.js'
 import { canViewPage } from '../../src/lib/pages.js'
@@ -21,18 +22,26 @@ export interface Assembled {
 
 export type SnapshotRows = Record<string, ZohoRecord[]>
 
-/** AppState is keyed by collection KEY (vendorTypes), not table name (vendor_types). */
-function stateKeyFor(supa: string): string | null {
-  if (supa === 'ledger' || supa === 'audits') return supa
-  return COLLECTIONS.find((c) => c.table === supa)?.key ?? null
+/** What one sweep's raw rows parse into, engine-neutral: per-state-key
+ *  documents, the counters, and Config as setting → value. The Zoho adapter
+ *  (parseZohoRows) and the D1 adapter (Phase 4) both produce this shape; the
+ *  assembly below it is the shared truth every engine serves. */
+export interface ParsedSnapshot {
+  /** Parsed documents per AppState key — `[]` means deliberately emptied (a
+   *  table read back with zero rows), an absent key means never written. */
+  docs: Partial<Record<string, Record<string, unknown>[]>>
+  counters: Record<string, number>
+  /** Config rows as setting → value — app_revision / app_config / period:* verbatim. */
+  config: Record<string, string>
 }
 
-export function assembleState(schema: typeof T, rows: SnapshotRows): Assembled {
-  const state: Partial<AppState> = {}
+/** The Zoho half of the parse: raw per-table rows → ParsedSnapshot. */
+export function parseZohoRows(schema: Record<string, TableRef>, rows: SnapshotRows): ParsedSnapshot {
+  const docs: Partial<Record<string, Record<string, unknown>[]>> = {}
   // collections — including ledger and audits, whose Data JSON already holds the
   // document in its final shape — all read the same way
-  for (const [supa, base] of Object.entries(TABLE_FOR)) {
-    const table = schema[base]
+  for (const supa of ZOHO_WIRE_TABLES) {
+    const table = schema[TABLE_FOR[supa]]
     const key = stateKeyFor(supa)
     if (!table?.dataJson || !rows[supa] || !key) continue
     // A table read back with ZERO rows was deliberately emptied — emit [] so
@@ -45,7 +54,7 @@ export function assembleState(schema: typeof T, rows: SnapshotRows): Assembled {
     // the Supabase client used; the generic doc decoder would leave qtyIn/itemType
     // undefined and a posted receipt would never show as stock.
     const fromRow = supa === 'ledger' ? ledgerFromRow : supa === 'audits' ? auditFromRow : null
-    const docs = wiped
+    const parsed = wiped
       ? []
       : rows[supa]
           .map((r) => {
@@ -54,13 +63,9 @@ export function assembleState(schema: typeof T, rows: SnapshotRows): Assembled {
             return fromRow ? fromRow(raw) : raw
           })
           .filter((d): d is Record<string, unknown> => d !== null)
-    if (wiped || docs.length) (state as Record<string, unknown>)[key] = docs
+    if (wiped || parsed.length) docs[key] = parsed
   }
-  // audit reads newest-first, the order the in-memory list has always been kept in
-  if (state.audits) state.audits = [...state.audits].sort((a, b) => b.time.localeCompare(a.time))
-
   const counters: Record<string, number> = {}
-  const counterPeriods: Record<string, string> = {}
   const cnt = schema['Counters']
   for (const r of rows.counters ?? []) {
     const key = String(r.data[cnt.fields['Series']] ?? '')
@@ -72,21 +77,37 @@ export function assembleState(schema: typeof T, rows: SnapshotRows): Assembled {
     if (key.startsWith('period:')) continue
     counters[key] = Number(value) || 0
   }
-  if (Object.keys(counters).length) state.counters = counters as unknown as AppState['counters']
-
-  let revision = '0'
+  const config: Record<string, string> = {}
   const cfg = schema['Config']
   for (const r of rows.config ?? []) {
     const setting = String(r.data[cfg.fields['Setting']] ?? '')
-    const value = String(r.data[cfg.fields['Value']] ?? '')
-    if (setting === 'app_revision') revision = value || '0'
-    if (setting === 'app_config' && value) {
-      try { state.config = JSON.parse(value) as AppState['config'] } catch { /* leave unset */ }
-    }
+    if (setting) config[setting] = String(r.data[cfg.fields['Value']] ?? '')
+  }
+  return { docs, counters, config }
+}
+
+/** The pure half: parsed rows (either engine's) → the app's snapshot shape. */
+export function assembleState(parsed: ParsedSnapshot): Assembled {
+  const state: Partial<AppState> = {}
+  for (const [key, docs] of Object.entries(parsed.docs)) {
+    ;(state as Record<string, unknown>)[key] = docs
+  }
+  // audit reads newest-first, the order the in-memory list has always been kept in
+  if (state.audits) state.audits = [...state.audits].sort((a, b) => b.time.localeCompare(a.time))
+
+  if (Object.keys(parsed.counters).length) state.counters = parsed.counters as unknown as AppState['counters']
+
+  const revision = parsed.config['app_revision'] || '0'
+  const rawConfig = parsed.config['app_config']
+  if (rawConfig) {
+    try { state.config = JSON.parse(rawConfig) as AppState['config'] } catch { /* leave unset */ }
+  }
+  const counterPeriods: Record<string, string> = {}
+  for (const [setting, value] of Object.entries(parsed.config)) {
     if (setting.startsWith('period:')) counterPeriods[setting.slice(7)] = value
   }
-  // Assigned here, after the Config loop — periods are read from Config, which runs
-  // after the Counters pass that builds the shared object.
+  // Assigned here, after the counters pass — periods are read from Config, which
+  // runs after the Counters pass that builds the shared object.
   if (Object.keys(counterPeriods).length) state.counterPeriods = counterPeriods
 
   // Collections are checked by their STATE key — the same test the Supabase client ran.
@@ -392,7 +413,7 @@ async function sweepTables(
   if (!cold && !useSeed) {
     rows.config = await zoho.fetchAll(schema['Config'].id, { scope })
   }
-  return { snap: assembleState(schema, rows), rows, watermarks, lastFullAt }
+  return { snap: assembleState(parseZohoRows(schema, rows)), rows, watermarks, lastFullAt }
 }
 
 /**

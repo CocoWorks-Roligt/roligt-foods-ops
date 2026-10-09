@@ -1,5 +1,6 @@
 /**
- * Stock moving between rooms, and stock leaving for something that is not a sale.
+ * Stock moving between rooms, stock handed to NPD, and stock leaving for something
+ * that is not a sale.
  *
  * Split out of AppContext, which had grown to nearly three thousand lines and every
  * write the application can make. Nothing here changed in the move: the rules, the
@@ -9,13 +10,22 @@
 import { useCallback, useMemo } from 'react'
 import { checkStockIssue, describeIssue, postStockIssueLines } from '../../lib/issues'
 import type { StockIssueInput } from '../../lib/issues'
+import { checkSendToNpd, isNpdUse, postSendToNpd } from '../../lib/npd'
+import type { SendToNpdInput } from '../../lib/npd'
 import { checkArea } from '../../lib/posting'
 import type { MoveStockInput } from '../../lib/posting'
 import { isRow, itemName, locationLabel } from '../../lib/stock'
 import { stockIdOfRow } from '../../lib/stockIds'
 import { deepClone, nowISO, uid, fmtQty } from '../../lib/utils'
-import { POSTED } from './deps'
+import { NPD_USE } from '../../types'
+import { POSTED, goneFromDevice } from './deps'
 import type { CoreDeps } from './deps'
+
+/** How an issue reads in the audit trail — NPD use says what for and why. */
+const describeRecord = (state: Parameters<typeof describeIssue>[0], issue: ReturnType<typeof postStockIssueLines>) =>
+  isNpdUse(issue)
+    ? `${issue.npdPurpose || 'Other'}${issue.recipient ? ` — ${issue.recipient}` : ''}: ${describeIssue(state, issue.lines)}. ${issue.notes || ''}`.trim()
+    : `${issue.reason}${issue.recipient ? ` — ${issue.recipient}` : ''}: ${describeIssue(state, issue.lines)}.`
 
 export function useInventory({ state, setState, nextId, log, forbidden, showToast, rows }: CoreDeps) {
   const moveStock = useCallback(
@@ -98,6 +108,43 @@ export function useInventory({ state, setState, nextId, log, forbidden, showToas
   )
 
   /**
+   * Hands stock to NPD: a move into an NPD area that flips the status to NPD on the way
+   * in, after which nothing in production can draw it. It is a move in every other
+   * respect — two ledger lines and an audit row, no document — so it takes the same
+   * Storage-page gate moveStock does, and the server's ride-along rule lands it.
+   */
+  const sendToNpd = useCallback(
+    (input: SendToNpdInput): string | null => {
+      if (forbidden('Sending stock to NPD', 'page.storage')) return null
+      const error = checkSendToNpd(state, input)
+      if (error) {
+        showToast(error)
+        return null
+      }
+      const area = state.storageLocations.find((s) => s.name === input.to)
+      let sent = ''
+      setState((prev) => {
+        const draft = deepClone(prev)
+        // Checked again against the copy being written: a pack-out on another screen
+        // can have drawn the row down since the form opened.
+        if (checkSendToNpd(draft, input)) return prev
+        const { doc, row } = postSendToNpd(draft, input)
+        log(
+          draft,
+          'Sent stock to NPD',
+          stockIdOfRow(draft, row),
+          `${fmtQty(input.qty)} ${row.uom} of ${itemName(draft, row.item)} (${row.lot}, ${row.status}) from ${locationLabel(draft, input.location)} to ${area?.label || input.to}${input.note?.trim() ? ` — ${input.note.trim()}` : ''}.`,
+        )
+        sent = doc
+        return draft
+      })
+      showToast(`Sent ${fmtQty(input.qty)} to NPD — ${area?.label || input.to}.`)
+      return sent || POSTED
+    },
+    [forbidden, log, setState, showToast, state],
+  )
+
+  /**
    * Stock out for something that is not a sale.
    *
    * Kept apart from dispatch on purpose: no customer, no challan, no label, and it
@@ -120,14 +167,14 @@ export function useInventory({ state, setState, nextId, log, forbidden, showToas
         draft.stockIssues.unshift(issue)
         log(
           draft,
-          'Issued stock',
+          isNpdUse(issue) ? 'Recorded NPD use' : 'Issued stock',
           id,
-          `${issue.reason}${issue.recipient ? ` — ${issue.recipient}` : ''}: ${describeIssue(draft, issue.lines)}.`,
+          describeRecord(draft, issue),
         )
         createdId = id
         return draft
       })
-      showToast('Stock issued.')
+      showToast(input.reason === NPD_USE ? 'NPD use recorded.' : 'Stock issued.')
       return createdId || POSTED
     },
     [log, nextId, setState, showToast, state],
@@ -142,7 +189,10 @@ export function useInventory({ state, setState, nextId, log, forbidden, showToas
   const updateStockIssue = useCallback(
     (id: string, input: StockIssueInput): string | null => {
       const existing = state.stockIssues.find((i) => i.id === id)
-      if (!existing) return null
+      if (!existing) {
+        showToast(goneFromDevice('stock issue'))
+        return null
+      }
       const error = checkStockIssue(state, input, id)
       if (error) {
         showToast(error)
@@ -159,13 +209,13 @@ export function useInventory({ state, setState, nextId, log, forbidden, showToas
         draft.stockIssues = draft.stockIssues.map((i) => (i.id === id ? issue : i))
         log(
           draft,
-          'Edited stock issue',
+          isNpdUse(issue) ? 'Edited NPD use' : 'Edited stock issue',
           id,
-          `${issue.reason}${issue.recipient ? ` — ${issue.recipient}` : ''}: ${describeIssue(draft, issue.lines)}.`,
+          describeRecord(draft, issue),
         )
         return draft
       })
-      showToast('Stock issue updated.')
+      showToast(input.reason === NPD_USE ? 'NPD use updated.' : 'Stock issue updated.')
       return id
     },
     [log, setState, showToast, state],
@@ -173,6 +223,10 @@ export function useInventory({ state, setState, nextId, log, forbidden, showToas
 
   const deleteStockIssue = useCallback(
     (id: string) => {
+      if (!state.stockIssues.some((i) => i.id === id)) {
+        showToast(goneFromDevice('stock issue', 'try again'))
+        return
+      }
       setState((prev) => {
         const draft = deepClone(prev)
         const issue = draft.stockIssues.find((i) => i.id === id)
@@ -181,26 +235,29 @@ export function useInventory({ state, setState, nextId, log, forbidden, showToas
         draft.ledger = draft.ledger.filter((l) => l.doc !== id)
         log(
           draft,
-          'Deleted stock issue',
+          isNpdUse(issue) ? 'Deleted NPD use' : 'Deleted stock issue',
           id,
-          `Returned ${describeIssue(draft, issue.lines)} to stock.`,
+          `Returned ${describeIssue(draft, issue.lines)} to ${isNpdUse(issue) ? 'NPD' : 'stock'}.`,
         )
         return draft
       })
-      showToast('Stock issue deleted; stock returned.')
+      const npd = state.stockIssues.find((i) => i.id === id)
+      showToast(npd && isNpdUse(npd) ? 'NPD use deleted; stock returned to NPD.' : 'Stock issue deleted; stock returned.')
     },
-    [log, setState, showToast],
+    [log, setState, showToast, state.stockIssues],
   )
 
   return useMemo(
     () => ({
       moveStock,
+      sendToNpd,
       createStockIssue,
       updateStockIssue,
       deleteStockIssue,
     }),
     [
       moveStock,
+      sendToNpd,
       createStockIssue,
       updateStockIssue,
       deleteStockIssue,
