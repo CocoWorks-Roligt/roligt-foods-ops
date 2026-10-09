@@ -19,6 +19,13 @@ import { COLLECTIONS } from '../../src/lib/tables.js'
  */
 export const WIRE_TABLES: readonly string[] = [...COLLECTIONS.map((c) => c.table), 'ledger', 'audits']
 
+/** D1-only masters. They deliberately have no Zoho table: adding one would turn
+ * the Zoho cold sweep into the 27th read that the old backend cannot afford. */
+export const D1_ONLY_TABLES = new Set(['packs'])
+
+/** The legacy Zoho engine's exact sweep/write surface. */
+export const ZOHO_WIRE_TABLES: readonly string[] = WIRE_TABLES.filter((t) => !D1_ONLY_TABLES.has(t))
+
 /**
  * The documents-table collection the compliance register rides on D1 — the
  * Zoho engine keeps its standalone table (the sweep's exactly-26 arithmetic

@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 /**
- * The pack catalog. A pack is not a record: the finished SKUs that share a name,
- * type, size and unit ARE it (lib/packs.ts), and savePack is the only writer — it
- * mints a SKU per recipe, propagates the physical pack onto every member, and
+ * The pack catalog. A pack is a stored master (state.packs) and each finished SKU
+ * points at it by packId (lib/packs.ts). savePack is the only writer — it writes
+ * the master, mints a SKU per recipe, propagates the physical pack onto every
+ * member, and
  * refuses the edits stock history cannot survive (unassigning a packed recipe,
  * re-uniting a pack with ledger lines behind it). retirePack and deletePack are
  * the two off-ramps, one reversible, one refused while any recipe has history.
@@ -123,6 +124,9 @@ describe('savePack', () => {
       type: 'BiB', size: 5, unit: 'L', packVolume: 5,
       bulkItem: 'SF-TCW-WATER', medium: 'Water', packName: '5 L BiB', bom: [{ item: 'PM-1', qty: 2 }],
     })
+    expect(draft.packs.find((pack) => pack.id === p!.packId)).toMatchObject(
+      { id: p!.packId, name: '5 L BiB', type: 'BiB', size: 5, unit: 'L', bom: [{ item: 'PM-1', qty: 2 }] },
+    )
     // The ledger books packs against an item, so the SKU lands with one at its side.
     expect(draft.items.find((i) => i.id === p!.id)).toMatchObject({
       type: 'Finished Goods', uom: 'Pack', name: 'TCW 5 L',
@@ -140,6 +144,78 @@ describe('savePack', () => {
     const defs = packDefs(appliedAll(d, setState).products).filter((x) => x.name === '5 L BiB')
     expect(defs).toHaveLength(1)
     expect(defs[0].members.map((m) => m.name)).toEqual(['ABC 5 L', 'TCW 5 L'])
+  })
+
+  it('a create merging into an existing pack keeps its packing materials', () => {
+    const { d, setState } = deps([])
+    d.state.items.push({ ...BULK, id: 'SF-MANGO', name: 'Mango Blend (bulk)' })
+    d.state.packs[0].bom = [{ item: 'PM-1', qty: 1 }]
+    const { result } = renderHook(() => useCatalog(d))
+    expect(
+      result.current.savePack(null, packInput({
+        bom: [{ item: 'PM-9', qty: 3 }],
+        recipes: [{ bulkItem: 'SF-MANGO', name: 'Mango 250 ml', shelfLifeDays: 90 }],
+      })),
+    ).toBe(POSTED)
+    const draft = applied(d, setState)
+    expect(draft.packs).toHaveLength(1)
+    expect(draft.packs[0].bom).toEqual([{ item: 'PM-1', qty: 1 }])
+    const mango = draft.products.find((p) => p.name === 'Mango 250 ml')
+    expect(mango).toMatchObject({ packId: draft.packs[0].id, bom: [{ item: 'PM-1', qty: 1 }] })
+    // the members already in the pack stay in it
+    expect(draft.products.filter((p) => p.packId === draft.packs[0].id)).toHaveLength(3)
+  })
+
+  it('a create merging into an existing pack refuses a bulk that pack already fills', () => {
+    const { d, setState, showToast } = deps([])
+    const { result } = renderHook(() => useCatalog(d))
+    expect(
+      result.current.savePack(null, packInput({
+        recipes: [{ bulkItem: 'SF-ABC', name: 'ABC again', shelfLifeDays: 90 }],
+      })),
+    ).toBeNull()
+    expect(setState).not.toHaveBeenCalled()
+    expect(showToast.mock.calls[0][0]).toMatch(/assigned to this pack twice/)
+  })
+
+  it('refuses an edit that lands on another pack’s name, type and size', () => {
+    const { d, setState, showToast } = deps([])
+    d.state = migrateState({
+      ...d.state,
+      products: [
+        ...d.state.products,
+        { ...PACK_1, id: 'FG-3', name: 'TCW 300 ml', size: 300, packVolume: 0.3, packName: '300 ml BiB', packId: undefined },
+      ],
+    })
+    const otherId = d.state.products.find((p) => p.id === 'FG-3')!.packId!
+    const { result } = renderHook(() => useCatalog(d))
+    expect(
+      result.current.savePack(otherId, packInput({
+        recipes: [{ skuId: 'FG-3', name: 'TCW 300 ml', shelfLifeDays: 90 }],
+      })),
+    ).toBeNull()
+    expect(setState).not.toHaveBeenCalled()
+    expect(showToast.mock.calls[0][0]).toMatch(/^250 ml BiB already exists with this type and size/)
+  })
+
+  it('a renamed pack keeps its id, and a new pack under the old name does not overwrite it', () => {
+    const { d, setState } = deps([])
+    d.state.packs[0].name = '250 ml Pouch'
+    for (const p of d.state.products) p.packName = '250 ml Pouch'
+    const renamedId = d.state.packs[0].id
+    const { result } = renderHook(() => useCatalog(d))
+    expect(
+      result.current.savePack(null, packInput({
+        recipes: [{ bulkItem: 'SF-TCW-WATER', name: 'TCW 250 ml BiB', shelfLifeDays: 90 }],
+      })),
+    ).toBe(POSTED)
+    const draft = applied(d, setState)
+    expect(new Set(draft.packs.map((p) => p.id)).size).toBe(2)
+    expect(draft.packs.find((p) => p.id === renamedId)?.name).toBe('250 ml Pouch')
+    expect(draft.products.filter((p) => p.packId === renamedId).map((p) => p.id)).toEqual(['FG-1', 'FG-2'])
+    const fresh = draft.products.find((p) => p.name === 'TCW 250 ml BiB')!
+    expect(fresh.packId).not.toBe(renamedId)
+    expect(draft.packs.find((p) => p.id === fresh.packId)?.name).toBe('250 ml BiB')
   })
 
   it('propagates edited physicals onto every member, and renames their items', () => {

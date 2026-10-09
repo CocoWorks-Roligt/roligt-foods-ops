@@ -167,6 +167,18 @@ describe('readSnapshotD1 / readRevisionD1', () => {
     expect(snap.state?.config).toEqual({ tolerances: { lab: 5 } })
   })
 
+  it('reads first-class packs beside their SKU pointers', async () => {
+    const d1 = fresh()
+    const pack = { id: 'PACK:250 ml BiB|BiB|250|ml', name: '250 ml BiB', type: 'BiB', size: 250, unit: 'ml', packVolume: 0.25, bom: [] }
+    seed(d1, [
+      { collection: 'packs', id: pack.id, json: pack },
+      { collection: 'products', id: 'FG-1', json: { id: 'FG-1', name: 'TCW 250 ml', packId: pack.id } },
+    ])
+    const snap = await readSnapshotD1(d1 as unknown as D1Client)
+    expect(snap.state?.packs).toEqual([pack])
+    expect(snap.state?.products).toEqual([{ id: 'FG-1', name: 'TCW 250 ml', packId: pack.id }])
+  })
+
   it('a wiped collection reads [] (an empty wire table IS the wipe on D1), and period:* counters stay out of counters', async () => {
     const d1 = fresh()
     seed(
@@ -225,6 +237,17 @@ describe('readSnapshotD1 / readRevisionD1', () => {
 })
 
 describe('commitChangesD1', () => {
+  it('writes a pack master as its own D1 document', async () => {
+    const d1 = fresh()
+    const pack = { id: 'PACK:5 L BiB|BiB|5|L', name: '5 L BiB', type: 'BiB', size: 5, unit: 'L', packVolume: 5, bom: [] }
+    await commitChangesD1(d1 as unknown as D1Client, admin, {
+      empty: false,
+      tables: [{ table: 'packs', upsert: [{ id: pack.id, data: pack }], remove: [] }],
+      counters: {},
+    })
+    expect(JSON.parse(d1.doc('packs', pack.id)!.json)).toEqual(pack)
+  })
+
   it('writes doc + ledger + audit + counter in one atomic batch and stamps the audit actor', async () => {
     const d1 = fresh()
     const { token, wrote } = await commitChangesD1(d1 as unknown as D1Client, admin, CHANGES)

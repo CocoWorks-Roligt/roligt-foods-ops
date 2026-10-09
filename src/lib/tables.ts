@@ -33,6 +33,7 @@ export type CollectionKey =
   | 'purchaseProducts'
   | 'storageLocations'
   | 'items'
+  | 'packs'
   | 'products'
   | 'melanges'
   | 'grns'
@@ -94,6 +95,9 @@ export const COLLECTIONS: CollectionSpec[] = [
   { key: 'purchaseProducts', table: 'purchase_products', id: byId, writePermission: 'page.purchase-products' },
   { key: 'storageLocations', table: 'storage_locations', id: byId, writePermission: 'page.storage' },
   { key: 'items', table: 'items', id: byId, writePermission: 'page.purchase-products' },
+  // D1 has no table-per-collection read penalty. Zoho deliberately omits this
+  // master from its 26-read sweep and derives it from products instead.
+  { key: 'packs', table: 'packs', id: byId, writePermission: 'page.purchase-products' },
   { key: 'products', table: 'products', id: byId, writePermission: 'page.purchase-products' },
   { key: 'melanges', table: 'melanges', id: byId, writePermission: 'page.purchase-products' },
   { key: 'testParameters', table: 'test_parameters', id: byId, writePermission: 'page.test-parameters' },

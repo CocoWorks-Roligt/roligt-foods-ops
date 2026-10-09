@@ -1,4 +1,4 @@
-import type { BomLine, PackMedium, PackUnit, Product } from '../types'
+import type { BomLine, Pack, PackMedium, PackUnit, Product } from '../types'
 
 /**
  * A pack's size is entered in whatever unit the format is sold in — a bottle in ml,
@@ -55,17 +55,14 @@ export const drinkName = (name: string) => name.replace(/ \(bulk\)$/i, '')
 
 // ── the pack catalog ─────────────────────────────────────────────────────────
 //
-// The plant was asked, once too often, to re-enter the same 5 L BiB inside every
-// recipe that filled one. The fix is not a second master record: the pack IS the
-// group of SKUs that share its name, type, size and unit. Each SKU below is one
-// recipe filled into that pack, the way the model has always read it downstream
-// (posting, tracing, planning — they all read the SKU). A pack "edit" is the same
-// write onto every member, so there is no def row to sync, no second BOM to keep
-// in step, and nothing new for either store engine to carry.
+// On D1 a pack is a first-class master and each finished SKU points at it. Zoho
+// cannot afford another swept table, so legacy snapshots derive the same master
+// deterministically from their product projections until cutover.
 
 /** What a pack is called wherever it is listed: the name the office gave it, or
  *  — for packs saved before names existed — the format and size read aloud. */
-export const packLabel = (p: Product) => p.packName || `${formatSize(p.size, p.unit)} ${p.type}`
+export const packLabel = (p: Pick<Product, 'packName' | 'size' | 'unit' | 'type'>) =>
+  p.packName || `${formatSize(p.size, p.unit)} ${p.type}`
 
 /** The key a pack with these physicals groups under — same name/type/size/unit is
  *  the same pack, so saving one that matches another merges into it. */
@@ -75,11 +72,60 @@ export const packKeyOfDef = (name: string, type: string, size: number, unit: Pac
 /** Members of one pack share this key; a different key is a different pack. */
 const packKeyOf = (p: Product) => packKeyOfDef(packLabel(p), p.type, p.size, p.unit)
 
+/** Stable id for a format which predates the D1 packs collection. The text is
+ * deliberately readable: it is only a local/document key, never a display name. */
+export const legacyPackIdOf = (p: Product) => `PACK:${packKeyOf(p)}`
+
+/** The pack masters represented by legacy product rows. */
+export function derivePacks(products: Product[]): Pack[] {
+  const byId = new Map<string, Pack>()
+  for (const p of products) {
+    const id = p.packId || legacyPackIdOf(p)
+    if (byId.has(id)) continue
+    byId.set(id, {
+      id,
+      name: packLabel(p),
+      type: p.type,
+      size: p.size,
+      unit: p.unit,
+      packVolume: p.packVolume,
+      bom: p.bom.map((b) => ({ ...b })),
+      retired: p.retired,
+    })
+  }
+  return [...byId.values()]
+}
+
+/** Normalise a snapshot around first-class masters. Missing masters are legacy
+ * rows from Zoho/the initial D1 import and are derived exactly once by stable id. */
+export function materializePacks(products: Product[], stored: Pack[]): { products: Product[]; packs: Pack[] } {
+  const masters = new Map(stored.map((p) => [p.id, { ...p, bom: p.bom.map((b) => ({ ...b })) }]))
+  const nextProducts = products.map((p) => {
+    const packId = p.packId || legacyPackIdOf(p)
+    if (!masters.has(packId)) {
+      masters.set(packId, {
+        id: packId,
+        name: packLabel(p),
+        type: p.type,
+        size: p.size,
+        unit: p.unit,
+        packVolume: p.packVolume,
+        bom: p.bom.map((b) => ({ ...b })),
+        retired: p.retired,
+      })
+    }
+    return p.packId === packId ? p : { ...p, packId }
+  })
+  return { products: nextProducts, packs: [...masters.values()] }
+}
+
 /** One pack as the catalog shows it: the physical format, with a member SKU per
  *  recipe filled into it. */
 export interface PackDef {
-  /** The shared key — pass back to `savePack` to say which pack is being edited. */
+  /** The stored pack id — pass back to `savePack` to say which pack is being edited. */
   key: string
+  /** The physical identity used only to detect an intentional merge on create. */
+  physicalKey: string
   name: string
   type: string
   size: number
@@ -92,32 +138,33 @@ export interface PackDef {
   members: Product[]
 }
 
-/** Every pack, one entry per shared name/type/size/unit, ordered by name. */
-export function packDefs(products: Product[]): PackDef[] {
-  const byKey = new Map<string, Product[]>()
-  for (const p of products) {
-    const key = packKeyOf(p)
-    const list = byKey.get(key)
-    if (list) list.push(p)
-    else byKey.set(key, [p])
-  }
-  return [...byKey.entries()]
-    .map(([key, members]) => {
-      const first = members[0]
+/** Every pack, one entry per stored physical format, ordered by name. The optional
+ * masters argument keeps direct callers/tests over old product-only data working. */
+export function packDefs(products: Product[], stored?: Pack[]): PackDef[] {
+  const legacyView = stored === undefined
+  const { products: members, packs } = materializePacks(products, stored ?? [])
+  return packs
+    .map((p) => {
+      const physicalKey = packKeyOfDef(p.name, p.type, p.size, p.unit)
+      const packMembers = members.filter((m) => m.packId === p.id).sort((a, b) => a.name.localeCompare(b.name))
       return {
-        key,
-        name: packLabel(first),
-        type: first.type,
-        size: first.size,
-        unit: first.unit,
-        bom: first.bom.map((b) => ({ ...b })),
-        retired: members.every((m) => m.retired),
-        members: [...members].sort((a, b) => a.name.localeCompare(b.name)),
+        // Product-only callers retain the old derived-view key during the
+        // transition; actual app state always supplies its pack masters.
+        key: legacyView ? physicalKey : p.id,
+        physicalKey,
+        name: p.name,
+        type: p.type,
+        size: p.size,
+        unit: p.unit,
+        bom: p.bom.map((b) => ({ ...b })),
+        retired: legacyView ? packMembers.every((m) => m.retired) : !!p.retired,
+        members: packMembers,
       }
     })
+    .filter((p) => p.members.length)
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 
 /** The pack a product belongs to, as `packDefs` would build it. */
-export const packDefOf = (products: Product[], product: Product): PackDef | undefined =>
-  packDefs(products).find((d) => d.members.some((m) => m.id === product.id))
+export const packDefOf = (products: Product[], product: Product, packs: Pack[] = []): PackDef | undefined =>
+  packDefs(products, packs).find((d) => d.members.some((m) => m.id === product.id))

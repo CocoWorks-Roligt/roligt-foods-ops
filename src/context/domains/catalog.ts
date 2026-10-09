@@ -7,11 +7,11 @@
  */
 import { useCallback, useMemo } from 'react'
 import { itemUom } from '../../lib/batches'
-import { bulkUomForUnit, mediumForUom, packDefs, toBase } from '../../lib/packs'
+import { bulkItemOf, bulkUomForUnit, mediumForUom, packDefs, packKeyOfDef, toBase } from '../../lib/packs'
 import type { PackDefInput, Problem } from '../../lib/posting'
 import { itemName } from '../../lib/stock'
 import { deepClone } from '../../lib/utils'
-import type { Product, PurchaseProduct } from '../../types'
+import type { Pack, Product, PurchaseProduct } from '../../types'
 import { POSTED, type CoreDeps } from './deps'
 
 export function useCatalog({ state, setState, nextId, log, showToast }: CoreDeps) {
@@ -210,8 +210,18 @@ export function useCatalog({ state, setState, nextId, log, showToast }: CoreDeps
         return 'Every packing material line needs an item and a quantity.'
       }
       // The pack being edited, as it stands now — null on create.
-      const def = defKey ? packDefs(state.products).find((d) => d.key === defKey) : undefined
+      const physicalKey = packKeyOfDef(input.name.trim(), input.type.trim(), input.size, input.unit)
+      const defs = packDefs(state.products, state.packs)
+      const def = defKey
+        ? defs.find((d) => d.key === defKey || d.physicalKey === defKey)
+        : defs.find((d) => d.physicalKey === physicalKey)
       if (defKey && !def) return null // it was deleted under us; the save is a no-op
+      // A create that matches a pack merges into it; an edit that lands on another
+      // pack's name, type and size would leave two identical cards, so it is refused.
+      const twin = defKey ? defs.find((d) => d.physicalKey === physicalKey && d.key !== def?.key) : undefined
+      if (twin) {
+        return `${twin.name} already exists with this type and size — give this pack another name, or add its recipes to ${twin.name} instead.`
+      }
       for (const r of input.recipes) {
         if (!r.name.trim()) return 'Give every recipe a name.'
         const bulkItem = r.skuId ? def?.members.find((m) => m.id === r.skuId)?.bulkItem : r.bulkItem
@@ -240,10 +250,14 @@ export function useCatalog({ state, setState, nextId, log, showToast }: CoreDeps
       }
       // Each recipe is one bulk — a bulk cannot be filled into the same pack twice,
       // whether both rows are new or one is a member the save keeps.
-      const bulks = input.recipes.map((r) => {
-        if (r.skuId) return def?.members.find((m) => m.id === r.skuId)?.bulkItem || r.skuId
-        return r.bulkItem
-      })
+      // A create that merges into an existing pack brings its members' bulks along.
+      const bulks = [
+        ...(defKey ? [] : (def?.members ?? []).map(bulkItemOf)),
+        ...input.recipes.map((r) => {
+          if (r.skuId) return def?.members.find((m) => m.id === r.skuId)?.bulkItem || r.skuId
+          return r.bulkItem
+        }),
+      ]
       const dup = bulks.find((b, i) => bulks.indexOf(b) !== i)
       if (dup) {
         // itemName without pulling all of `state` into the deps — the items list
@@ -255,7 +269,9 @@ export function useCatalog({ state, setState, nextId, log, showToast }: CoreDeps
       // history its SKU cannot be deleted, and unassigning IS deleting — the pack
       // is the group, so a member that leaves it leaves the app entirely.
       const kept = new Set(input.recipes.map((r) => r.skuId).filter(Boolean))
-      const dropped = (def?.members ?? []).filter((m) => !kept.has(m.id))
+      // Saving a new format onto an existing physical identity is an append,
+      // not an edit that removes its existing recipes.
+      const dropped = defKey ? (def?.members ?? []).filter((m) => !kept.has(m.id)) : []
       const packedOff = dropped.find((m) => state.ledger.some((l) => l.item === m.id))
       if (packedOff) {
         return `${packedOff.name} has already been packed — it has stock history and cannot be removed from the pack. Retire the pack instead if it is no longer filled.`
@@ -272,7 +288,7 @@ export function useCatalog({ state, setState, nextId, log, showToast }: CoreDeps
       }
       return null
     },
-    [state.items, state.ledger, state.products],
+    [state.items, state.ledger, state.packs, state.products],
   )
 
   /**
@@ -281,9 +297,10 @@ export function useCatalog({ state, setState, nextId, log, showToast }: CoreDeps
    * gets its SKU minted, a kept one keeps its id, and a member left off the list is
    * unassigned (deleted, stock history permitting).
    *
-   * The pack itself is not a record: the SKUs that share its name, type, size and
-   * unit ARE it (lib/packs.ts). So the save writes the physicals onto every member,
-   * and the catalog can never show a pack whose recipes disagree with it.
+   * The pack is a stored master (state.packs) and each member SKU points at it by
+   * packId. The save still writes the physicals onto every member — the projection
+   * every downstream reader and the Zoho fallback engine read — so the catalog can
+   * never show a pack whose recipes disagree with it.
    */
   const savePack = useCallback(
     (defKey: string | null, input: PackDefInput): string | null => {
@@ -294,11 +311,45 @@ export function useCatalog({ state, setState, nextId, log, showToast }: CoreDeps
       }
       setState((prev) => {
         const draft = deepClone(prev)
-        const def = defKey ? packDefs(draft.products).find((d) => d.key === defKey) : undefined
+        const physicalKey = packKeyOfDef(input.name.trim(), input.type.trim(), input.size, input.unit)
+        const def = defKey
+          ? packDefs(draft.products, draft.packs).find((d) => d.key === defKey || d.physicalKey === defKey)
+          : packDefs(draft.products, draft.packs).find((d) => d.physicalKey === physicalKey)
         if (defKey && !def) return prev // deleted under us; nothing to edit
+        let pack = def ? draft.packs.find((p) => p.id === def.key) : undefined
+        // A create that merges appends recipes; the pack's own materials stand.
+        const merging = !defKey && !!pack
+        if (!pack) {
+          // A new format begins at its physical identity. This is also what lets
+          // two offline creates of the same format converge into one D1 document;
+          // renames keep the id, so a renamed pack may already hold this one and
+          // the new pack takes the next free suffix instead of overwriting it.
+          let id = `PACK:${physicalKey}`
+          for (let n = 2; draft.packs.some((p) => p.id === id); n++) id = `PACK:${physicalKey}~${n}`
+          pack = {
+            id,
+            name: input.name.trim(),
+            type: input.type.trim(),
+            size: input.size,
+            unit: input.unit,
+            packVolume: toBase(input.size, input.unit),
+            bom: input.bom.map((b) => ({ ...b })),
+          } satisfies Pack
+          draft.packs.push(pack)
+        } else if (!merging) {
+          pack.name = input.name.trim()
+          pack.type = input.type.trim()
+          pack.size = input.size
+          pack.unit = input.unit
+          pack.packVolume = toBase(input.size, input.unit)
+          pack.bom = input.bom.map((b) => ({ ...b }))
+        }
         const byId = new Map((def?.members ?? []).map((m) => [m.id, m]))
         // 1. recipes left off the list leave the pack — and with it the app
-        const kept = new Set(input.recipes.map((r) => r.skuId).filter(Boolean))
+        const kept = new Set([
+          ...(defKey ? [] : (def?.members ?? []).map((m) => m.id)),
+          ...input.recipes.map((r) => r.skuId).filter(Boolean),
+        ])
         for (const m of def?.members ?? []) {
           if (kept.has(m.id)) continue
           draft.products = draft.products.filter((p) => p.id !== m.id)
@@ -328,6 +379,7 @@ export function useCatalog({ state, setState, nextId, log, showToast }: CoreDeps
               chilledShelfLifeDays: r.chilledShelfLifeDays,
               mrp: r.mrp,
               bom: [],
+              packId: pack.id,
               bulkItem,
               medium,
               retired: def?.retired,
@@ -351,8 +403,9 @@ export function useCatalog({ state, setState, nextId, log, showToast }: CoreDeps
           p.size = input.size
           p.unit = input.unit
           p.packVolume = toBase(input.size, input.unit)
-          p.bom = input.bom.map((b) => ({ ...b }))
+          p.bom = pack.bom.map((b) => ({ ...b }))
           p.packName = input.name.trim()
+          p.packId = pack.id
           const item = draft.items.find((i) => i.id === p.id)
           if (item) item.name = p.name
           members.push(p)
@@ -381,7 +434,7 @@ export function useCatalog({ state, setState, nextId, log, showToast }: CoreDeps
    */
   const retirePack = useCallback(
     (defKey: string, retired: boolean) => {
-      const def = packDefs(state.products).find((d) => d.key === defKey)
+      const def = packDefs(state.products, state.packs).find((d) => d.key === defKey || d.physicalKey === defKey)
       if (!def) return
       setState((prev) => {
         const draft = deepClone(prev)
@@ -389,17 +442,19 @@ export function useCatalog({ state, setState, nextId, log, showToast }: CoreDeps
           const p = draft.products.find((x) => x.id === m.id)
           if (p) p.retired = retired || undefined
         }
+        const pack = draft.packs.find((p) => p.id === def.key)
+        if (pack) pack.retired = retired || undefined
         log(draft, retired ? 'Retired pack' : 'Restored pack', def.name, def.name)
         return draft
       })
       showToast(retired ? `${def.name} retired — it can be restored from its card.` : `${def.name} is back on the line.`)
     },
-    [log, setState, showToast, state.products],
+    [log, setState, showToast, state.packs, state.products],
   )
 
   const deletePack = useCallback(
     (defKey: string) => {
-      const def = packDefs(state.products).find((d) => d.key === defKey)
+      const def = packDefs(state.products, state.packs).find((d) => d.key === defKey || d.physicalKey === defKey)
       if (!def) return
       // Same rule as one recipe: stock already packed is ledger history, and the
       // ledger is never rewritten. The pack names the first blocker so the office
@@ -416,12 +471,13 @@ export function useCatalog({ state, setState, nextId, log, showToast }: CoreDeps
         const ids = new Set(def.members.map((m) => m.id))
         draft.products = draft.products.filter((p) => !ids.has(p.id))
         draft.items = draft.items.filter((i) => !ids.has(i.id))
+        draft.packs = draft.packs.filter((p) => p.id !== def.key)
         log(draft, 'Deleted pack', def.name, def.members.map((m) => m.name).join(', '))
         return draft
       })
       showToast(`${def.name} deleted.`)
     },
-    [log, setState, showToast, state.ledger, state.products],
+    [log, setState, showToast, state.ledger, state.packs, state.products],
   )
 
   return useMemo(

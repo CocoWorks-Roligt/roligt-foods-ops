@@ -84,7 +84,9 @@ new entries queue on your device".
      --production gerc53fe9f1e44e5f4a13809d9bd47367ba9d
    ```
 2. **Schema + import into prod D1** (empty DB tonight; `IF NOT EXISTS` /
-   `INSERT OR REPLACE` make re-runs safe):
+   `INSERT OR REPLACE` make re-runs safe). The dumper also derives first-class
+   `packs` documents and `product.packId` pointers from the Zoho product rows;
+   it does not add a Zoho table or a 27th snapshot read:
    ```sh
    npx wrangler d1 execute roligt-ops-prod --remote --file scripts/d1/schema.sql --yes
    npx wrangler d1 execute roligt-ops-prod --remote --file scripts/d1/dump-gerc53fe-<date>.sql --yes

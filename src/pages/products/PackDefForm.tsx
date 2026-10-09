@@ -142,14 +142,14 @@ export function PackDefForm({
   const freeBulks = packBulks.filter((b) => !heldBulks.has(b.id))
   const packHolds = toBase(Number(pack.size) || 0, pack.unit)
 
-  /** Saving with the same name/type/size/unit as an existing pack does not create a
-   *  second pack — the recipes join that one. Said here, so it reads as the feature
-   *  it is rather than a surprise after the save. */
+  /** Creating a pack with the same name/type/size/unit as an existing one does not
+   *  make a second pack — the recipes join that one. Editing a pack onto another's
+   *  name/type/size is refused instead. Said here, before the save, either way. */
   const mergesInto = useMemo(() => {
     if (!pack.name.trim() || !(Number(pack.size) > 0)) return undefined
     const key = packKeyOfDef(pack.name.trim(), pack.type.trim(), Number(pack.size), pack.unit)
-    return packDefs(state.products).find((d) => d.key === key && d.key !== editing?.key)
-  }, [pack.name, pack.type, pack.size, pack.unit, state.products, editing?.key])
+    return packDefs(state.products, state.packs).find((d) => d.physicalKey === key && d.key !== editing?.key)
+  }, [pack.name, pack.type, pack.size, pack.unit, state.products, state.packs, editing?.key])
 
   /** "10 pouches, 10 caps" — what `ofThese` packs of the linked materials add up to,
    *  in the same words the run's preview will say, so the two screens rhyme. */
@@ -473,10 +473,15 @@ export function PackDefForm({
         </div>
       </div>
 
-      {mergesInto ? (
+      {mergesInto && editing ? (
+        <div className="note warning-note">
+          <b>{mergesInto.name}</b> already exists with this type and size — give this pack
+          another name, or add its recipes to that pack instead.
+        </div>
+      ) : mergesInto ? (
         <div className="note">
           This matches <b>{mergesInto.name}</b> as it already stands — saving adds these recipes
-          to that pack instead of creating a second one.
+          to that pack instead of creating a second one, and keeps its packing materials.
         </div>
       ) : !packBulks.length ? (
         <div className="note warning-note">

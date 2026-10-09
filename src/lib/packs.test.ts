@@ -1,10 +1,11 @@
 /**
- * The derived pack catalog. A pack is never stored: SKUs that share a pack name,
- * type, size and unit ARE the pack, and packDefs is the view that groups them.
- * These tests pin the grouping contract the catalog page and the run form lean on.
+ * The pack catalog. On D1 a pack is a stored master and each SKU points at it by
+ * packId; rows from Zoho or the first import carry only the product projection, so
+ * materializePacks derives their master deterministically. packDefs is the view
+ * the catalog page and the run form lean on.
  */
 import { describe, expect, it } from 'vitest'
-import { formatSize, packDefs, packKeyOfDef, packLabel } from './packs'
+import { formatSize, materializePacks, packDefs, packKeyOfDef, packLabel } from './packs'
 import { migrateState } from './migrate'
 import type { AppState, Product } from '../types'
 
@@ -36,6 +37,26 @@ describe('packLabel', () => {
 })
 
 describe('packDefs', () => {
+  it('backfills one stable D1 master and SKU pointers from legacy product rows', () => {
+    const products = [
+      member({ id: 'FG-1', packName: '250 ml BiB' }),
+      member({ id: 'FG-2', name: 'ABC 250 ml', bulkItem: 'SF-ABC', packName: '250 ml BiB' }),
+    ]
+    const materialized = materializePacks(products, [])
+    expect(materialized.packs).toHaveLength(1)
+    expect(materialized.products.map((p) => p.packId)).toEqual([
+      materialized.packs[0].id,
+      materialized.packs[0].id,
+    ])
+  })
+
+  it('uses the stored D1 master as the format source, not a SKU projection', () => {
+    const state = stateOf([member({ packName: 'legacy 250 ml BiB' })])
+    const master = { ...state.packs[0], name: 'D1 300 ml bottle', type: 'Glass Bottle', size: 300, packVolume: 0.3 }
+    const def = packDefs(state.products, [master])[0]
+    expect(def).toMatchObject({ key: master.id, name: 'D1 300 ml bottle', type: 'Glass Bottle', size: 300 })
+  })
+
   it('groups by name, type, size and unit — one pack, many recipes', () => {
     const state = stateOf([
       member({ id: 'FG-1', name: 'TCW 250 ml', packName: '250 ml BiB' }),

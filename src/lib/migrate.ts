@@ -2,7 +2,7 @@ import type { AppState, BomLine, BulkOutputLine, StorageType, Vendor } from '../
 import { batchInputQty, mainOutput, usableYield } from './batches'
 import { batchDisposition } from './posting'
 import { stockIdFor } from './stockIds'
-import { toBase } from './packs'
+import { materializePacks, toBase } from './packs'
 import {
   DEFAULT_STICKER_HEIGHT_MM,
   DEFAULT_STICKER_WIDTH_MM,
@@ -89,6 +89,7 @@ export function migrateState(raw: unknown): AppState {
     purchaseProducts: (incoming.purchaseProducts as AppState['purchaseProducts']) || [],
     storageLocations: (incoming.storageLocations as AppState['storageLocations']) || [],
     items: (incoming.items as AppState['items']) || [],
+    packs: arr<AppState['packs']>(incoming.packs),
     products: (incoming.products as AppState['products']) || [],
     melanges: (incoming.melanges as AppState['melanges']) || [],
     grns: (incoming.grns as AppState['grns']) || [],
@@ -180,6 +181,9 @@ export function migrateState(raw: unknown): AppState {
       packVolume: toBase(size, unit),
     }
   })
+  // Packs became first-class on D1. A Zoho/base-import row has only product
+  // projections, so deterministically recover its master and pointer here.
+  ;({ products: next.products, packs: next.packs } = materializePacks(next.products, next.packs))
   if (!next.counters.product) next.counters.product = next.products.length
   // Locations saved before they had a readable name fall back to their key, so the
   // ledger keeps its "RM Store" key while the screen finally says something readable.

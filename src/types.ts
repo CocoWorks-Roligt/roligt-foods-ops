@@ -293,6 +293,9 @@ export interface Product {
    *  Absent on packs saved before the pack catalog existed; the label then derives
    *  from the rest of the row. */
   packName?: string
+  /** The first-class physical format this SKU fills. Older Zoho rows do not carry
+   * this yet; migrateState deterministically backfills it from their format. */
+  packId?: string
   /** A pack the plant no longer fills. Hidden from new packing runs and planning,
    *  kept everywhere history reads it — stock, stickers, dispatch. */
   retired?: boolean
@@ -301,6 +304,20 @@ export interface Product {
   bulkItem?: string
   /** @deprecated derived from `bulkItem`'s unit; kept so older packs still read */
   medium?: PackMedium
+}
+
+/** One physical format the plant buys and fills. Its member SKUs carry only
+ * their recipe/commercial facts; the legacy physical fields on Product remain a
+ * compatibility projection while Zoho is still an available rollback engine. */
+export interface Pack {
+  id: string
+  name: string
+  type: string
+  size: number
+  unit: PackUnit
+  packVolume: number
+  bom: BomLine[]
+  retired?: boolean
 }
 
 export interface Grn {
@@ -879,6 +896,7 @@ export interface AppState {
   purchaseProducts: PurchaseProduct[]
   storageLocations: StorageLocation[]
   items: Item[]
+  packs: Pack[]
   products: Product[]
   melanges: Melange[]
   grns: Grn[]

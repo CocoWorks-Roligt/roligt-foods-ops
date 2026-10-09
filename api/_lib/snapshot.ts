@@ -7,7 +7,7 @@
 import { FUTURE_AT_GRACE_MS } from './zoho.js'
 import type { ReadScope, ZohoClient, ZohoRecord } from './zoho.js'
 import { T, TABLE_FOR, type TableRef } from './baseSchema.js'
-import { WIRE_TABLES, stateKeyFor } from './registry.js'
+import { ZOHO_WIRE_TABLES, stateKeyFor } from './registry.js'
 import { rowToDoc } from './mappers.js'
 import { COLLECTIONS, ledgerFromRow, auditFromRow } from '../../src/lib/tables.js'
 import { canViewPage } from '../../src/lib/pages.js'
@@ -40,7 +40,7 @@ export function parseZohoRows(schema: Record<string, TableRef>, rows: SnapshotRo
   const docs: Partial<Record<string, Record<string, unknown>[]>> = {}
   // collections — including ledger and audits, whose Data JSON already holds the
   // document in its final shape — all read the same way
-  for (const supa of WIRE_TABLES) {
+  for (const supa of ZOHO_WIRE_TABLES) {
     const table = schema[TABLE_FOR[supa]]
     const key = stateKeyFor(supa)
     if (!table?.dataJson || !rows[supa] || !key) continue

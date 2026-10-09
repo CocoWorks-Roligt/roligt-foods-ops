@@ -25,6 +25,7 @@ import { ZohoApiError, ZohoCasConflictError } from './zoho.js'
 import type { ZohoClient, ZohoRecord } from './zoho.js'
 import type { TableRef } from './baseSchema.js'
 import { T, TABLE_FOR } from './baseSchema.js'
+import { D1_ONLY_TABLES } from './registry.js'
 import { columnsFor, ledgerColumns, auditColumns, buildLinkMaps, mergeLinkRows, type LinkTableKey } from './mappers.js'
 import { FIXED_VENDOR_TYPES } from '../../src/lib/vendorTypes.js'
 import { COLLECTIONS } from '../../src/lib/tables.js'
@@ -269,6 +270,14 @@ export function commitChanges(zoho: ZohoClient, caller: Caller, changes: StateCh
 }
 
 async function commitLocked(zoho: ZohoClient, caller: Caller, changes: StateChanges): Promise<CommitResult> {
+  // Packs are first-class D1 documents. While Zoho remains the active engine,
+  // the client keeps the deterministic compatibility view locally and writes
+  // its product projection only; a packs table here would be the forbidden
+  // 27th sweep read. Filtering before every gate/preflight keeps the legacy
+  // engine byte-for-byte unaware of the D1-only collection.
+  if (changes.tables.some((t) => D1_ONLY_TABLES.has(t.table))) {
+    changes = { ...changes, tables: changes.tables.filter((t) => !D1_ONLY_TABLES.has(t.table)) }
+  }
   // 1. permission gates — the RLS of this fork, shared verbatim with the D1
   //    engine (commitGates.ts): the pure verdicts first, then the two gates
   //    whose evidence is one read away (config, counters).

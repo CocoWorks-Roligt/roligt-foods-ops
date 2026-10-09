@@ -5,11 +5,12 @@
  * + SHA-256 of the canonicalized rows) that scripts/d1/verify.mjs checks the
  * loaded database against.
  *
- * 27 tables: the 24 synced collections of TABLE_FOR minus the two link-machinery
+ * 27 Zoho source tables: the 24 synced collections of TABLE_FOR minus the two link-machinery
  * tables the app never read back (Vendor Types, Order Lines — they existed so
  * Zoho link columns resolved), plus Counters, Config and Compliance Documents.
  * Field ids come from the same per-base topup-state files the generated schema
- * uses, so nothing is discovered live.
+ * uses, so nothing is discovered live. D1-only packs are derived from Products
+ * in the emitted import; no extra Zoho read is made.
  *
  * usage: node scripts/d1/dump-from-zoho.mjs <base-id> [--production <exact-id>]
  * Paced like every other Zoho script (2.5 s between reads); read-only.
@@ -159,6 +160,31 @@ function rowsToStatements(prefix, rowsSql) {
 }
 
 const stamped = new Date().toISOString()
+const packs = new Map()
+
+const trim = (n) => Number(Number(n || 0).toFixed(3)).toString()
+/** The master src/lib/packs.ts legacyPackIdOf/materializePacks derive for the same
+ *  row — same id, same label fallback (formatSize + type). Only rows that already
+ *  carry their physicals qualify: an older row is normalised by migrateState
+ *  (inferred type, size from packVolume) and is left without a packId so the client
+ *  derives its master the one way instead of this script guessing a second. */
+const legacyPack = (product) => {
+  const { type, unit } = product
+  const size = Number(product.size)
+  if (!type || !unit || !(size > 0)) return null
+  const name = product.packName || `${trim(size)} ${unit} ${type}`
+  const key = `${name}|${type}|${size}|${unit}`
+  return {
+    id: `PACK:${key}`,
+    name,
+    type,
+    size,
+    unit,
+    packVolume: Number(product.packVolume) || (unit === 'ml' || unit === 'g' ? size * 0.001 : size),
+    bom: Array.isArray(product.bom) ? product.bom : [],
+    ...(product.retired ? { retired: true } : {}),
+  }
+}
 
 for (const [collection, tableName] of Object.entries(DUMP_TABLES)) {
   const st = state.tables[tableName]
@@ -173,8 +199,26 @@ for (const [collection, tableName] of Object.entries(DUMP_TABLES)) {
   const canonical = []
   for (const r of rows) {
     const id = String(r.data[st.appId] ?? '')
-    const json = String(r.data[st.dataJson] ?? '')
+    let json = String(r.data[st.dataJson] ?? '')
     if (!id || !json) continue // hand-staged row with no document
+    // Zoho never had a packs table. Seed D1's proper master records and the
+    // SKU pointers into the same atomic import, without touching the source.
+    if (collection === 'products') {
+      try {
+        const product = JSON.parse(json)
+        // A row saved by the pack catalog already names its master (a renamed pack
+        // keeps its first id); the master is still emitted, under that id.
+        const pack = legacyPack(product)
+        if (pack && product.packId) pack.id = product.packId
+        else if (pack) {
+          product.packId = pack.id
+          json = JSON.stringify(product)
+        }
+        if (pack && !packs.has(pack.id)) packs.set(pack.id, pack)
+      } catch {
+        // Preserve a malformed historical product exactly as the old dumper did.
+      }
+    }
     const version = versionOf(id, String(r.data[st.fields['Version']] ?? ''))
     rowsSql.push(`${q(collection)},${q(id)},${q(json)},${version},${q(stamped)}`)
     canonical.push(`${id} ${json}`)
@@ -187,6 +231,21 @@ for (const [collection, tableName] of Object.entries(DUMP_TABLES)) {
     sha256: createHash('sha256').update(canonical.join('\n')).digest('hex'),
   }
   console.log(`= ${tableName} → ${collection}: ${rowsSql.length} rows`)
+}
+
+// Packs have no Zoho source table. They are deterministically extracted from
+// Products during the one-time D1 import, then become normal D1 documents.
+{
+  const rows = [...packs.values()]
+  const rowsSql = rows.map((pack) => `${q('packs')},${q(pack.id)},${q(JSON.stringify(pack))},1,${q(stamped)}`)
+  const canonical = rows.map((pack) => `${pack.id} ${JSON.stringify(pack)}`)
+  out.push(...rowsToStatements('INSERT OR REPLACE INTO documents(collection,id,json,version,updated_at) VALUES', rowsSql))
+  manifest.tables.Packs = {
+    collection: 'packs',
+    count: rowsSql.length,
+    sha256: createHash('sha256').update(canonical.sort().join('\n')).digest('hex'),
+  }
+  console.log(`= Packs → packs: ${rowsSql.length} rows (derived from Products)`)
 }
 
 // Counters → counters

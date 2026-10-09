@@ -105,6 +105,17 @@ const CHANGES = {
 }
 
 describe('commitChanges', () => {
+  it('keeps D1-only pack master changes out of the Zoho engine', async () => {
+    const { zoho, ops } = fakeZoho()
+    const result = await commitChanges(zoho, admin, {
+      empty: false,
+      tables: [{ table: 'packs', upsert: [{ id: 'PACK:5 L BiB|BiB|5|L', data: { id: 'PACK:5 L BiB|BiB|5|L', name: '5 L BiB' } }], remove: [] }],
+      counters: {},
+    })
+    expect(result.wrote).toBe(false)
+    expect(ops.upserts).toEqual([])
+  })
+
   it('writes doc + ledger + audit + counter + revision, all keyed upserts', async () => {
     const { zoho, ops } = fakeZoho()
     const { token: rev, wrote } = await commitChanges(zoho, admin, CHANGES)

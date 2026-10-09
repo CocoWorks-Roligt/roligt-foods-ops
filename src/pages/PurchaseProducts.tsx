@@ -78,7 +78,7 @@ export function PurchaseProducts() {
 
   /** The packs, as the catalog holds them: one card per physical format, with its
    *  member SKUs inside — not one card per recipe. */
-  const packs = useMemo(() => packDefs(state.products), [state.products])
+  const packs = useMemo(() => packDefs(state.products, state.packs), [state.products, state.packs])
 
   const openMaterial = (p: PurchaseProduct) =>
     setDialog({ kind: 'material', editId: p.id, initial: materialFrom(p) })
