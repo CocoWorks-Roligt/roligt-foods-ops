@@ -1,20 +1,20 @@
 // @vitest-environment happy-dom
 /**
- * The pack-product freeze. deleteProduct has refused on stock history since the
- * beginning, but the edit path let a pack that had already been packed swap its
- * unit or the bulk it draws: a new unit re-dimensions every pack line already on
- * the ledger (40 packs at 250 ml would silently read as 40 L), and a different
- * bulk orphans the cost trail behind them. Those two fields freeze at the first
- * ledger line; size and shelf life may still move, because posted runs carry
- * their own perPack copy.
+ * The pack catalog. A pack is not a record: the finished SKUs that share a name,
+ * type, size and unit ARE it (lib/packs.ts), and savePack is the only writer — it
+ * mints a SKU per recipe, propagates the physical pack onto every member, and
+ * refuses the edits stock history cannot survive (unassigning a packed recipe,
+ * re-uniting a pack with ledger lines behind it). retirePack and deletePack are
+ * the two off-ramps, one reversible, one refused while any recipe has history.
  */
 import { cleanup, renderHook } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useCatalog } from './catalog'
-import type { CoreDeps } from './deps'
+import { POSTED, type CoreDeps } from './deps'
+import { packDefs, packKeyOfDef } from '../../lib/packs'
 import { migrateState } from '../../lib/migrate'
 import { deepClone } from '../../lib/utils'
-import type { ProductInput } from '../../lib/posting'
+import type { PackDefInput } from '../../lib/posting'
 import type { AppState, Item, LedgerEntry, Product, PurchaseProduct, Vendor } from '../../types'
 
 const BULK: Item = {
@@ -24,20 +24,34 @@ const BULK: Item = {
 const OTHER_BULK: Item = {
   ...BULK, id: 'SF-ABC', name: 'ABC Melange (bulk)',
 }
-const PACK: Product = {
+const fgItem = (id: string, name: string): Item => ({
+  id, name, type: 'Finished Goods', uom: 'Pack',
+  lotControlled: true, reorder: 0, costMethod: 'Batch Actual',
+})
+/** Two recipes of one physical pack — the shape the pivot moved to. */
+const PACK_1: Product = {
   id: 'FG-1', name: 'TCW 250 ml', type: 'BiB', size: 250, unit: 'ml', packVolume: 0.25,
-  shelfLifeDays: 30, bom: [], bulkItem: 'SF-TCW-WATER', medium: 'Water',
+  shelfLifeDays: 30, bom: [], bulkItem: 'SF-TCW-WATER', medium: 'Water', packName: '250 ml BiB',
+}
+const PACK_2: Product = {
+  ...PACK_1, id: 'FG-2', name: 'ABC 250 ml', bulkItem: 'SF-ABC',
 }
 
-/** One posted run's packs — the history the freeze keys on (ledger lines by item). */
+/** One posted run's packs — the history the guards key on (ledger lines by item). */
 const HISTORY: LedgerEntry = {
   id: 'LED-1', type: 'Packing Output', doc: 'PR-0001', item: 'FG-1', itemType: 'Finished Goods',
   lot: 'B-0001', location: 'freezer', status: 'Available', qtyIn: 40, qtyOut: 0, uom: 'Pack',
   unitCost: 5, time: '2026-09-22T08:00:00Z',
 }
 
+const PACK_KEY = packKeyOfDef('250 ml BiB', 'BiB', 250, 'ml')
+
 function plant(lines: LedgerEntry[]): AppState {
-  return migrateState({ items: [BULK, OTHER_BULK], products: [PACK], ledger: lines })
+  return migrateState({
+    items: [BULK, OTHER_BULK, fgItem('FG-1', PACK_1.name), fgItem('FG-2', PACK_2.name)],
+    products: [PACK_1, PACK_2],
+    ledger: lines,
+  })
 }
 
 /** The hook's plumbing, stubbed the way AppContext hands it over. */
@@ -45,10 +59,11 @@ function deps(lines: LedgerEntry[]) {
   const showToast = vi.fn()
   const setState = vi.fn()
   const log = vi.fn()
+  let seq = 0
   const d: CoreDeps = {
     state: plant(lines),
     setState,
-    nextId: vi.fn(() => 'FG-2'),
+    nextId: vi.fn(() => `FG-N${++seq}`),
     nextLot: vi.fn(() => 'LOT-0001'),
     log,
     showToast,
@@ -67,57 +82,219 @@ function applied(d: CoreDeps, setState: ReturnType<typeof vi.fn>): AppState {
   return updater(deepClone(d.state))
 }
 
-const input = (over: Partial<ProductInput> = {}): ProductInput => ({
-  name: 'TCW 250 ml',
+/** Applies every updater in order — a second save reads the state the first wrote. */
+function appliedAll(d: CoreDeps, setState: ReturnType<typeof vi.fn>): AppState {
+  let s = deepClone(d.state)
+  for (const call of setState.mock.calls) s = (call[0] as (prev: AppState) => AppState)(s)
+  return s
+}
+
+const packInput = (over: Partial<PackDefInput> = {}): PackDefInput => ({
+  name: '250 ml BiB',
   type: 'BiB',
   size: 250,
   unit: 'ml',
-  bulkItem: 'SF-TCW-WATER',
-  shelfLifeDays: 30,
   bom: [],
+  recipes: [
+    { skuId: 'FG-1', name: 'TCW 250 ml', shelfLifeDays: 90, chilledShelfLifeDays: 7, mrp: 60 },
+    { skuId: 'FG-2', name: 'ABC 250 ml', shelfLifeDays: 90, chilledShelfLifeDays: 7, mrp: 60 },
+  ],
   ...over,
 })
 
-const FREEZE_TOAST =
-  'TCW 250 ml has stock history — its pack unit and the bulk it draws cannot change. Size and shelf life may still be edited.'
-
 afterEach(cleanup)
 
-describe('updateProduct', () => {
-  it('refuses a pack-unit change once the pack has stock history', () => {
-    const { d, setState, showToast } = deps([HISTORY])
+describe('savePack', () => {
+  it('mints a finished SKU — and its ledger item — per recipe on create', () => {
+    const { d, setState } = deps([])
     const { result } = renderHook(() => useCatalog(d))
-    expect(result.current.updateProduct('FG-1', input({ unit: 'L' }))).toBeNull()
-    expect(setState).not.toHaveBeenCalled()
-    expect(showToast).toHaveBeenCalledWith(FREEZE_TOAST)
-  })
-
-  it('refuses pointing the pack at a different bulk for the same reason', () => {
-    const { d, setState, showToast } = deps([HISTORY])
-    const { result } = renderHook(() => useCatalog(d))
-    expect(result.current.updateProduct('FG-1', input({ bulkItem: 'SF-ABC' }))).toBeNull()
-    expect(setState).not.toHaveBeenCalled()
-    expect(showToast).toHaveBeenCalledWith(FREEZE_TOAST)
-  })
-
-  it('still lets size and shelf life move — posted runs carry their own perPack', () => {
-    const { d, setState, showToast } = deps([HISTORY])
-    const { result } = renderHook(() => useCatalog(d))
-    expect(result.current.updateProduct('FG-1', input({ size: 300, shelfLifeDays: 45 }))).toBe('FG-1')
+    const ok = result.current.savePack(null, {
+      name: '5 L BiB',
+      type: 'BiB',
+      size: 5,
+      unit: 'L',
+      bom: [{ item: 'PM-1', qty: 2 }],
+      recipes: [{ bulkItem: 'SF-TCW-WATER', name: 'TCW 5 L', shelfLifeDays: 120 }],
+    })
+    expect(ok).toBe(POSTED)
     const draft = applied(d, setState)
-    expect(draft.products[0].size).toBe(300)
-    expect(draft.products[0].packVolume).toBeCloseTo(0.3, 10) // 300 ml in base units
-    expect(draft.products[0].shelfLifeDays).toBe(45)
-    expect(showToast).toHaveBeenCalledWith('TCW 250 ml updated.')
+    const p = draft.products.find((x) => x.name === 'TCW 5 L')
+    expect(p).toMatchObject({
+      type: 'BiB', size: 5, unit: 'L', packVolume: 5,
+      bulkItem: 'SF-TCW-WATER', medium: 'Water', packName: '5 L BiB', bom: [{ item: 'PM-1', qty: 2 }],
+    })
+    // The ledger books packs against an item, so the SKU lands with one at its side.
+    expect(draft.items.find((i) => i.id === p!.id)).toMatchObject({
+      type: 'Finished Goods', uom: 'Pack', name: 'TCW 5 L',
+    })
+  })
+
+  it('groups by key, not by row: a second save with the same key joins the pack', () => {
+    const { d, setState } = deps([])
+    const { result } = renderHook(() => useCatalog(d))
+    const input = (recipe: PackDefInput['recipes'][number]): PackDefInput => ({
+      name: '5 L BiB', type: 'BiB', size: 5, unit: 'L', bom: [], recipes: [recipe],
+    })
+    expect(result.current.savePack(null, input({ bulkItem: 'SF-TCW-WATER', name: 'TCW 5 L', shelfLifeDays: 90 }))).toBeTruthy()
+    expect(result.current.savePack(null, input({ bulkItem: 'SF-ABC', name: 'ABC 5 L', shelfLifeDays: 90 }))).toBeTruthy()
+    const defs = packDefs(appliedAll(d, setState).products).filter((x) => x.name === '5 L BiB')
+    expect(defs).toHaveLength(1)
+    expect(defs[0].members.map((m) => m.name)).toEqual(['ABC 5 L', 'TCW 5 L'])
+  })
+
+  it('propagates edited physicals onto every member, and renames their items', () => {
+    const { d, setState } = deps([])
+    const { result } = renderHook(() => useCatalog(d))
+    expect(
+      result.current.savePack(PACK_KEY, packInput({ name: '300 ml BiB', size: 300, type: 'Glass Bottle' })),
+    ).toBeTruthy()
+    const draft = applied(d, setState)
+    for (const p of draft.products) {
+      expect(p.packName).toBe('300 ml BiB')
+      expect(p.type).toBe('Glass Bottle')
+      expect(p.size).toBe(300)
+      expect(p.packVolume).toBeCloseTo(0.3, 10)
+    }
+    expect(draft.items.find((i) => i.id === 'FG-1')?.name).toBe('TCW 250 ml')
+  })
+
+  it('refuses a pack-unit change once any recipe has stock history', () => {
+    const { d, setState, showToast } = deps([HISTORY])
+    const { result } = renderHook(() => useCatalog(d))
+    expect(result.current.savePack(PACK_KEY, packInput({ unit: 'L', size: 0.25 }))).toBeNull()
+    expect(setState).not.toHaveBeenCalled()
+    expect(showToast).toHaveBeenCalledWith(
+      '250 ml BiB has stock history — its pack unit cannot change. Size and the rest may still be edited.',
+    )
+  })
+
+  it('still lets size move with history — posted runs carry their own perPack', () => {
+    const { d, setState, showToast } = deps([HISTORY])
+    const { result } = renderHook(() => useCatalog(d))
+    expect(result.current.savePack(PACK_KEY, packInput({ size: 300 }))).toBeTruthy()
+    const draft = applied(d, setState)
+    expect(draft.products.every((p) => p.size === 300 && p.packVolume === 0.3)).toBe(true)
+    expect(showToast).toHaveBeenCalledWith('250 ml BiB saved.')
   })
 
   it('allows the unit to move while there is no history to re-dimension', () => {
     const { d, setState } = deps([])
     const { result } = renderHook(() => useCatalog(d))
-    expect(result.current.updateProduct('FG-1', input({ unit: 'L', size: 0.3 }))).toBe('FG-1')
+    expect(result.current.savePack(PACK_KEY, packInput({ unit: 'L', size: 0.25 }))).toBeTruthy()
     const draft = applied(d, setState)
-    expect(draft.products[0].unit).toBe('L')
-    expect(draft.products[0].packVolume).toBeCloseTo(0.3, 10)
+    expect(draft.products.every((p) => p.unit === 'L' && p.packVolume === 0.25)).toBe(true)
+  })
+
+  it('refuses unassigning a recipe that has already been packed', () => {
+    const { d, setState, showToast } = deps([HISTORY])
+    const { result } = renderHook(() => useCatalog(d))
+    const withoutTcw = packInput({ recipes: [packInput().recipes[1]] })
+    expect(result.current.savePack(PACK_KEY, withoutTcw)).toBeNull()
+    expect(setState).not.toHaveBeenCalled()
+    expect(showToast).toHaveBeenCalledWith(
+      'TCW 250 ml has already been packed — it has stock history and cannot be removed from the pack. Retire the pack instead if it is no longer filled.',
+    )
+  })
+
+  it('deletes an unassigned recipe SKU and its item when nothing is behind it', () => {
+    const { d, setState } = deps([])
+    const { result } = renderHook(() => useCatalog(d))
+    const withoutAbc = packInput({ recipes: [packInput().recipes[0]] })
+    expect(result.current.savePack(PACK_KEY, withoutAbc)).toBeTruthy()
+    const draft = applied(d, setState)
+    expect(draft.products.some((p) => p.id === 'FG-2')).toBe(false)
+    expect(draft.items.some((i) => i.id === 'FG-2')).toBe(false)
+    expect(draft.products.some((p) => p.id === 'FG-1')).toBe(true)
+  })
+
+  it('refuses a pack with no recipes — an empty pack cannot exist', () => {
+    const { d, setState, showToast } = deps([])
+    const { result } = renderHook(() => useCatalog(d))
+    expect(result.current.savePack(PACK_KEY, packInput({ recipes: [] }))).toBeNull()
+    expect(setState).not.toHaveBeenCalled()
+    expect(showToast).toHaveBeenCalledWith(
+      'A pack exists to be filled — assign at least one recipe. To drop the pack entirely, delete it from its card.',
+    )
+  })
+
+  it('refuses the same bulk twice — each recipe is its own bulk', () => {
+    const { d, setState, showToast } = deps([])
+    const { result } = renderHook(() => useCatalog(d))
+    const twice = {
+      ...packInput(),
+      recipes: [
+        { skuId: 'FG-1', name: 'TCW 250 ml', shelfLifeDays: 90 },
+        { bulkItem: 'SF-TCW-WATER', name: 'TCW 250 ml special', shelfLifeDays: 90 },
+      ] as PackDefInput['recipes'],
+    }
+    expect(result.current.savePack(PACK_KEY, twice)).toBeNull()
+    expect(setState).not.toHaveBeenCalled()
+    expect(showToast).toHaveBeenCalledWith(
+      'Coconut Water (bulk) is assigned to this pack twice — each recipe is its own bulk.',
+    )
+  })
+
+  it('refuses a recipe named like a product that already exists', () => {
+    const { d, setState, showToast } = deps([])
+    const { result } = renderHook(() => useCatalog(d))
+    const clash = packInput({
+      recipes: [
+        { skuId: 'FG-1', name: 'TCW 250 ml', shelfLifeDays: 90 },
+        { skuId: 'FG-2', name: 'TCW 250 ml', shelfLifeDays: 90 },
+      ],
+    })
+    expect(result.current.savePack(PACK_KEY, clash)).toBeNull()
+    expect(setState).not.toHaveBeenCalled()
+    expect(showToast).toHaveBeenCalledWith('TCW 250 ml already exists.')
+  })
+
+  it('refuses a recipe whose bulk is measured in the other dimension', () => {
+    const { d, setState, showToast } = deps([])
+    const { result } = renderHook(() => useCatalog(d))
+    expect(result.current.savePack(PACK_KEY, packInput({ unit: 'kg' }))).toBeNull()
+    expect(setState).not.toHaveBeenCalled()
+    expect(showToast).toHaveBeenCalledWith(
+      'Coconut Water (bulk) is held in litre, so a pack sized in kg cannot be filled from it.',
+    )
+  })
+})
+
+describe('retirePack', () => {
+  it('marks every member retired, and a restore clears the flag off the key', () => {
+    const { d, setState, showToast } = deps([])
+    const { result } = renderHook(() => useCatalog(d))
+    result.current.retirePack(PACK_KEY, true)
+    let draft = applied(d, setState)
+    expect(draft.products.every((p) => p.retired === true)).toBe(true)
+    // The roll-up: a def whose every member is retired is a retired def.
+    expect(packDefs(draft.products).find((x) => x.key === PACK_KEY)?.retired).toBe(true)
+
+    result.current.retirePack(PACK_KEY, false)
+    draft = appliedAll(d, setState)
+    expect(draft.products.every((p) => p.retired === undefined)).toBe(true)
+    expect(showToast).toHaveBeenCalledWith('250 ml BiB is back on the line.')
+  })
+})
+
+describe('deletePack', () => {
+  it('refuses while any recipe has stock history, naming the blocker', () => {
+    const { d, setState, showToast } = deps([HISTORY])
+    const { result } = renderHook(() => useCatalog(d))
+    result.current.deletePack(PACK_KEY)
+    expect(setState).not.toHaveBeenCalled()
+    expect(showToast).toHaveBeenCalledWith(
+      'TCW 250 ml has already been packed — it has stock history, so the pack cannot be deleted. Retire it instead.',
+    )
+  })
+
+  it('removes every member SKU and its item when nothing is behind them', () => {
+    const { d, setState, showToast } = deps([])
+    const { result } = renderHook(() => useCatalog(d))
+    result.current.deletePack(PACK_KEY)
+    const draft = applied(d, setState)
+    expect(draft.products).toHaveLength(0)
+    expect(draft.items.some((i) => i.id === 'FG-1' || i.id === 'FG-2')).toBe(false)
+    expect(showToast).toHaveBeenCalledWith('250 ml BiB deleted.')
   })
 })
 

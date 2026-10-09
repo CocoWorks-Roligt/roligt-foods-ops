@@ -37,8 +37,8 @@ import {
   type MelangeInput,
   type MoveStockInput,
   type OrderAllocation,
+  type PackDefInput,
   type PackingInput,
-  type ProductInput,
   type QcUpdate,
   type StorageLocationInput,
 } from '../lib/posting'
@@ -78,7 +78,7 @@ export type {
   MelangeInput,
   MoveStockInput,
   PackingInput,
-  ProductInput,
+  PackDefInput,
   QcUpdate,
   StorageLocationInput,
 }
@@ -144,9 +144,9 @@ interface AppContextValue {
   ) => string | null
   deletePurchaseProduct: (id: string) => void
   updatePurchaseProductVendors: (id: string, vendorIds: string[]) => void
-  addProduct: (input: ProductInput) => string | null
-  updateProduct: (id: string, input: ProductInput) => string | null
-  deleteProduct: (id: string) => void
+  savePack: (defKey: string | null, input: PackDefInput) => string | null
+  retirePack: (defKey: string, retired: boolean) => void
+  deletePack: (defKey: string) => void
   addBulkProduct: (input: BulkProductInput) => string | null
   updateBulkProduct: (id: string, input: BulkProductInput) => string | null
   deleteBulkProduct: (id: string) => void

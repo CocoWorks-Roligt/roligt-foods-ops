@@ -286,6 +286,16 @@ export interface Product {
   /** Printed on the dispatch label. */
   mrp?: number
   bom: BomLine[]
+  /** The physical pack this SKU is one recipe of — "5 L BiB", "4 × 120 ml bottle".
+   *  The pack is not a record of its own: the SKUs that share this name, type, size
+   *  and unit ARE the pack (lib/packs.ts groups them), so a pack edit is a write
+   *  onto every member and no second copy of the pack can drift out of step.
+   *  Absent on packs saved before the pack catalog existed; the label then derives
+   *  from the rest of the row. */
+  packName?: string
+  /** A pack the plant no longer fills. Hidden from new packing runs and planning,
+   *  kept everywhere history reads it — stock, stickers, dispatch. */
+  retired?: boolean
   /** Semi-finished item this pack is filled from — coconut water, malai, an ABC
    *  melange. What decides which bulk a packing run may draw for this pack. */
   bulkItem?: string

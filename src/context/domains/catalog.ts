@@ -7,14 +7,12 @@
  */
 import { useCallback, useMemo } from 'react'
 import { itemUom } from '../../lib/batches'
-import { bulkUomForUnit, mediumForUom, toBase } from '../../lib/packs'
-import type { ProductInput } from '../../lib/posting'
+import { bulkUomForUnit, mediumForUom, packDefs, toBase } from '../../lib/packs'
+import type { PackDefInput, Problem } from '../../lib/posting'
 import { itemName } from '../../lib/stock'
 import { deepClone } from '../../lib/utils'
 import type { Product, PurchaseProduct } from '../../types'
-import { POSTED } from './deps'
-import type { CoreDeps } from './deps'
-import type { Problem } from '../../lib/posting'
+import { POSTED, type CoreDeps } from './deps'
 
 export function useCatalog({ state, setState, nextId, log, showToast }: CoreDeps) {
   /** Shared by add and edit. The melange form has always guarded its names; this one
@@ -198,160 +196,230 @@ export function useCatalog({ state, setState, nextId, log, showToast }: CoreDeps
     [log, setState, showToast],
   )
 
-  /** Shared by add and edit: what a pack product must have before it can be saved. */
-  const checkProduct = useCallback(
-    (input: ProductInput, id?: string): Problem => {
-      if (!input.name.trim()) return 'Give the pack product a name.'
+  /** Shared by save and edit: what a pack must have before any of it can be saved.
+   *  Returns the first problem, or null when the pack stands. */
+  const checkPack = useCallback(
+    (defKey: string | null, input: PackDefInput): Problem => {
+      if (!input.name.trim()) return 'Give the pack a name.'
       if (!input.type.trim()) return 'Enter the pack type — BiB, Glass Bottle, Cover…'
       if (!(input.size > 0)) return 'Pack size must be greater than zero.'
-      if (!(input.shelfLifeDays > 0)) return 'Shelf life must be at least one day.'
-      const bulk = state.items.find((i) => i.id === input.bulkItem && i.type === 'Semi Finished')
-      if (!bulk) return 'Choose the bulk this pack is filled from.'
-      // A pack sized in litres cannot be filled from something counted in kilograms —
-      // the run would draw the right number and the wrong quantity.
-      if (bulk.uom !== bulkUomForUnit(input.unit)) {
-        return `${bulk.name} is held in ${bulk.uom.toLowerCase()}, so a pack sized in ${input.unit} cannot be filled from it.`
-      }
-      if (
-        state.products.some(
-          (p) => p.id !== id && p.name.trim().toLowerCase() === input.name.trim().toLowerCase(),
-        )
-      ) {
-        return `${input.name.trim()} already exists.`
+      if (!input.recipes.length) {
+        return 'A pack exists to be filled — assign at least one recipe. To drop the pack entirely, delete it from its card.'
       }
       if (input.bom.some((b) => !b.item || !(b.qty > 0))) {
         return 'Every packing material line needs an item and a quantity.'
       }
+      // The pack being edited, as it stands now — null on create.
+      const def = defKey ? packDefs(state.products).find((d) => d.key === defKey) : undefined
+      if (defKey && !def) return null // it was deleted under us; the save is a no-op
+      for (const r of input.recipes) {
+        if (!r.name.trim()) return 'Give every recipe a name.'
+        const bulkItem = r.skuId ? def?.members.find((m) => m.id === r.skuId)?.bulkItem : r.bulkItem
+        const bulk = state.items.find((i) => i.id === bulkItem && i.type === 'Semi Finished')
+        if (!bulk) return 'Choose the bulk each recipe is filled from.'
+        // A pack sized in litres cannot be filled from something counted in kilograms —
+        // the run would draw the right number and the wrong quantity.
+        if (bulk.uom !== bulkUomForUnit(input.unit)) {
+          return `${bulk.name} is held in ${bulk.uom.toLowerCase()}, so a pack sized in ${input.unit} cannot be filled from it.`
+        }
+        if (
+          state.products.some(
+            (p) =>
+              p.id !== r.skuId && p.name.trim().toLowerCase() === r.name.trim().toLowerCase(),
+          )
+        ) {
+          return `${r.name.trim()} already exists.`
+        }
+      }
+      // Two new rows can share a name without either matching anything in state, and
+      // would mint twin SKUs the rest of the app cannot tell apart.
+      const names = input.recipes.map((r) => r.name.trim().toLowerCase())
+      const dupName = names.find((n, i) => n && names.indexOf(n) !== i)
+      if (dupName) {
+        return `Two recipes are both named "${dupName}" — give each its own name.`
+      }
+      // Each recipe is one bulk — a bulk cannot be filled into the same pack twice,
+      // whether both rows are new or one is a member the save keeps.
+      const bulks = input.recipes.map((r) => {
+        if (r.skuId) return def?.members.find((m) => m.id === r.skuId)?.bulkItem || r.skuId
+        return r.bulkItem
+      })
+      const dup = bulks.find((b, i) => bulks.indexOf(b) !== i)
+      if (dup) {
+        // itemName without pulling all of `state` into the deps — the items list
+        // is already one.
+        const bulkName = state.items.find((i) => i.id === dup)?.name || dup
+        return `${bulkName} is assigned to this pack twice — each recipe is its own bulk.`
+      }
+      // Recipes left off the list are being unassigned. Once a recipe has stock
+      // history its SKU cannot be deleted, and unassigning IS deleting — the pack
+      // is the group, so a member that leaves it leaves the app entirely.
+      const kept = new Set(input.recipes.map((r) => r.skuId).filter(Boolean))
+      const dropped = (def?.members ?? []).filter((m) => !kept.has(m.id))
+      const packedOff = dropped.find((m) => state.ledger.some((l) => l.item === m.id))
+      if (packedOff) {
+        return `${packedOff.name} has already been packed — it has stock history and cannot be removed from the pack. Retire the pack instead if it is no longer filled.`
+      }
+      // Once a recipe has stock history, the fields that history was costed in are
+      // frozen: a new pack unit re-dimensions every pack line any member has posted.
+      // Size may still move — posted runs carry their own perPack copy.
+      const unitChanged = def ? def.unit !== input.unit : false
+      if (def && unitChanged) {
+        const withHistory = def.members.some((m) => state.ledger.some((l) => l.item === m.id))
+        if (withHistory) {
+          return `${def.name} has stock history — its pack unit cannot change. Size and the rest may still be edited.`
+        }
+      }
       return null
     },
-    [state.items, state.products],
+    [state.items, state.ledger, state.products],
   )
 
-  const addProduct = useCallback(
-    (input: ProductInput): string | null => {
-      const error = checkProduct(input)
+  /**
+   * Saves a pack: one physical format — name, type, size, unit, what one pack is
+   * made of — with a recipe list. Each recipe row is one finished SKU: a new bulk
+   * gets its SKU minted, a kept one keeps its id, and a member left off the list is
+   * unassigned (deleted, stock history permitting).
+   *
+   * The pack itself is not a record: the SKUs that share its name, type, size and
+   * unit ARE it (lib/packs.ts). So the save writes the physicals onto every member,
+   * and the catalog can never show a pack whose recipes disagree with it.
+   */
+  const savePack = useCallback(
+    (defKey: string | null, input: PackDefInput): string | null => {
+      const error = checkPack(defKey, input)
       if (error) {
         showToast(error)
         return null
       }
-      let createdId = ''
       setState((prev) => {
         const draft = deepClone(prev)
-        const id = nextId(draft, 'product')
-        const medium = mediumForUom(itemUom(draft, input.bulkItem))
-        const p: Product = {
-          id,
-          name: input.name.trim(),
-          type: input.type.trim(),
-          size: input.size,
-          unit: input.unit,
-          packVolume: toBase(input.size, input.unit),
-          shelfLifeDays: input.shelfLifeDays,
-          chilledShelfLifeDays: input.chilledShelfLifeDays,
-          mrp: input.mrp,
-          bom: input.bom.map((b) => ({ ...b })),
-          bulkItem: input.bulkItem,
-          medium,
+        const def = defKey ? packDefs(draft.products).find((d) => d.key === defKey) : undefined
+        if (defKey && !def) return prev // deleted under us; nothing to edit
+        const byId = new Map((def?.members ?? []).map((m) => [m.id, m]))
+        // 1. recipes left off the list leave the pack — and with it the app
+        const kept = new Set(input.recipes.map((r) => r.skuId).filter(Boolean))
+        for (const m of def?.members ?? []) {
+          if (kept.has(m.id)) continue
+          draft.products = draft.products.filter((p) => p.id !== m.id)
+          draft.items = draft.items.filter((i) => i.id !== m.id)
         }
-        draft.products.push(p)
-        // The ledger books packs against an item, not a product, so a pack product
-        // without its matching finished-goods item could never reach stock.
-        draft.items.push({
-          id,
-          name: p.name,
-          type: 'Finished Goods',
-          // Malai is sold by weight, water by the pack.
-          uom: medium === 'Malai' ? 'Kg' : 'Pack',
-          lotControlled: true,
-          reorder: 0,
-          costMethod: 'Batch Actual',
-        })
+        // 2. every row becomes a member: kept ones in place, new ones minted
+        const members: Product[] = []
+        for (const r of input.recipes) {
+          let p = r.skuId ? draft.products.find((x) => x.id === r.skuId) : undefined
+          const bulkItem = r.skuId ? byId.get(r.skuId)?.bulkItem : r.bulkItem
+          if (!bulkItem) return prev
+          const medium = mediumForUom(itemUom(draft, bulkItem))
+          if (p) {
+            p.name = r.name.trim()
+            p.shelfLifeDays = r.shelfLifeDays
+            p.chilledShelfLifeDays = r.chilledShelfLifeDays
+            p.mrp = r.mrp
+          } else {
+            p = {
+              id: nextId(draft, 'product'),
+              name: r.name.trim(),
+              type: input.type.trim(),
+              size: input.size,
+              unit: input.unit,
+              packVolume: toBase(input.size, input.unit),
+              shelfLifeDays: r.shelfLifeDays,
+              chilledShelfLifeDays: r.chilledShelfLifeDays,
+              mrp: r.mrp,
+              bom: [],
+              bulkItem,
+              medium,
+              retired: def?.retired,
+            }
+            draft.products.push(p)
+            // The ledger books packs against an item, not a product, so a pack
+            // product without its matching finished-goods item never reaches stock.
+            draft.items.push({
+              id: p.id,
+              name: p.name,
+              type: 'Finished Goods',
+              // Malai is sold by weight, water by the pack.
+              uom: medium === 'Malai' ? 'Kg' : 'Pack',
+              lotControlled: true,
+              reorder: 0,
+              costMethod: 'Batch Actual',
+            })
+          }
+          // 3. the physical pack itself, on every member alike
+          p.type = input.type.trim()
+          p.size = input.size
+          p.unit = input.unit
+          p.packVolume = toBase(input.size, input.unit)
+          p.bom = input.bom.map((b) => ({ ...b }))
+          p.packName = input.name.trim()
+          const item = draft.items.find((i) => i.id === p.id)
+          if (item) item.name = p.name
+          members.push(p)
+        }
         log(
           draft,
-          'Added pack product',
-          id,
-          `${p.name} — ${p.type}, ${p.size} ${p.unit}, filled from ${itemName(draft, input.bulkItem)}.`,
+          def ? 'Edited pack' : 'Added pack',
+          input.name.trim(),
+          `${input.type.trim()}, ${input.size} ${input.unit} — ${members.length} recipe${
+            members.length === 1 ? '' : 's'
+          }: ${members.map((m) => itemName(draft, m.bulkItem || '')).join(', ')}.`,
         )
-        createdId = id
         return draft
       })
-      showToast(`${input.name.trim()} added.`)
-      return createdId || POSTED
+      showToast(`${input.name.trim()} saved.`)
+      return POSTED
     },
-    [checkProduct, log, nextId, setState, showToast],
+    [checkPack, log, nextId, setState, showToast],
   )
 
-  const updateProduct = useCallback(
-    (id: string, input: ProductInput): string | null => {
-      const error = checkProduct(input, id)
-      if (error) {
-        showToast(error)
-        return null
-      }
-      // Once the pack has stock history, the fields that history was costed in are
-      // frozen: a new pack unit re-dimensions every pack line already posted, and a
-      // different bulk orphans the cost trail behind them. Size may still move —
-      // posted runs carry their own perPack copy, per the note below. deleteProduct
-      // has refused on the same history since the beginning; the edit path did not.
-      const existing = state.products.find((x) => x.id === id)
-      if (
-        existing &&
-        state.ledger.some((l) => l.item === id) &&
-        (input.unit !== existing.unit || input.bulkItem !== existing.bulkItem)
-      ) {
-        showToast(
-          `${existing.name} has stock history — its pack unit and the bulk it draws cannot change. Size and shelf life may still be edited.`,
-        )
-        return null
-      }
+  /**
+   * Takes a pack off the line without touching its past. A retired pack is hidden
+   * from new packing runs and planning; everything already posted — stock, stickers,
+   * dispatch — keeps reading it. Deleting is the permanent version, and refuses
+   * while any recipe has stock history.
+   */
+  const retirePack = useCallback(
+    (defKey: string, retired: boolean) => {
+      const def = packDefs(state.products).find((d) => d.key === defKey)
+      if (!def) return
       setState((prev) => {
         const draft = deepClone(prev)
-        const p = draft.products.find((x) => x.id === id)
-        if (!p) return prev
-        const medium = mediumForUom(itemUom(draft, input.bulkItem))
-        p.name = input.name.trim()
-        p.type = input.type.trim()
-        p.size = input.size
-        p.unit = input.unit
-        p.packVolume = toBase(input.size, input.unit)
-        p.shelfLifeDays = input.shelfLifeDays
-        p.chilledShelfLifeDays = input.chilledShelfLifeDays
-        p.mrp = input.mrp
-        p.bom = input.bom.map((b) => ({ ...b }))
-        p.bulkItem = input.bulkItem
-        p.medium = medium
-        const item = draft.items.find((i) => i.id === id)
-        if (item) {
-          item.name = p.name
-          item.uom = medium === 'Malai' ? 'Kg' : 'Pack'
+        for (const m of def.members) {
+          const p = draft.products.find((x) => x.id === m.id)
+          if (p) p.retired = retired || undefined
         }
-        // Runs already posted keep the size they were filled at — `perPack` on each
-        // packing line is a copy, so nothing here reaches back into stock.
-        log(draft, 'Edited pack product', id, `${p.name} — ${p.type}, ${p.size} ${p.unit}.`)
+        log(draft, retired ? 'Retired pack' : 'Restored pack', def.name, def.name)
         return draft
       })
-      showToast(`${input.name.trim()} updated.`)
-      return id
+      showToast(retired ? `${def.name} retired — it can be restored from its card.` : `${def.name} is back on the line.`)
     },
-    [checkProduct, log, setState, showToast, state.products, state.ledger],
+    [log, setState, showToast, state.products],
   )
 
-  const deleteProduct = useCallback(
-    (id: string) => {
-      const p = state.products.find((x) => x.id === id)
-      if (!p) return
-      if (state.ledger.some((l) => l.item === id)) {
-        showToast(`${p.name} has already been packed — it has stock history and cannot be deleted.`)
+  const deletePack = useCallback(
+    (defKey: string) => {
+      const def = packDefs(state.products).find((d) => d.key === defKey)
+      if (!def) return
+      // Same rule as one recipe: stock already packed is ledger history, and the
+      // ledger is never rewritten. The pack names the first blocker so the office
+      // knows retire is the option that fits.
+      const packedOff = def.members.find((m) => state.ledger.some((l) => l.item === m.id))
+      if (packedOff) {
+        showToast(
+          `${packedOff.name} has already been packed — it has stock history, so the pack cannot be deleted. Retire it instead.`,
+        )
         return
       }
       setState((prev) => {
         const draft = deepClone(prev)
-        draft.products = draft.products.filter((x) => x.id !== id)
-        draft.items = draft.items.filter((i) => i.id !== id)
-        log(draft, 'Deleted pack product', id, p.name)
+        const ids = new Set(def.members.map((m) => m.id))
+        draft.products = draft.products.filter((p) => !ids.has(p.id))
+        draft.items = draft.items.filter((i) => !ids.has(i.id))
+        log(draft, 'Deleted pack', def.name, def.members.map((m) => m.name).join(', '))
         return draft
       })
-      showToast(`${p.name} deleted.`)
+      showToast(`${def.name} deleted.`)
     },
     [log, setState, showToast, state.ledger, state.products],
   )
@@ -362,18 +430,18 @@ export function useCatalog({ state, setState, nextId, log, showToast }: CoreDeps
       updatePurchaseProduct,
       deletePurchaseProduct,
       updatePurchaseProductVendors,
-      addProduct,
-      updateProduct,
-      deleteProduct,
+      savePack,
+      retirePack,
+      deletePack,
     }),
     [
       addPurchaseProduct,
       updatePurchaseProduct,
       deletePurchaseProduct,
       updatePurchaseProductVendors,
-      addProduct,
-      updateProduct,
-      deleteProduct,
+      savePack,
+      retirePack,
+      deletePack,
     ],
   )
 }

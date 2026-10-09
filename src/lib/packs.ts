@@ -1,4 +1,4 @@
-import type { PackMedium, PackUnit, Product } from '../types'
+import type { BomLine, PackMedium, PackUnit, Product } from '../types'
 
 /**
  * A pack's size is entered in whatever unit the format is sold in — a bottle in ml,
@@ -52,3 +52,72 @@ export const bulkItemOf = (p: Product) =>
  * formats under their drink (orders, planning) names them the same way.
  */
 export const drinkName = (name: string) => name.replace(/ \(bulk\)$/i, '')
+
+// ── the pack catalog ─────────────────────────────────────────────────────────
+//
+// The plant was asked, once too often, to re-enter the same 5 L BiB inside every
+// recipe that filled one. The fix is not a second master record: the pack IS the
+// group of SKUs that share its name, type, size and unit. Each SKU below is one
+// recipe filled into that pack, the way the model has always read it downstream
+// (posting, tracing, planning — they all read the SKU). A pack "edit" is the same
+// write onto every member, so there is no def row to sync, no second BOM to keep
+// in step, and nothing new for either store engine to carry.
+
+/** What a pack is called wherever it is listed: the name the office gave it, or
+ *  — for packs saved before names existed — the format and size read aloud. */
+export const packLabel = (p: Product) => p.packName || `${formatSize(p.size, p.unit)} ${p.type}`
+
+/** The key a pack with these physicals groups under — same name/type/size/unit is
+ *  the same pack, so saving one that matches another merges into it. */
+export const packKeyOfDef = (name: string, type: string, size: number, unit: PackUnit) =>
+  `${name}|${type}|${size}|${unit}`
+
+/** Members of one pack share this key; a different key is a different pack. */
+const packKeyOf = (p: Product) => packKeyOfDef(packLabel(p), p.type, p.size, p.unit)
+
+/** One pack as the catalog shows it: the physical format, with a member SKU per
+ *  recipe filled into it. */
+export interface PackDef {
+  /** The shared key — pass back to `savePack` to say which pack is being edited. */
+  key: string
+  name: string
+  type: string
+  size: number
+  unit: PackUnit
+  /** What one pack is made of. Members are written together, so they agree; the
+   *  first member answers while an offline edit is still converging. */
+  bom: BomLine[]
+  retired: boolean
+  /** One SKU per recipe assigned to this pack, named by the SKU. */
+  members: Product[]
+}
+
+/** Every pack, one entry per shared name/type/size/unit, ordered by name. */
+export function packDefs(products: Product[]): PackDef[] {
+  const byKey = new Map<string, Product[]>()
+  for (const p of products) {
+    const key = packKeyOf(p)
+    const list = byKey.get(key)
+    if (list) list.push(p)
+    else byKey.set(key, [p])
+  }
+  return [...byKey.entries()]
+    .map(([key, members]) => {
+      const first = members[0]
+      return {
+        key,
+        name: packLabel(first),
+        type: first.type,
+        size: first.size,
+        unit: first.unit,
+        bom: first.bom.map((b) => ({ ...b })),
+        retired: members.every((m) => m.retired),
+        members: [...members].sort((a, b) => a.name.localeCompare(b.name)),
+      }
+    })
+    .sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/** The pack a product belongs to, as `packDefs` would build it. */
+export const packDefOf = (products: Product[], product: Product): PackDef | undefined =>
+  packDefs(products).find((d) => d.members.some((m) => m.id === product.id))

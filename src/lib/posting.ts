@@ -99,19 +99,28 @@ export function sampleBulk(state: AppState, s: { sku?: string; count: number; si
   return (count * (Number(s.sizeMl) || 0)) / 1000
 }
 
-/** Everything the admin sets on a pack product; `medium` and `packVolume` follow
- *  from the unit and the bulk it is filled from, and are derived, never typed. */
-export interface ProductInput {
+/** One recipe row of the pack form: either an existing member SKU (`skuId`) or a
+ *  bulk being newly assigned to the pack (`bulkItem`). Everything else on the row
+ *  is the SKU's own commercial detail — the physical pack is shared above it. */
+export interface PackRecipeInput {
+  skuId?: string
+  bulkItem?: string
+  /** The finished-goods SKU's name — what runs, stock and dispatch call it. */
+  name: string
+  shelfLifeDays: number
+  chilledShelfLifeDays?: number
+  mrp?: number
+}
+
+/** The pack itself as the form saves it: the one physical format every recipe in
+ *  `recipes` is filled into. `packVolume` follows from size and unit, derived. */
+export interface PackDefInput {
   name: string
   type: string
   size: number
   unit: PackUnit
-  /** Semi-finished item a packing run draws to fill this pack. */
-  bulkItem: string
-  shelfLifeDays: number
-  chilledShelfLifeDays?: number
-  mrp?: number
   bom: BomLine[]
+  recipes: PackRecipeInput[]
 }
 
 /** A bulk (semi-finished) output production or a melange can book. */
@@ -563,9 +572,112 @@ export type PackingMath = Checked<{
   uom: string
 }>
 
+/**
+ * What a set of pack lines and control samples will draw: bulk from the batch, and
+ * each packing material they consume — the same walk the save gate runs, so the
+ * form's preview and the gate can never disagree about a number.
+ *
+ * `problems` collects everything that stops a line being read (an unknown pack, a
+ * pack the bulk does not fill, a missing size), in walk order; an empty array means
+ * the numbers are real. Lines that cannot be read are skipped, not fatal, so a
+ * preview half-typed still shows what the whole lines add up to.
+ */
+export interface PackingNeeds {
+  drawn: number
+  pmNeeds: Record<string, number>
+  problems: string[]
+}
+
+export function packingNeeds(
+  state: AppState,
+  bulkItem: string,
+  lines: { sku: string; packs: number }[],
+  controlSamples?: ControlSampleInput[],
+  keptBefore: string[] = [],
+): PackingNeeds {
+  let drawn = 0
+  const pmNeeds: Record<string, number> = {}
+  const problems: string[] = []
+
+  for (const l of lines) {
+    const p = product(state, l.sku)
+    if (!p) {
+      problems.push(`Unknown SKU ${l.sku}`)
+      continue
+    }
+    if (bulkItemOf(p) !== bulkItem) {
+      problems.push(`${p.name} is not filled from ${itemName(state, bulkItem)}.`)
+      continue
+    }
+    // The size lives on the product, so a product left at zero would silently draw
+    // nothing at all and book packs out of thin air.
+    if (!(p.packVolume > 0)) {
+      problems.push(`${p.name} has no pack size — set it on the Products & Materials page first.`)
+      continue
+    }
+    drawn += l.packs * p.packVolume
+    for (const c of p.bom) pmNeeds[c.item] = (pmNeeds[c.item] || 0) + c.qty * l.packs
+  }
+
+  /**
+   * Control samples come out of the same tank as the packs, so they have to be drawn
+   * too — otherwise the batch keeps showing bulk that physically went into them. A
+   * sample filled into one of the run's packs also uses that pack's bottle and cap,
+   * which the plant has to have on the shelf like any other.
+   */
+  for (const s of controlSamples || []) {
+    if (!s.sku && !Number(s.count) && !Number(s.sizeMl) && !s.collectedBy?.trim()) continue
+    const count = Number(s.count)
+    if (!Number.isInteger(count) || count <= 0) {
+      problems.push('Control samples are counted in whole bottles — enter how many were kept.')
+      continue
+    }
+    if (s.sku) {
+      const p = product(state, s.sku)
+      if (!p) {
+        problems.push(`Unknown pack ${s.sku}`)
+        continue
+      }
+      if (bulkItemOf(p) !== bulkItem) {
+        problems.push(`${p.name} is not filled from ${itemName(state, bulkItem)}.`)
+        continue
+      }
+      if (!(p.packVolume > 0)) {
+        problems.push(`${p.name} has no pack size — set it on the Products & Materials page first.`)
+        continue
+      }
+      drawn += count * p.packVolume
+      for (const c of p.bom) pmNeeds[c.item] = (pmNeeds[c.item] || 0) + c.qty * count
+    } else {
+      if (!(Number(s.sizeMl) > 0)) {
+        problems.push('Say how much each control sample container holds.')
+        continue
+      }
+      drawn += (count * Number(s.sizeMl)) / 1000
+    }
+    // The register's "collected by" is not optional. Only a line saved before the run
+    // asked for it may stay blank, so an old run can still be corrected.
+    if (!s.collectedBy?.trim() && !keptBefore.includes(sampleKey(s))) {
+      problems.push('Say who collected the control samples.')
+    }
+  }
+
+  return { drawn, pmNeeds, problems }
+}
+
+/** Packing material on hand for a run to draw, across every lot. */
+export const pmAvailable = (rows: StockRow[], item: string) =>
+  rows.filter((r) => r.item === item && r.status === 'Available').reduce((a, r) => a + r.qty, 0)
+
 export function checkPacking(state: AppState, input: PackingInput, ignoreDoc?: string): PackingMath {
   const batch = state.batches.find((b) => b.id === input.batchId)
   if (!batch) return { ok: false, error: 'Select a batch.' }
+  // A line the user touched but only half-filled is a stated problem, not a quiet
+  // drop — a run stored with the line missing from it books the packs it did name
+  // against material nobody counted.
+  if (input.lines.some((l) => (l.sku || l.packs > 0) && !(l.sku && l.packs > 0))) {
+    return { ok: false, error: 'Every pack line needs a pack and a count — complete or remove the half-filled lines.' }
+  }
   const lines = input.lines.filter((l) => l.sku && l.packs > 0)
   if (!lines.length) return { ok: false, error: 'Add at least one pack line.' }
 
@@ -583,59 +695,10 @@ export function checkPacking(state: AppState, input: PackingInput, ignoreDoc?: s
   if (badArea) return { ok: false, error: badArea }
 
   const uom = itemUom(state, bulkItem)
-  let drawn = 0
-  const pmNeeds: Record<string, number> = {}
-  for (const l of lines) {
-    const p = product(state, l.sku)
-    if (!p) return { ok: false, error: `Unknown SKU ${l.sku}` }
-    if (bulkItemOf(p) !== bulkItem) {
-      return { ok: false, error: `${p.name} is not filled from ${itemName(state, bulkItem)}.` }
-    }
-    // The size lives on the product, so a product left at zero would silently draw
-    // nothing at all and book packs out of thin air.
-    if (!(p.packVolume > 0)) {
-      return { ok: false, error: `${p.name} has no pack size — set it on the Products & Materials page first.` }
-    }
-    drawn += l.packs * p.packVolume
-    for (const c of p.bom) pmNeeds[c.item] = (pmNeeds[c.item] || 0) + c.qty * l.packs
-  }
-
-  /**
-   * Control samples come out of the same tank as the packs, so they have to be drawn
-   * too — otherwise the batch keeps showing bulk that physically went into them. A
-   * sample filled into one of the run's packs also uses that pack's bottle and cap,
-   * which the plant has to have on the shelf like any other.
-   */
   const keptBefore = (editingRun?.controlSamples || []).map(sampleKey)
-  for (const s of input.controlSamples || []) {
-    if (!s.sku && !Number(s.count) && !Number(s.sizeMl) && !s.collectedBy?.trim()) continue
-    const count = Number(s.count)
-    if (!Number.isInteger(count) || count <= 0) {
-      return { ok: false, error: 'Control samples are counted in whole bottles — enter how many were kept.' }
-    }
-    if (s.sku) {
-      const p = product(state, s.sku)
-      if (!p) return { ok: false, error: `Unknown pack ${s.sku}` }
-      if (bulkItemOf(p) !== bulkItem) {
-        return { ok: false, error: `${p.name} is not filled from ${itemName(state, bulkItem)}.` }
-      }
-      if (!(p.packVolume > 0)) {
-        return { ok: false, error: `${p.name} has no pack size — set it on the Products & Materials page first.` }
-      }
-      drawn += count * p.packVolume
-      for (const c of p.bom) pmNeeds[c.item] = (pmNeeds[c.item] || 0) + c.qty * count
-    } else {
-      if (!(Number(s.sizeMl) > 0)) {
-        return { ok: false, error: 'Say how much each control sample container holds.' }
-      }
-      drawn += (count * Number(s.sizeMl)) / 1000
-    }
-    // The register's "collected by" is not optional. Only a line saved before the run
-    // asked for it may stay blank, so an old run can still be corrected.
-    if (!s.collectedBy?.trim() && !keptBefore.includes(sampleKey(s))) {
-      return { ok: false, error: 'Say who collected the control samples.' }
-    }
-  }
+  const needs = packingNeeds(state, bulkItem, lines, input.controlSamples, keptBefore)
+  if (needs.problems.length) return { ok: false, error: needs.problems[0] }
+  const { drawn, pmNeeds } = needs
 
   const base = stockRows(withoutDoc(state, ignoreDoc))
   const bulkAvailable = base

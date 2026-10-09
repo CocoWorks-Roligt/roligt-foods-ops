@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { DetailView, type DetailSection } from '../components/DetailView'
 import { detailRowProps } from '../components/detailRow'
@@ -16,9 +16,10 @@ import { StatusBadge } from '../components/StatusBadge'
 import { EmptyState } from '../components/EmptyState'
 import { useApp } from '../context/AppContext'
 import { bulkItems, fmtBulk, itemUom } from '../lib/batches'
-import { bulkItemOf, formatSize } from '../lib/packs'
+import { bulkItemOf, formatSize, packLabel } from '../lib/packs'
 import { useLinkedView } from '../lib/linkedView'
-import { DRAWABLE, defaultPackStore, sampleBulk } from '../lib/posting'
+import { DRAWABLE, defaultPackStore, packingNeeds, pmAvailable, sampleBulk } from '../lib/posting'
+import { PackDefDialog } from './products/PackDefDialog'
 import { addDays, retentionDays, sampleProductName, sampleStatus } from '../lib/controlSamples'
 import { itemName as lookupItemName, stockRowsExcluding, areaChoices } from '../lib/stock'
 import { fmtDate, inr, toDateKey, toLocalInputValue, QTY_EPSILON } from '../lib/utils'
@@ -30,14 +31,14 @@ const runBulk = (r: PackingRun) =>
   r.bulkItem || (r.medium === 'Malai' ? 'SF-TCW-MALAI' : 'SF-TCW-WATER')
 
 interface PackRow {
-  /** Pack format the operator picked — BiB, Glass Bottle, Cover. Narrows the sizes
-   *  offered beside it; the size is what actually names the product. */
-  type: string
+  /** The pack the operator picked — one physical format from the pack catalog. The
+   *  recipes it is filled with were decided when the pack was created; a line here
+   *  is one recipe of it (the bulk the run is drawing decides which). */
   sku: string
   packs: number | ''
 }
 
-const blankRow: PackRow = { type: '', sku: '', packs: '' }
+const blankRow: PackRow = { sku: '', packs: '' }
 
 /** One product's control samples: what they went into, how many, and who took them. */
 interface SampleRow {
@@ -51,8 +52,6 @@ interface SampleRow {
 /** Stands for a container that is not one of the plant's packs. */
 const OTHER = '__other'
 const blankSample: SampleRow = { sku: '', sizeMl: 100, count: '', collectedBy: '' }
-/** Stands in for a pack saved before a type was required, so it is still selectable. */
-const UNTYPED = 'Unspecified'
 const num = (v: number | '') => Number(v) || 0
 
 export function Packing() {
@@ -68,6 +67,12 @@ export function Packing() {
   const [packRows, setPackRows] = useState<Keyed<PackRow>[]>([keyed(blankRow)])
   const [location, setLocation] = useState('')
   const [sampleRows, setSampleRows] = useState<Keyed<SampleRow>[]>([keyed(blankSample)])
+  /** The "+ create this pack" dialog, opened over a half-filled run when the bulk has
+   *  no pack yet. The run form stays open underneath; the new pack is spotted against
+   *  `quickKnown` (ids mint inside a setState updater, the same reason the material
+   *  fill-back snapshots) and lands straight into the run's first blank line. */
+  const [quickPack, setQuickPack] = useState(false)
+  const quickKnown = useRef<string[]>([])
 
   const itemName = (id: string) => lookupItemName(state, id)
   const bulkUom = bulkItem ? itemUom(state, bulkItem) : 'Litre'
@@ -112,37 +117,59 @@ export function Packing() {
     [bulkByBatch, state.batches],
   )
 
+  /** The pack SKUs this bulk is a recipe of. Retired packs drop out of a new run's
+   *  list — but a line already holding one (or an edited run that filled one) must
+   *  keep it, so the chosen ones stay visible. */
+  const chosen = useMemo(
+    () => new Set([...packRows.map((r) => r.sku), ...sampleRows.map((s) => s.sku)]),
+    [packRows, sampleRows],
+  )
   const products = useMemo(
-    () => state.products.filter((p) => bulkItemOf(p) === bulkItem),
-    [bulkItem, state.products],
+    () =>
+      state.products.filter(
+        (p) => bulkItemOf(p) === bulkItem && (!p.retired || chosen.has(p.id)),
+      ),
+    [bulkItem, state.products, chosen],
+  )
+  /** The pack dropdown: one label per SKU — "5 L BiB" from the pack's name, with the
+   *  recipe's own SKU name only when two recipes would otherwise read the same. */
+  const packOptions = useMemo(
+    () =>
+      products.map((p) => {
+        const label = packLabel(p)
+        const clashes = products.filter((x) => packLabel(x) === label).length > 1
+        return { id: p.id, label: clashes ? `${label} · ${p.name}` : label }
+      }),
+    [products],
+  )
+  /** Whether any pack at all exists for the bulk, retired ones included — splits the
+   *  empty-state note between "create the first pack" and "the packs are retired". */
+  const anyForBulk = useMemo(
+    () => state.products.some((p) => bulkItemOf(p) === bulkItem),
+    [state.products, bulkItem],
   )
 
-  /** The pack formats this bulk is filled into — what the Type column offers. A pack
-   *  saved before the type became compulsory would otherwise be unreachable, and an
-   *  unreachable pack cannot be filled at all, so it is grouped rather than dropped. */
-  const packTypes = useMemo(() => {
-    const seen: string[] = []
-    for (const p of products) {
-      const t = p.type || UNTYPED
-      if (!seen.includes(t)) seen.push(t)
-    }
-    return seen
-  }, [products])
-
-  /**
-   * Sizes are the ones an admin registered for that format, because the size is what
-   * carries the bill of materials and the shelf life — a size typed in freehand would
-   * leave the run with no caps to consume and no expiry to stamp. Two packs of the
-   * same format and size are told apart by name.
-   */
-  const sizesForType = (type: string) => {
-    const matching = products.filter((p) => (p.type || UNTYPED) === type)
-    return matching.map((p) => {
-      const label = formatSize(p.size, p.unit)
-      const clashes = matching.filter((x) => formatSize(x.size, x.unit) === label).length > 1
-      return { id: p.id, label: clashes ? `${label} · ${p.name}` : label }
-    })
+  /** Opens the quick-create seeded with the bulk the run is filling from. */
+  const openQuickPack = () => {
+    quickKnown.current = state.products.map((p) => p.id)
+    setQuickPack(true)
   }
+  // The pack that minted, landing straight into the run's first blank line — the run
+  // form stayed open underneath, so the operator is back where they were, one step
+  // further along instead of sent to another page to start over.
+  const quickCreated = quickPack
+    ? state.products.find((p) => !quickKnown.current.includes(p.id))
+    : undefined
+  useEffect(() => {
+    if (!quickCreated) return
+    quickKnown.current = [...quickKnown.current, quickCreated.id]
+    setQuickPack(false)
+    setPackRows((all) => {
+      const row = { sku: quickCreated.id, packs: '' as const }
+      const firstBlank = all.findIndex((r) => !r.sku && !num(r.packs))
+      return firstBlank < 0 ? [...all, keyed(row)] : all.map((r, i) => (i === firstBlank ? { ...r, ...row } : r))
+    })
+  }, [quickCreated])
 
   const list = useMemo(() => {
     const q = search.toLowerCase()
@@ -185,13 +212,45 @@ export function Packing() {
     }))
   const sampleDraw = sampleInputs.reduce((a, s) => a + sampleBulk(state, s), 0)
   const willDraw = packRows.reduce((a, r) => a + lineDraw(r), 0) + sampleDraw
+
+  /**
+   * What the lines so far will use, in the same numbers the save gate will hold them
+   * to — the material a pack consumes was invisible until it refused the run, so the
+   * form now says it while the operator can still do something about it.
+   */
+  const needs = useMemo(
+    () =>
+      packingNeeds(
+        state,
+        bulkItem,
+        packRows.filter((r) => r.sku || num(r.packs) > 0).map((r) => ({ sku: r.sku, packs: num(r.packs) })),
+        sampleInputs,
+      ),
+    // sampleInputs is derived fresh each render; recomputing the walk is cheap and
+    // keeps the preview in step with every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state, bulkItem, packRows, sampleRows],
+  )
+  /** A line touched but half-filled — the gate will refuse the run for it, so the
+   *  preview says so rather than showing numbers the save will not accept. */
+  const halfLine = packRows.some((r) => (r.sku || num(r.packs) > 0) && !(r.sku && num(r.packs) > 0))
+  const pmShort = useMemo(() => {
+    const out: { item: string; name: string; uom: string; need: number; have: number }[] = []
+    for (const [item, need] of Object.entries(needs.pmNeeds)) {
+      const have = pmAvailable(rows, item)
+      if (need > have + QTY_EPSILON) {
+        out.push({ item, name: lookupItemName(state, item), uom: state.items.find((i) => i.id === item)?.uom || '', need, have })
+      }
+    }
+    return out
+  }, [needs, rows, state])
   const keepDays = retentionDays(state.config)
   const packedOn = new Date(date)
   const sampleExpiry = Number.isNaN(packedOn.getTime()) ? '' : addDays(toDateKey(packedOn), keepDays)
 
   const openForm = () => {
     if (!fillable.length) {
-      showToast('No pack product is linked to a bulk yet. Set that on the Products & Materials page first.')
+      showToast('No pack is linked to a bulk yet. Create one on the Products & Materials page first.')
       return
     }
     setEditId('')
@@ -211,13 +270,7 @@ export function Packing() {
     setBatchId(run.batchId)
     setPackRows(
       run.lines.length
-        ? keyedAll(
-            run.lines.map((l) => ({
-              type: state.products.find((x) => x.id === l.sku)?.type || UNTYPED,
-              sku: l.sku,
-              packs: l.packs,
-            })),
-          )
+        ? keyedAll(run.lines.map((l) => ({ sku: l.sku, packs: l.packs })))
         : [keyed(blankRow)],
     )
     setLocation(run.location || '')
@@ -315,9 +368,10 @@ export function Packing() {
         </div>
       </div>
       <div className="note">
-        Packing draws bulk — coconut water, malai, a single-fruit juice or a blended melange — from
-        the batch that made it and creates the finished goods. Each pack's type, size and bulk come
-        from the <b>Products &amp; Materials</b> page, so a run only picks the pack and says how many. Packs go into
+        Packing draws bulk — coconut water, malai, a single-fruit juice or a blend — from
+        the batch that made it and creates the finished goods. Each pack — its size and what it is
+        made of — is decided once on the <b>Products &amp; Materials</b> page, with the recipes it is filled
+        with assigned inside it; here a run only picks the pack and says how many. Packs go into
         the storage area you pick as they come off the line and stay there — the lab works while they sit, and
         QC clears or rejects them where they stand. Record the control samples kept back off the
         run on the same form, so the bulk and bottles they use are accounted for and they go on the
@@ -540,15 +594,24 @@ export function Packing() {
           </div>
           <div className="subform-body">
             {bulkItem && !products.length ? (
-              <div className="note warning-note">
-                No pack product is filled from {itemName(bulkItem)} yet. Add one on the{' '}
-                <b>Products &amp; Materials</b> page — give it a type, a size and the bulk it draws — and it appears
-                here.
-              </div>
+              anyForBulk ? (
+                <div className="note warning-note">
+                  The packs filled from {itemName(bulkItem)} are retired. Restore one on the{' '}
+                  <b>Products &amp; Materials</b> page, or create a new pack.
+                </div>
+              ) : (
+                <div className="note warning-note">
+                  No pack is filled from {itemName(bulkItem)} yet.{' '}
+                  <button className="btn btn-light" type="button" onClick={openQuickPack}>
+                    + Create this pack
+                  </button>{' '}
+                  — its size and what it is made of take a minute, and this run stays open
+                  underneath.
+                </div>
+              )
             ) : null}
             <div className="subform-row pack-row fill-row pack-row-head">
-              <span>Type</span>
-              <span>Size</span>
+              <span>Pack</span>
               <span>Qty</span>
               <span>Unit</span>
               <span>Total</span>
@@ -559,35 +622,15 @@ export function Packing() {
               return (
                 <div className="subform-row pack-row fill-row" key={row.rowId}>
                   <Select
-                    value={row.type}
-                    onChange={(e) =>
-                      setPackRows((all) =>
-                        // A different format means a different set of sizes, so the
-                        // pack chosen under the old one cannot stand.
-                        all.map((r, i) =>
-                          i === idx ? { ...r, type: e.target.value, sku: '' } : r,
-                        ),
-                      )
-                    }
-                  >
-                    <option value="">Select type</option>
-                    {packTypes.map((t) => (
-                      <option key={t} value={t}>
-                        {t}
-                      </option>
-                    ))}
-                  </Select>
-                  <Select
                     value={row.sku}
-                    disabled={!row.type}
                     onChange={(e) =>
                       setPackRows((all) =>
                         all.map((r, i) => (i === idx ? { ...r, sku: e.target.value } : r)),
                       )
                     }
                   >
-                    <option value="">{row.type ? 'Select size' : 'Pick a type first'}</option>
-                    {sizesForType(row.type).map((o) => (
+                    <option value="">Select pack</option>
+                    {packOptions.map((o) => (
                       <option key={o.id} value={o.id}>
                         {o.label}
                       </option>
@@ -608,7 +651,7 @@ export function Packing() {
                       )
                     }
                   />
-                  {/* The unit belongs to the size the admin registered, so it is shown
+                  {/* The unit belongs to the pack as it was created, so it is shown
                       rather than asked for — 250 is ml on a bottle and L on a BiB. */}
                   <input disabled placeholder="Unit" value={p?.unit || ''} />
                   <input
@@ -628,6 +671,76 @@ export function Packing() {
             })}
           </div>
         </div>
+
+        {/* What the run consumes besides bulk, in the same numbers the save gate
+            holds it to. The materials used to be invisible until they refused the run;
+            said here, a short shelf is a purchase away instead of a surprise. */}
+        {bulkItem && (halfLine || packRows.some((r) => r.sku || num(r.packs) > 0) || Object.keys(needs.pmNeeds).length) ? (
+          <div className="subform">
+            <div className="subform-head">
+              <span>Materials this run will use</span>
+            </div>
+            <div className="subform-body">
+              {halfLine ? (
+                <div className="small" style={{ color: 'var(--danger)' }}>
+                  Every pack line needs a pack and a count — complete or remove the
+                  half-filled lines.
+                </div>
+              ) : needs.problems.length ? (
+                <div className="small" style={{ color: 'var(--danger)' }}>
+                  {needs.problems[0]}
+                </div>
+              ) : !Object.keys(needs.pmNeeds).length ? (
+                <div className="small">
+                  These packs have no materials linked, so the run will consume none. Link
+                  them in the pack&apos;s <b>What one pack is made of</b> section and filling
+                  will draw the bottles, caps and labels it uses.
+                </div>
+              ) : (
+                <>
+                  <div className="subform-row pack-row-head">
+                    <span>Material</span>
+                    <span>This run uses</span>
+                    <span>On hand</span>
+                    <span />
+                  </div>
+                  {Object.entries(needs.pmNeeds).map(([item, need]) => {
+                    const have = pmAvailable(rows, item)
+                    const short = need > have + QTY_EPSILON
+                    return (
+                      <div
+                        className="subform-row"
+                        key={item}
+                        style={short ? { color: 'var(--danger)' } : undefined}
+                      >
+                        <span>{lookupItemName(state, item)}</span>
+                        <span>{Number(need.toFixed(3))}</span>
+                        <span>{Number(have.toFixed(3))}</span>
+                        {short ? (
+                          <button
+                            className="btn btn-light"
+                            type="button"
+                            onClick={() => navigate('/procurement?tab=packing')}
+                          >
+                            Receive
+                          </button>
+                        ) : (
+                          <span className="small">enough</span>
+                        )}
+                      </div>
+                    )
+                  })}
+                  {pmShort.length ? (
+                    <div className="small" style={{ marginTop: 8, color: 'var(--danger)' }}>
+                      Short by {pmShort.map((s) => `${s.name} (${Number((s.need - s.have).toFixed(3))})`).join(', ')} —
+                      receive it and this run will post; as it stands it will be refused.
+                    </div>
+                  ) : null}
+                </>
+              )}
+            </div>
+          </div>
+        ) : null}
 
         {/* Control samples kept back as the packs go into the cold room. They take bulk —
             and a pack's bottle and cap — like a pack does, so the run has to know about
@@ -663,9 +776,9 @@ export function Packing() {
                     onChange={(e) => update({ sku: e.target.value })}
                   >
                     <option value="">{bulkItem ? 'Select pack' : 'Pick a bulk first'}</option>
-                    {products.map((x) => (
-                      <option key={x.id} value={x.id}>
-                        {x.name}
+                    {packOptions.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.label}
                       </option>
                     ))}
                     <option value={OTHER}>Other container</option>
@@ -736,6 +849,10 @@ export function Packing() {
               : `Each pack draws its own size in litres from the batch and consumes its packing material — a 250 ml bottle draws 0.25 L, so 10 of them draw 2.5 L.`}
         </div>
       </Modal>
+
+      {/* Creating a missing pack without leaving the run: seeded with the bulk being
+          filled from, and the created pack lands back in the run's first line. */}
+      <PackDefDialog open={quickPack} seedBulk={bulkItem} onClose={() => setQuickPack(false)} />
     </div>
   )
 }
