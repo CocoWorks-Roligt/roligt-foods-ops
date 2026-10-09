@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { placeDropdown } from './dropdownPos'
 
 /**
  * Free text that offers the plant's batch codes as you type. A lab report can name a
@@ -18,13 +19,19 @@ export function BatchLotField({
   placeholder?: string
 }) {
   const [showList, setShowList] = useState(false)
-  const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null)
+  const [rect, setRect] = useState<{
+    top?: number
+    bottom?: number
+    left: number
+    width: number
+    maxHeight: number
+  } | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const options = batchIds.filter((id) => id.toLowerCase().includes(value.toLowerCase()))
 
   const openList = () => {
     const r = inputRef.current?.getBoundingClientRect()
-    if (r) setRect({ top: r.bottom + 4, left: r.left, width: r.width })
+    if (r) setRect(placeDropdown(r, 220))
     setShowList(true)
   }
 
@@ -53,7 +60,13 @@ export function BatchLotField({
         ? createPortal(
             <div
               className="autocomplete-list"
-              style={{ position: 'fixed', top: rect.top, left: rect.left, width: rect.width }}
+              style={{
+                position: 'fixed',
+                ...(rect.bottom !== undefined ? { bottom: rect.bottom } : { top: rect.top }),
+                left: rect.left,
+                width: rect.width,
+                maxHeight: rect.maxHeight,
+              }}
             >
               {options.map((id) => (
                 <div

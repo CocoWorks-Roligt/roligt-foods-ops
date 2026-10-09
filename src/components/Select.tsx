@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react'
 import { createPortal } from 'react-dom'
+import { placeDropdown } from './dropdownPos'
 
 /**
  * The dropdown that replaced every native `<select>` in the app.
@@ -57,7 +58,13 @@ function optionsFromChildren(children: ReactNode): OptionInfo[] {
 
 export function Select({ value, onChange, children, disabled, className, id }: SelectProps) {
   const [open, setOpen] = useState(false)
-  const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null)
+  const [rect, setRect] = useState<{
+    top?: number
+    bottom?: number
+    left: number
+    width: number
+    maxHeight: number
+  } | null>(null)
   const [activeIndex, setActiveIndex] = useState(-1)
   const btnRef = useRef<HTMLButtonElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -72,7 +79,7 @@ export function Select({ value, onChange, children, disabled, className, id }: S
 
   const place = () => {
     const r = btnRef.current?.getBoundingClientRect()
-    if (r) setRect({ top: r.bottom + 4, left: r.left, width: r.width })
+    if (r) setRect(placeDropdown(r, 260))
   }
 
   const openList = (startAt = selectedIndex) => {
@@ -237,7 +244,13 @@ export function Select({ value, onChange, children, disabled, className, id }: S
               id={listId.current}
               className="ui-select-list"
               role="listbox"
-              style={{ position: 'fixed', top: rect.top, left: rect.left, width: rect.width }}
+              style={{
+                position: 'fixed',
+                ...(rect.bottom !== undefined ? { bottom: rect.bottom } : { top: rect.top }),
+                left: rect.left,
+                width: rect.width,
+                maxHeight: rect.maxHeight,
+              }}
             >
               {options.map((o, i) => (
                 <div

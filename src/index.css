@@ -918,6 +918,20 @@ body.drawer-open {
   min-width: min(320px, 100%);
 }
 
+/* Vertical rhythm for a page's stacked sections (the admin screens lean on
+   this; without it the table sits flush beneath the line above it). */
+.stack {
+  display: grid;
+  gap: 14px;
+}
+
+/* A refusal in body ink read as just another sentence — clay carries it. */
+.form-error {
+  margin: 0;
+  font-weight: 700;
+  color: var(--clay);
+}
+
 .table-wrap {
   overflow: auto;
   border: 1px solid var(--line);
@@ -3245,6 +3259,20 @@ table tbody tr.subrow > td {
     min-height: 42px;
   }
 
+  /* Sensory scoring is the most tap-dense flow in the app and the hands are
+     gloved: the 1-5 picker rides the same floor as every other control. Five
+     at 42px plus gaps still fit a 320px-wide card. */
+  .score-btn {
+    width: 42px;
+    height: 42px;
+  }
+
+  /* The app bar's Install chip is two classes deep, so it out-specifies the
+     .btn floor above — bring it back in line. */
+  .btn.btn-chip {
+    min-height: 44px;
+  }
+
   /* --- Modals become full-screen sheets --- */
   .modal-backdrop {
     padding: 0;
@@ -3293,11 +3321,16 @@ table tbody tr.subrow > td {
 }
 
 /* ===========================================================================
-   Phone layout (<= 760px): data tables reflow into stacked cards, and page
-   headers/toolbars go full width.
+   Phone and small-tablet layout (<= 900px): the same line the mobile shell
+   switches on. Data tables reflow into stacked cards and page headers and
+   toolbars go full width. The old 760px floor sat below the shell's 900px
+   switch, so a 768–812px portrait tablet ran the app-bar-and-bottom-nav shell
+   while every table kept the desktop `min-width: 760px` floor — content
+   padding eats ~52px of it, and even a 768px viewport sat underneath,
+   scrolling every ledger sideways. The two breakpoints move together now.
    =========================================================================== */
 
-@media (max-width: 760px) {
+@media (max-width: 900px) {
   .section-head {
     flex-direction: column;
     align-items: stretch;
@@ -3551,6 +3584,18 @@ table tbody tr.subrow > td {
     height: 180px;
     top: -60px;
     right: -60px;
+  }
+}
+
+/* A phone reads the sheet on screen; paper never does — and the print block
+   below sits later in the file, so paper's zeroed padding wins any cascade
+   tie. The mm margins are a third of a 375px screen, and the 297mm floor
+   stretched a short report into screens of blank. */
+@media (max-width: 760px) {
+  .report-sheet {
+    padding: 16px 14px;
+    min-height: 0;
+    border-radius: 12px;
   }
 }
 
@@ -3974,7 +4019,10 @@ table tbody tr.subrow > td {
 
 .trace-network svg {
   display: block;
-  touch-action: none;
+  /* The chart runs wider than any phone, so a finger on the canvas must pan
+     the .trace-network-scroll wrapper — `none` here made every trace's right
+     half unreachable by touch (drag-untangling keeps its own opt-out below). */
+  touch-action: pan-x pan-y;
   user-select: none;
 }
 
@@ -4000,6 +4048,9 @@ table tbody tr.subrow > td {
 
 .trace-network-node {
   cursor: grab;
+  /* The node's own drag-untangling keeps the gesture to itself; the chart
+     surface around it pans (see .trace-network svg above). */
+  touch-action: none;
   transition: opacity 120ms ease;
 }
 
