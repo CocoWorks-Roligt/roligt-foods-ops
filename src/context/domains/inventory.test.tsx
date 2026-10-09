@@ -54,7 +54,7 @@ function deps(permissions: readonly string[]) {
     forbidden: (what: string, perm: PermissionKey | readonly PermissionKey[]) => {
       const list = Array.isArray(perm) ? perm : [perm]
       if (list.some((p) => permissions.includes(p))) return false
-      showToast(`${what} is an admin task — ask an administrator.`)
+      showToast(`${what} needs a permission your role does not hold — ask an administrator to grant it.`)
       return true
     },
     rows: [ROW],
@@ -74,7 +74,9 @@ describe('moveStock', () => {
     const { result } = renderHook(() => useInventory(d))
     expect(result.current.moveStock(MOVE)).toBeNull()
     expect(setState).not.toHaveBeenCalled() // no draft was ever built
-    expect(showToast).toHaveBeenCalledWith('Moving stock is an admin task — ask an administrator.')
+    expect(showToast).toHaveBeenCalledWith(
+      'Moving stock needs a permission your role does not hold — ask an administrator to grant it.',
+    )
   })
 
   it('moves stock for the Storage page\'s holder — out of the old room and into the new one, same unit cost', () => {

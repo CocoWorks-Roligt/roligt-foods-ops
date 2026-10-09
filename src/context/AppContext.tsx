@@ -390,7 +390,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const forbidden = useCallback(
     (what: string, perm: PermissionKey | readonly PermissionKey[]) => {
       if (canAny(permissions, ...(Array.isArray(perm) ? perm : [perm]))) return false
-      showToast(`${what} is an admin task — ask an administrator.`)
+      // Not "an admin task" — roster or Storage are ordinary pages a scoped role
+      // can hold; what the caller lacks is the permission itself, and that is
+      // the reason to state.
+      showToast(`${what} needs a permission your role does not hold — ask an administrator to grant it.`)
       return true
     },
     [permissions, showToast],

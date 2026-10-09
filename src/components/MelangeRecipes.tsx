@@ -88,9 +88,11 @@ export function MelangeRecipes() {
     name: recipe.name,
     uom: recipe.uom,
     description: recipe.description,
-    components: recipe.components
-      .filter((c) => c.item && num(c.share) > 0)
-      .map((c) => ({ item: c.item, share: num(c.share) }) as MelangeComponent),
+    // Raw rows, shares normalised — checkMelange refuses a half-filled row with a
+    // reason instead of payload() dropping it without a word (the blend would
+    // store fewer components than the screen showed). Fully blank rows are
+    // dropped by the domain, harmlessly.
+    components: recipe.components.map((c) => ({ item: c.item, share: num(c.share) }) as MelangeComponent),
   })
 
   const shareTotal = recipe.components.reduce((a, c) => a + num(c.share), 0)

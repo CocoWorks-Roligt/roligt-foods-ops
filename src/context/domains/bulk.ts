@@ -146,7 +146,15 @@ export function useBulkProducts({ state, setState, nextId, log, showToast }: Cor
         return `${name} already exists.`
       }
       if (input.uom !== 'Litre' && input.uom !== 'Kg') return 'A blend is measured in litres or kilograms.'
-      const lines = input.components.filter((c) => c.item && c.share > 0)
+      // A row the user touched but only half-filled (a bulk with no share, a share
+      // with no bulk) used to be filtered out below without a word — the recipe
+      // then stored fewer components than the screen showed, which reads from the
+      // floor as "components not saved". It is a stated problem now, not a quiet
+      // drop; fully blank rows stay harmless and are simply not counted.
+      const lines = input.components.filter((c) => c.item || c.share > 0)
+      if (lines.some((c) => !c.item || !(c.share > 0))) {
+        return 'Every component needs a bulk and a share — complete or remove the half-filled rows.'
+      }
       if (lines.length < 2) return 'A blend mixes at least two bulk components.'
       if (new Set(lines.map((c) => c.item)).size !== lines.length) {
         return 'Each component can only be listed once.'
@@ -217,7 +225,13 @@ export function useBulkProducts({ state, setState, nextId, log, showToast }: Cor
   const updateMelange = useCallback(
     (id: string, input: MelangeInput): string | null => {
       const existing = state.melanges.find((m) => m.id === id)
-      if (!existing) return null
+      if (!existing) {
+        // The recipe left this device's copy while the dialog was open (a reload,
+        // or a colleague's delete adopted by the poll). Saying so beats closing
+        // the dialog with nothing having happened and no word why.
+        showToast('That blend is no longer in this device’s copy — reload the page and edit it again.')
+        return null
+      }
       const error = checkMelange(input, id)
       if (error) {
         showToast(error)

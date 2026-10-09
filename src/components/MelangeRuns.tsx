@@ -454,6 +454,30 @@ export function MelangeRuns() {
             showToast('Enter how much blend came out of the run.')
             return
           }
+          // A draw missing its lot or its quantity used to be filtered out of
+          // blendLines silently — the run then consumed less stock than the screen
+          // showed. Refuse with the reason instead; a bulk with nothing left to
+          // draw gets its own words.
+          const noStock = draws.find(
+            (d) => d.item && num(d.qty) > 0 && !d.lot && !blendableLots.some((r) => r.item === d.item),
+          )
+          if (noStock) {
+            showToast(
+              `No batch lot of ${lookupItemName(state, noStock.item)} is available to draw — its stock may already be fully used.`,
+            )
+            return
+          }
+          const incomplete = draws.filter(
+            (d) => (d.item || d.lot || num(d.qty) > 0) && !(d.item && d.lot && num(d.qty) > 0),
+          )
+          if (incomplete.length) {
+            showToast(
+              incomplete.length === 1
+                ? 'One component drawn is incomplete — give it a bulk, a batch lot and a quantity, or remove it.'
+                : `${incomplete.length} components drawn are incomplete — each needs a bulk, a batch lot and a quantity.`,
+            )
+            return
+          }
           const input = {
             date,
             kind: 'Melange' as const,
