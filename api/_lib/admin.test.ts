@@ -412,7 +412,7 @@ describe('self-protection and last-admin', () => {
     mode.roles = [{ slug: 'app-admin', name: 'App Admin', permissions: [...ADMIN] }]
     mode.orgUsers = [row('u1', 'm1', 'who@roligt.local', ['app-admin'])]
     const res = fakeRes()
-    await usersHandler(fakeReq({ action: 'set-roles', membershipId: 'm1', roleSlugs: [] }), res)
+    await usersHandler(fakeReq({ action: 'set-roles', membershipId: 'm1', roleSlugs: ['clerk'] }), res)
     expect(res.status).toHaveBeenCalledWith(400)
     expect(mode.calls).toEqual([])
     expect(writes).toEqual([])
@@ -455,9 +455,17 @@ describe('self-protection and last-admin', () => {
       row('u2', 'm2', 'other@roligt.local', ['app-admin']),
     ]
     const res = fakeRes()
-    await usersHandler(fakeReq({ action: 'set-roles', membershipId: 'm1', roleSlugs: [] }), res)
+    await usersHandler(fakeReq({ action: 'set-roles', membershipId: 'm1', roleSlugs: ['clerk'] }), res)
     expect(res.status).toHaveBeenCalledWith(200)
-    expect(mode.calls).toEqual(['set-roles:m1='])
+    expect(mode.calls).toEqual(['set-roles:m1=clerk'])
+  })
+
+  it('refuses an empty role set — that is the operator floor, not no access', async () => {
+    const res = fakeRes()
+    await usersHandler(fakeReq({ action: 'set-roles', membershipId: 'm9', roleSlugs: [] }), res)
+    expect(res.status).toHaveBeenCalledWith(400)
+    expect(mode.calls).toEqual([])
+    expect(writes).toEqual([])
   })
 
   it('refuses stripping the admin pages from the last role carrying them', async () => {

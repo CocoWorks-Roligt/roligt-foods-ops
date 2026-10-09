@@ -112,6 +112,10 @@ export function useAdmin({ state, setState, nextId, log, showToast, forbidden }:
 
   const saveStickerSize = useCallback(
     (widthMm: number, heightMm: number) => {
+      // A config write like its siblings: the server demands page.settings for
+      // these two keys, and an ungated preset tap would wedge the caller's
+      // whole save queue — the refused config diff rides every later commit.
+      if (forbidden('Changing sticker size', 'page.settings')) return
       setState((prev) => {
         const draft = deepClone(prev)
         draft.config.stickerWidthMm = widthMm
@@ -121,7 +125,7 @@ export function useAdmin({ state, setState, nextId, log, showToast, forbidden }:
       })
       showToast(`Sticker size set to ${widthMm}×${heightMm} mm.`)
     },
-    [log, setState, showToast],
+    [forbidden, log, setState, showToast],
   )
 
   /**

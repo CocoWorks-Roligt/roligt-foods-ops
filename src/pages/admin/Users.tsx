@@ -462,6 +462,7 @@ function RolesDialog({
   return (
     <Modal title={`Roles — ${user.email}`} open onClose={onClose} saveDisabled={busy} onSave={() => onSave({ action: 'set-roles', membershipId: user.membershipId, roleSlugs: [...held] })}>
       <p className="small">The roles take effect on this user's next sign-in.</p>
+      <p className="small">Saving with nothing selected is refused — an empty role set is the full operator floor, not no access. To remove someone's access entirely, deactivate them instead.</p>
       <div className="chip-row">
         {roleSlugs.map((slug) => (
           <button

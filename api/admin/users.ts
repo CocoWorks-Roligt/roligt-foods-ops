@@ -224,6 +224,13 @@ export default async function (req: VercelRequest, res: VercelResponse) {
           return
         }
         const roleSlugs = asSlugs(body.roleSlugs)
+        // An empty role set is not "no access": pageScope([]) is the null scope
+        // that means the full operator floor (src/lib/pages), so stripping a
+        // departing clerk's roles would PROMOTE them. Removal is deactivation.
+        if (!roleSlugs.length) {
+          res.status(400).json({ error: 'An empty role set grants the full operator floor, not no access — deactivate the member instead.' })
+          return
+        }
         const users = await listOrgUsers()
         if (!users.some((u) => u.membershipId === membershipId)) {
           res.status(400).json({ error: 'That membership is not in the organization.' })
