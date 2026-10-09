@@ -20,7 +20,7 @@ import type { BatchInput } from '../../lib/posting'
 import { requiredCategoryKeys } from '../../lib/qcCategories'
 import { fmtRowTotal, itemName } from '../../lib/stock'
 import { deepClone } from '../../lib/utils'
-import { POSTED } from './deps'
+import { POSTED, goneFromDevice } from './deps'
 import type { CoreDeps } from './deps'
 
 export function useProduction({ state, setState, nextId, log, showToast, announcement }: CoreDeps) {
@@ -125,7 +125,10 @@ export function useProduction({ state, setState, nextId, log, showToast, announc
   const updateBatch = useCallback(
     (id: string, input: BatchInput): string | null => {
       const existing = state.batches.find((b) => b.id === id)
-      if (!existing) return null
+      if (!existing) {
+        showToast(goneFromDevice('batch'))
+        return null
+      }
       // Bulk that has been packed, or moved by QC, was costed off this batch's output,
       // so the quantities behind it can no longer move. Descriptive fields still can.
       const drawnOn = state.ledger.some((l) => l.lot === id && l.doc !== id)
@@ -236,7 +239,10 @@ export function useProduction({ state, setState, nextId, log, showToast, announc
   const deleteBatch = useCallback(
     (id: string) => {
       const b = state.batches.find((x) => x.id === id)
-      if (!b) return
+      if (!b) {
+        showToast(goneFromDevice('batch', 'try again'))
+        return
+      }
       if (state.ledger.some((l) => l.lot === id && l.type === 'Dispatch')) {
         showToast('Cannot delete: finished goods from this batch have already been dispatched.')
         return

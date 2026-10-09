@@ -110,3 +110,69 @@ its bulk item; the missing-target edit toasts instead of closing silently.
 `inventory.test.tsx` re-pinned to the new permission wording. Full gates:
 `tsc -b` clean, 591 tests green (+3), oxlint at the 10-warning baseline, vite
 build + PWA whole, assert-no-apptics pass.
+
+## 3. Follow-up sweep: every document's edit and delete, for every role
+
+The ask after sections 1–2: are the CRUD operations for every bill and receipt
+working fine for every role and user? The sweep covered every document type —
+GRNs (procurement), production batches, packing runs, packing-material
+receipts, orders, dispatches, deliveries, stock issues, blend recipes — across
+the three caller shapes the server sees (unscoped operator, scoped role user,
+admin), client and server both.
+
+**The server side is sound.** `gateTablePermissions` (api/_lib/commitGates.ts)
+fails closed on every path: an unknown table is refused before anything else;
+masters need their `writePermission` page; a scoped non-admin caller can only
+write day's-work tables whose page they hold; ride-alongs (ledger, counters,
+audits) must ride an owned collection change — the Oct-7 fix's masters arm
+covers every master edit. Every role that can open a document's page can edit
+and delete that document; nobody can reach a document whose page they do not
+hold, and no document path routes around the ladder. No change needed.
+
+**The business gates are excellent and untouched.** Every "already used"
+refusal names the specific reason and document: a lot in production, a dispatch
+already drawn, packs drawn on by a QC release or another run, a PM receipt
+consumed by a packing run, a complete allotment. None of the fixes below
+loosened any of them.
+
+**Three client-side defect classes were real, and all are fixed.** They share
+one shape: a refusal that lived only inside the setState updater's silent
+`return prev` — the updater refuses, but the code after it runs anyway.
+
+1. **False success toasts.** `saveOrder` on a non-Open order toasted
+   "Order updated." and stored nothing; `cancelOrder` on a dispatched order
+   toasted "Order cancelled."; `dispatchOrder` could return `POSTED` for a
+   write that never minted a challan. Every status rule now also runs before
+   the write, where the refusal can be said, and the updater's guard stays as a
+   silent belt for the race. Cancelled orders can still be deleted — only a
+   dispatched one is protected.
+2. **Silent missing-target returns.** Every edit/delete that found nothing
+   (`updateGrn`, `updateBatch`, `updateRun`, `updateStockIssue`,
+   `updateDispatch`, `deleteDispatch`, `completeDelivery`, the packing-material
+   receipt pair, `updateMelange`) closed silently when the document left the
+   device's copy while its dialog was open — a reload, or a colleague's delete
+   adopted by the poll. All now share one stated refusal through
+   `goneFromDevice(noun)` in deps.ts: "That <noun> is no longer in this
+   device's copy — reload the page and edit it again." (deletes say "try
+   again").
+3. **Half-filled lines silently filtered.** `saveOrder` and
+   `checkStockIssue` kept only complete lines and quietly stored fewer than
+   the form showed — the same quiet drop the blend fix made a stated problem.
+   Both now refuse with "complete or remove the half-filled lines"; a fully
+   blank row is simply not counted. The forms only build whole lines today,
+   but the domain gate is the rule, not the form.
+
+Per-document verdict: GRN, batch, packing run, PM receipt, order, dispatch,
+delivery, stock issue, blend recipe — create, read, update and delete verified
+sound for every role after these fixes; the defects were all in what the user
+was told, never in what the gates allowed.
+
+### Gates after the sweep
+
+`src/context/domains/sales.test.tsx` (new, 6): the three false-success shapes
+each refuse with their reason and store nothing; a cancelled order still
+deletes; the half-filled line refusal; the stale-copy edit toast.
+`src/lib/issues.test.ts` (new, 4): both half-filled line shapes refused, the
+fully blank row not counted, and the shortfall message still naming the row in
+full. Full gates: `tsc -b` clean, 601 tests green (+10), oxlint at the
+10-warning baseline, vite build + PWA whole.

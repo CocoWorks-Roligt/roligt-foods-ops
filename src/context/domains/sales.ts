@@ -12,7 +12,7 @@ import type { DispatchInput, OrderAllocation } from '../../lib/posting'
 import { isRow, locationLabel, stockRows, itemName } from '../../lib/stock'
 import { deepClone, nowISO, uid } from '../../lib/utils'
 import type { Dispatch, OrderLine } from '../../types'
-import { POSTED } from './deps'
+import { POSTED, goneFromDevice } from './deps'
 import type { CoreDeps, DeliveryInput } from './deps'
 
 export function useSales({ state, setState, nextId, log, showToast, announcement }: CoreDeps) {
@@ -34,6 +34,15 @@ export function useSales({ state, setState, nextId, log, showToast, announcement
         return null
       }
       const lines = input.lines.filter((l) => l.sku && l.qty > 0)
+      // A line the user touched but only half-filled is a stated problem, not a
+      // quiet drop — the order form only builds whole lines today, but the form
+      // is not the rule, this is. Fully blank lines are simply not counted.
+      if (input.lines.some((l) => (l.sku || l.qty > 0) && !(l.sku && l.qty > 0))) {
+        showToast(
+          'Every product line needs a product and a quantity — complete or remove the half-filled lines.',
+        )
+        return null
+      }
       if (!lines.length) {
         showToast('Add at least one product to the order.')
         return null
@@ -41,6 +50,21 @@ export function useSales({ state, setState, nextId, log, showToast, announcement
       if (new Set(lines.map((l) => l.sku)).size !== lines.length) {
         showToast('Each product can only be listed once — change the quantity instead.')
         return null
+      }
+      // The order must still be open HERE, where the refusal can be said. The
+      // status check used to live only inside the setState updater, whose silent
+      // `return prev` nobody could see — so an edit of an order another device
+      // had dispatched toasted "Order updated." and stored nothing.
+      if (id) {
+        const target = state.orders.find((x) => x.id === id)
+        if (!target) {
+          showToast(goneFromDevice('order'))
+          return null
+        }
+        if (target.status !== 'Open') {
+          showToast('That order has already been dealt with — only an open order can be edited.')
+          return null
+        }
       }
       let savedId = id || ''
       setState((prev) => {
@@ -77,11 +101,24 @@ export function useSales({ state, setState, nextId, log, showToast, announcement
       showToast(id ? 'Order updated.' : 'Order raised.')
       return savedId || POSTED
     },
-    [log, nextId, setState, showToast, state.customers],
+    [log, nextId, setState, showToast, state.customers, state.orders],
   )
 
   const cancelOrder = useCallback(
     (id: string) => {
+      // Refused here, where the refusal can be said — the updater's silent
+      // `return prev` used to fall through to the success toast below, so
+      // cancelling an already-dispatched order said "Order cancelled." and
+      // changed nothing.
+      const target = state.orders.find((x) => x.id === id)
+      if (!target) {
+        showToast(goneFromDevice('order', 'try again'))
+        return
+      }
+      if (target.status !== 'Open') {
+        showToast('That order has already been dealt with.')
+        return
+      }
       setState((prev) => {
         const draft = deepClone(prev)
         const o = draft.orders.find((x) => x.id === id)
@@ -92,11 +129,20 @@ export function useSales({ state, setState, nextId, log, showToast, announcement
       })
       showToast('Order cancelled.')
     },
-    [log, setState, showToast],
+    [log, setState, showToast, state.orders],
   )
 
   const deleteOrder = useCallback(
     (id: string) => {
+      const target = state.orders.find((x) => x.id === id)
+      if (!target) {
+        showToast(goneFromDevice('order', 'try again'))
+        return
+      }
+      if (target.status === 'Dispatched') {
+        showToast('Cannot delete: this order has already been dispatched.')
+        return
+      }
       setState((prev) => {
         const draft = deepClone(prev)
         const o = draft.orders.find((x) => x.id === id)
@@ -107,7 +153,7 @@ export function useSales({ state, setState, nextId, log, showToast, announcement
       })
       showToast('Order deleted.')
     },
-    [log, setState, showToast],
+    [log, setState, showToast, state.orders],
   )
 
   /**
@@ -119,7 +165,10 @@ export function useSales({ state, setState, nextId, log, showToast, announcement
   const dispatchOrder = useCallback(
     (orderId: string, allocations: OrderAllocation[], vehicle: string, expected?: string) => {
       const order = state.orders.find((o) => o.id === orderId)
-      if (!order) return null
+      if (!order) {
+        showToast(goneFromDevice('order', 'try again'))
+        return null
+      }
       if (order.status !== 'Open') {
         showToast('That order has already been dealt with.')
         return null
@@ -204,7 +253,14 @@ export function useSales({ state, setState, nextId, log, showToast, announcement
         announcement.current = `Order dispatched on ${challanNo}.`
         return draft
       })
-      return challanNo || POSTED
+      // A challan that never minted means the order left the copy between the
+      // check above and the write — not a silent POSTED, which would have the
+      // modal close on a dispatch that went nowhere.
+      if (!challanNo) {
+        showToast(goneFromDevice('order', 'try again'))
+        return null
+      }
+      return challanNo
     },
     [announcement, log, nextId, setState, showToast, state],
   )
@@ -274,7 +330,10 @@ export function useSales({ state, setState, nextId, log, showToast, announcement
 
   const updateDispatch = useCallback(
     (id: string, input: DispatchInput): string | null => {
-      if (!state.dispatches.some((d) => d.id === id)) return null
+      if (!state.dispatches.some((d) => d.id === id)) {
+        showToast(goneFromDevice('dispatch'))
+        return null
+      }
       // Nothing is drawn from a dispatch, so it is measured against stock as it stood
       // before it went out and its deduction is simply re-posted from the new figures.
       const check = checkDispatch(state, input, id)
@@ -333,6 +392,10 @@ export function useSales({ state, setState, nextId, log, showToast, announcement
 
   const deleteDispatch = useCallback(
     (id: string) => {
+      if (!state.dispatches.some((d) => d.id === id)) {
+        showToast(goneFromDevice('dispatch', 'try again'))
+        return
+      }
       setState((prev) => {
         const draft = deepClone(prev)
         const d = draft.dispatches.find((x) => x.id === id)
@@ -369,7 +432,7 @@ export function useSales({ state, setState, nextId, log, showToast, announcement
         return draft
       })
     },
-    [announcement, log, setState],
+    [announcement, log, setState, showToast, state.dispatches],
   )
 
   /**
@@ -382,6 +445,10 @@ export function useSales({ state, setState, nextId, log, showToast, announcement
    */
   const completeDelivery = useCallback(
     (id: string, input: DeliveryInput) => {
+      if (!state.dispatches.some((d) => d.id === id)) {
+        showToast(goneFromDevice('delivery', 'try again'))
+        return
+      }
       setState((prev) => {
         const draft = deepClone(prev)
         const d = draft.dispatches.find((x) => x.id === id)
@@ -404,7 +471,7 @@ export function useSales({ state, setState, nextId, log, showToast, announcement
       })
       showToast('Delivery status updated.')
     },
-    [log, setState, showToast],
+    [log, setState, showToast, state.dispatches],
   )
 
   return useMemo(

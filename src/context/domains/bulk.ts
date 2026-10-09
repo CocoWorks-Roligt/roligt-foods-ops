@@ -11,7 +11,7 @@ import { BY_PRODUCT_COST_METHOD, type Problem } from '../../lib/posting'
 import type { BulkProductInput, MelangeInput } from '../../lib/posting'
 import { itemName } from '../../lib/stock'
 import { deepClone } from '../../lib/utils'
-import { POSTED } from './deps'
+import { POSTED, goneFromDevice } from './deps'
 import type { CoreDeps } from './deps'
 
 export function useBulkProducts({ state, setState, nextId, log, showToast }: CoreDeps) {
@@ -229,7 +229,7 @@ export function useBulkProducts({ state, setState, nextId, log, showToast }: Cor
         // The recipe left this device's copy while the dialog was open (a reload,
         // or a colleague's delete adopted by the poll). Saying so beats closing
         // the dialog with nothing having happened and no word why.
-        showToast('That blend is no longer in this device’s copy — reload the page and edit it again.')
+        showToast(goneFromDevice('blend'))
         return null
       }
       const error = checkMelange(input, id)

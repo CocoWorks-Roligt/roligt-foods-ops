@@ -14,7 +14,7 @@ import { sampleProductName } from '../../lib/controlSamples'
 import { itemName } from '../../lib/stock'
 import { deepClone, localDay, nowISO, QTY_EPSILON, toDateKey, uid } from '../../lib/utils'
 import type { AppState, LedgerEntry, PackingRun } from '../../types'
-import { POSTED } from './deps'
+import { POSTED, goneFromDevice } from './deps'
 import type { ControlSamplePatch, CoreDeps, PackingStockInput } from './deps'
 
 /**
@@ -88,7 +88,10 @@ export function usePacking({ state, setState, nextId, log, showToast, announceme
   const updatePackingRun = useCallback(
     (id: string, input: PackingInput): string | null => {
       const existing = state.packingRuns.find((r) => r.id === id)
-      if (!existing) return null
+      if (!existing) {
+        showToast(goneFromDevice('packing run'))
+        return null
+      }
       // Anything else that has touched these packs — a QC release, a dispatch, or a
       // second run that packed the same SKU from the same batch — shares their blended
       // unit cost, so re-drawing this run's bulk and packing material would shift it.
@@ -129,7 +132,10 @@ export function usePacking({ state, setState, nextId, log, showToast, announceme
   const deletePackingRun = useCallback(
     (id: string) => {
       const run = state.packingRuns.find((r) => r.id === id)
-      if (!run) return
+      if (!run) {
+        showToast(goneFromDevice('packing run', 'try again'))
+        return
+      }
       // The same rule an edit enforces: anything else that has drawn on these packs
       // shares their blended cost, so deleting the run would strand the draw. This
       // used to block dispatches only — a QC release (whose transfer lines post under
@@ -227,7 +233,10 @@ export function usePacking({ state, setState, nextId, log, showToast, announceme
   const updatePackingStock = useCallback(
     (doc: string, input: PackingStockInput): string | null => {
       const line = state.ledger.find((l) => l.type === 'PM Receipt' && l.doc === doc)
-      if (!line) return null
+      if (!line) {
+        showToast(goneFromDevice('packing material receipt'))
+        return null
+      }
       const problem = packingStockError(state, input)
       if (problem) {
         showToast(problem)
@@ -285,7 +294,10 @@ export function usePacking({ state, setState, nextId, log, showToast, announceme
   const deletePackingStock = useCallback(
     (doc: string) => {
       const line = state.ledger.find((l) => l.type === 'PM Receipt' && l.doc === doc)
-      if (!line) return
+      if (!line) {
+        showToast(goneFromDevice('packing material receipt', 'try again'))
+        return
+      }
       if (packingReceiptConsumed(doc)) {
         showToast('This stock is already in a packing run and cannot be removed.')
         return

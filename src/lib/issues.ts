@@ -58,8 +58,8 @@ const sameLine = (a: IssueLineInput, b: IssueLineInput) =>
   a.status === b.status &&
   (a.expiry || '') === (b.expiry || '')
 
-const liveLines = (lines: IssueLineInput[]) =>
-  lines.filter((l) => l.item && l.lot && l.location && l.qty > 0)
+const isLive = (l: IssueLineInput) => l.item && l.lot && l.location && l.qty > 0
+const liveLines = (lines: IssueLineInput[]) => lines.filter(isLive)
 
 export const issueValue = (lines: StockIssueLine[]) =>
   lines.reduce((a, l) => a + l.qty * l.unitCost, 0)
@@ -78,6 +78,12 @@ export function checkStockIssue(
 ): Problem {
   if (!input.reason) return 'Say why the stock is going.'
   if (!input.date) return 'Give the issue a date.'
+  // A line the user touched but only half-filled is a stated problem, not a quiet
+  // drop — an issue form that ever lets a row go out incomplete must be refused
+  // here, not stored with the line silently missing from it.
+  if (input.lines.some((l) => (l.item || l.lot || l.location || l.qty > 0) && !isLive(l))) {
+    return 'Every line needs its stock and a quantity — complete or remove the half-filled lines.'
+  }
   const lines = liveLines(input.lines)
   if (!lines.length) return 'Add at least one line of stock to issue.'
 

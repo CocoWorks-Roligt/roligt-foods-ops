@@ -14,7 +14,7 @@ import type { MoveStockInput } from '../../lib/posting'
 import { isRow, itemName, locationLabel } from '../../lib/stock'
 import { stockIdOfRow } from '../../lib/stockIds'
 import { deepClone, nowISO, uid, fmtQty } from '../../lib/utils'
-import { POSTED } from './deps'
+import { POSTED, goneFromDevice } from './deps'
 import type { CoreDeps } from './deps'
 
 export function useInventory({ state, setState, nextId, log, forbidden, showToast, rows }: CoreDeps) {
@@ -142,7 +142,10 @@ export function useInventory({ state, setState, nextId, log, forbidden, showToas
   const updateStockIssue = useCallback(
     (id: string, input: StockIssueInput): string | null => {
       const existing = state.stockIssues.find((i) => i.id === id)
-      if (!existing) return null
+      if (!existing) {
+        showToast(goneFromDevice('stock issue'))
+        return null
+      }
       const error = checkStockIssue(state, input, id)
       if (error) {
         showToast(error)
@@ -173,6 +176,10 @@ export function useInventory({ state, setState, nextId, log, forbidden, showToas
 
   const deleteStockIssue = useCallback(
     (id: string) => {
+      if (!state.stockIssues.some((i) => i.id === id)) {
+        showToast(goneFromDevice('stock issue', 'try again'))
+        return
+      }
       setState((prev) => {
         const draft = deepClone(prev)
         const issue = draft.stockIssues.find((i) => i.id === id)
@@ -189,7 +196,7 @@ export function useInventory({ state, setState, nextId, log, forbidden, showToas
       })
       showToast('Stock issue deleted; stock returned.')
     },
-    [log, setState, showToast],
+    [log, setState, showToast, state.stockIssues],
   )
 
   return useMemo(
