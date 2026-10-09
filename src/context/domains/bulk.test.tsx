@@ -70,7 +70,7 @@ describe('blend recipes', () => {
     expect(out).toBeNull()
     expect(setState).not.toHaveBeenCalled() // nothing was stored
     expect(showToast).toHaveBeenCalledWith(
-      'Every component needs a bulk and a share — complete or remove the half-filled rows.',
+      'Every component needs an item and a share — complete or remove the half-filled rows.',
     )
   })
 

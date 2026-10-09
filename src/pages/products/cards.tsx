@@ -1,6 +1,8 @@
 import { StatusBadge } from '../../components/StatusBadge'
 import { useApp } from '../../context/AppContext'
+import { bulksFrom, sourceItemOf } from '../../lib/batches'
 import { isByProduct } from '../../lib/posting'
+import { itemName } from '../../lib/stock'
 import { bulkItemOf, bulkUomForUnit, formatSize, packLabel, toBase, type PackDef } from '../../lib/packs'
 import type { Item, PurchaseProduct } from '../../types'
 
@@ -19,6 +21,10 @@ export function PurchaseCard({
   onEdit: () => void
   onDelete: () => void
 }) {
+  const { state } = useApp()
+  const item = state.items.find((i) => i.id === product.itemId)
+  const raw = item?.type === 'Raw Material'
+  const extracted = raw && !item.directUse ? bulksFrom(state, item.id) : []
   return (
     <article className="vendor-card product-card">
       <div className="vendor-card-top">
@@ -48,6 +54,24 @@ export function PurchaseCard({
           )}
         </div>
       </div>
+      {!raw ? null : item.directUse ? (
+        <div className="small">Used in blends as bought — no extraction.</div>
+      ) : (
+        <div className="chip-row">
+          <span className="chip-row-label">Extracted into</span>
+          <div className="supplier-chips">
+            {!extracted.length ? (
+              <span className="small">No bulk product yet</span>
+            ) : (
+              extracted.map((b) => (
+                <span className="supplier-chip" key={b.id}>
+                  {b.name}
+                </span>
+              ))
+            )}
+          </div>
+        </div>
+      )}
       <div className="row-actions">
         <button className="btn btn-light" type="button" onClick={onEditSuppliers}>
           Suppliers
@@ -80,6 +104,7 @@ export function BulkCard({
     state.products.filter((p) => bulkItemOf(p) === item.id).map(packLabel),
   )]
   const used = state.ledger.some((l) => l.item === item.id)
+  const source = sourceItemOf(item)
   return (
     <article className="vendor-card product-card">
       <div className="vendor-card-top">
@@ -95,8 +120,12 @@ export function BulkCard({
         {isByProduct(item)
           ? 'Thrown off alongside a batch’s main output. Carries none of the batch cost.'
           : melange
-            ? `Blended to the ${melange.name} melange.`
+            ? `Made by the ${melange.name} blend.`
             : 'Booked by a production batch as its output.'}
+        {melange ? null : source
+          ? ` Extracted from ${itemName(state, source)}.`
+          : ' Not linked to a raw material yet — edit it to name the one it is extracted from.'}
+        {melange ? null : item.qcExempt ? ' Skips QC.' : ' Goes through QC.'}
       </div>
       <div className="chip-row">
         <span className="chip-row-label">Filled into</span>

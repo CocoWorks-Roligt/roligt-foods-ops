@@ -405,15 +405,23 @@ export function traceChain(state: AppState, raw: string): TraceResult | null {
   const carried = (filled: PackingRun[], sku: string) =>
     filled.some((p) => allows(runsForward, p.id, sku))
 
+  /** A blend line drawing a raw material bought ready to use: its lot is a receipt's
+   *  lot, not a batch, so it is traced the way a pressed lot is. */
+  const rawDraw = (l: { item: string }) =>
+    state.items.find((i) => i.id === l.item)?.type === 'Raw Material'
+
   // ---- forward: where did what I asked about end up? ----------------------
   let changed = true
   while (changed) {
     changed = false
     state.batches.forEach((b) => {
       // A batch that pressed a seed lot carries everything it made forward, and so
-      // does a blend drawing a component the chain is already carrying.
+      // does a blend drawing a component the chain is already carrying — or drawing a
+      // seed lot of a flavour straight from its receipt.
       const pressedSeedLot = b.sourceLines.some((l) => seedLots.has(l.lot))
-      const blendedFromChain = (b.blendLines || []).some((l) => allows(forward, l.lot, l.item))
+      const blendedFromChain = (b.blendLines || []).some((l) =>
+        rawDraw(l) ? seedLots.has(l.lot) : allows(forward, l.lot, l.item),
+      )
       if (!pressedSeedLot && !blendedFromChain) return
       if (widen(forward, b.id, 'all')) changed = true
       if (widen(shown, b.id, 'all')) changed = true
@@ -490,9 +498,14 @@ export function traceChain(state: AppState, raw: string): TraceResult | null {
     const b = state.batches.find((x) => x.id === batchId)
     if (!b) continue
     b.sourceLines.forEach((l) => lots.add(l.lot))
-    // A melange's components are batches, so a blend reaches the juice that made it and,
-    // through that, the lot and the farmer behind it — only the juice it drew.
+    // A blend's bulk components are batches, so a blend reaches the juice that made it
+    // and, through that, the lot and the farmer behind it — only the juice it drew. A
+    // flavour used as bought is a received lot itself.
     ;(b.blendLines || []).forEach((l) => {
+      if (rawDraw(l)) {
+        lots.add(l.lot)
+        return
+      }
       widen(shown, l.lot, new Set([l.item]))
       upstream.push(l.lot)
     })

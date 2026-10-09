@@ -67,13 +67,14 @@ export function Quality() {
    * the screen lists is every bulk every batch produced, each with its own record.
    * A batch posted before this existed carries one record for its main output, and its
    * by-product turns up here with nothing against it and an offer to raise one.
+   * Output of a bulk that skips QC was released as booked and has no work here.
    */
   const subjects = useMemo(() => {
     const q = search.toLowerCase()
     return [...state.batches]
       .reverse()
       .flatMap((batch) =>
-        batchOutputs(batch).map((output) => {
+        batchOutputs(batch).filter((output) => !output.qcExempt).map((output) => {
           const record = state.qcs.find((x) => x.batchId === batch.id && x.item === output.item)
           return {
             key: `${batch.id}\u0000${output.item}`,

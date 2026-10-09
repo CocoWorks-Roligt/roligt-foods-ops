@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useMemo } from 'react'
-import { batchDisposition } from '../../lib/posting'
+import { batchRollUp } from '../../lib/posting'
 import type { QcUpdate } from '../../lib/posting'
 import { batchOutputs, mainOutput, runBulkItem } from '../../lib/batches'
 import {
@@ -285,7 +285,7 @@ export function useQuality({ state, setState, nextId, log, showToast, actor, ann
         }
         // The batch is the roll-up of every verdict on what it made — released only
         // when all of them are, and `Partly Released` when only some are.
-        b.status = batchDisposition(draft.qcs.filter((x) => x.batchId === b.id))
+        b.status = batchRollUp(draft.qcs.filter((x) => x.batchId === b.id), batchOutputs(b))
         return draft
       })
       showToast(`QC updated: ${statusLabel(disposition)}.`)
@@ -305,8 +305,13 @@ export function useQuality({ state, setState, nextId, log, showToast, actor, ann
     (batchId: string, item: string): string | null => {
       const b = state.batches.find((x) => x.id === batchId)
       if (!b) return null
-      if (!batchOutputs(b).some((o) => o.item === item)) {
+      const output = batchOutputs(b).find((o) => o.item === item)
+      if (!output) {
         showToast('That batch did not produce this product.')
+        return null
+      }
+      if (output.qcExempt) {
+        showToast(`${itemName(state, item)} skips QC — it was released as booked.`)
         return null
       }
       if (state.qcs.some((q) => q.batchId === batchId && q.item === item)) {
@@ -333,7 +338,7 @@ export function useQuality({ state, setState, nextId, log, showToast, actor, ann
         const target = draft.batches.find((x) => x.id === batchId)
         if (target) {
           target.qcIds = draft.qcs.filter((q) => q.batchId === batchId).map((q) => q.id)
-          target.status = batchDisposition(draft.qcs.filter((q) => q.batchId === batchId))
+          target.status = batchRollUp(draft.qcs.filter((q) => q.batchId === batchId), batchOutputs(target))
         }
         log(draft, 'Raised QC record', id, `${itemName(draft, item)} from ${batchId}.`)
         createdId = id
@@ -342,7 +347,7 @@ export function useQuality({ state, setState, nextId, log, showToast, actor, ann
       showToast('QC record raised.')
       return createdId || POSTED
     },
-    [log, nextId, setState, showToast, state.batches, state.qcs],
+    [log, nextId, setState, showToast, state],
   )
 
   /**

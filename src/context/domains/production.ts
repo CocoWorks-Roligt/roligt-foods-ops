@@ -9,7 +9,7 @@
 import { useCallback, useMemo } from 'react'
 import { MALAI_ITEM, WATER_ITEM, batchOutputs, fmtBatchInput, usableYield } from '../../lib/batches'
 import {
-  batchDisposition,
+  batchRollUp,
   batchQuantitiesChanged,
   checkBatch,
   describeOutputs,
@@ -50,9 +50,11 @@ export function useProduction({ state, setState, nextId, log, showToast, announc
         /**
          * One QC record per bulk the batch made. A pressing gives water and malai and
          * they are tested apart — different benches, different results, and the water
-         * can be released while the malai is still pending.
+         * can be released while the malai is still pending. A bulk marked as skipping
+         * QC raises none: its lots were booked straight to Released.
          */
-        const qcIds = posted.outputLines.map((line) => {
+        const tested = posted.outputLines.filter((line) => !line.qcExempt)
+        const qcIds = tested.map((line) => {
           const qcId = nextId(draft, 'qc')
           draft.qcs.push({
             id: qcId,
@@ -99,7 +101,7 @@ export function useProduction({ state, setState, nextId, log, showToast, announc
           pmCost: 0,
           directCost: posted.inputCost,
           costPerL: main?.qty ? posted.inputCost / main.qty : 0,
-          status: 'Awaiting QC',
+          status: batchRollUp(qcIds.map(() => ({ disposition: 'Pending' })), posted.outputLines),
           qcId: qcIds[0] || '',
           qcIds,
         })
@@ -110,11 +112,15 @@ export function useProduction({ state, setState, nextId, log, showToast, announc
           `${blending ? 'Blended' : 'Consumed'} ${fmtRowTotal([...posted.sourceLines, ...posted.blendLines].map((l) => ({ qty: l.qty, uom: l.uom || '' })))} into ${describeOutputs(draft, posted.outputLines)}.`,
         )
         // Each QC record its own entry, as one raised from the Quality page gets.
-        posted.outputLines.forEach((line, i) => {
-          if (qcIds[i]) log(draft, 'Raised QC record', qcIds[i], `${itemName(draft, line.item)} from ${id}.`)
+        tested.forEach((line, i) => {
+          log(draft, 'Raised QC record', qcIds[i], `${itemName(draft, line.item)} from ${id}.`)
         })
         createdId = id
-        announcement.current = `${id} posted. Each bulk it made has its own QC record — release them one product at a time.`
+        announcement.current = !tested.length
+          ? `${id} posted. Nothing it made needs QC, so it is released as booked.`
+          : tested.length < posted.outputLines.length
+            ? `${id} posted. ${tested.map((l) => itemName(draft, l.item)).join(', ')} went to QC; the rest skips QC and is released as booked.`
+            : `${id} posted. Each bulk it made has its own QC record — release them one product at a time.`
         return draft
       })
       return createdId || POSTED
@@ -193,7 +199,7 @@ export function useProduction({ state, setState, nextId, log, showToast, announc
            * Quantities only move while nothing has drawn on the batch — checked above —
            * so every record here is still untouched and safe to reconcile.
            */
-          const produced = posted.outputLines.map((l) => l.item)
+          const produced = posted.outputLines.filter((l) => !l.qcExempt).map((l) => l.item)
           draft.qcs = draft.qcs.filter(
             (q) => q.batchId !== id || produced.includes(q.item || ''),
           )
@@ -218,7 +224,7 @@ export function useProduction({ state, setState, nextId, log, showToast, announc
           const records = draft.qcs.filter((q) => q.batchId === id)
           b.qcIds = records.map((q) => q.id)
           b.qcId = b.qcIds[0] || ''
-          b.status = batchDisposition(records)
+          b.status = batchRollUp(records, posted.outputLines)
         }
         log(
           draft,

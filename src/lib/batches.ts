@@ -94,6 +94,33 @@ export const fmtBulk = (qty: number, uom: string) =>
 export const bulkItems = (state: AppState): Item[] =>
   state.items.filter((i) => i.type === 'Semi Finished')
 
+/** A raw material bought ready to use — a flavour, an essence — that goes into blends as
+ *  it arrives instead of being extracted. */
+export const isDirectUse = (item: Item | undefined) =>
+  item?.type === 'Raw Material' && !!item.directUse
+
+/** Raw materials extraction presses — every raw material that is not used as bought. */
+export const extractableItems = (state: AppState): Item[] =>
+  state.items.filter((i) => i.type === 'Raw Material' && !i.directUse)
+
+/**
+ * The raw material a bulk is extracted from. Coconut water and malai were made long
+ * before bulks named their source, and both come off tender coconut, so they answer
+ * for themselves; any other bulk saved before the link existed has no answer until it
+ * is edited.
+ */
+export const sourceItemOf = (item: Item | undefined): string | undefined =>
+  item?.sourceItem ||
+  (item?.id === WATER_ITEM || item?.id === MALAI_ITEM ? COCONUT_ITEM : undefined)
+
+/** The bulks extraction makes out of one raw material — tender coconut gives water and malai. */
+export const bulksFrom = (state: AppState, rawItem: string): Item[] =>
+  bulkItems(state).filter((b) => sourceItemOf(b) === rawItem)
+
+/** Everything a blend can take as a component: any bulk, and any raw material used as bought. */
+export const blendComponentItems = (state: AppState): Item[] =>
+  state.items.filter((i) => i.type === 'Semi Finished' || isDirectUse(i))
+
 export const itemUom = (state: AppState, id: string) =>
   state.items.find((i) => i.id === id)?.uom || 'Unit'
 

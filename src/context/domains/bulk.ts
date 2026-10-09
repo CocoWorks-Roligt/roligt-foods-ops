@@ -6,6 +6,7 @@
  * blended stock is never mistaken for the single-fruit juice it was made from.
  */
 import { useCallback, useMemo } from 'react'
+import { isDirectUse, sourceItemOf } from '../../lib/batches'
 import { bulkItemOf } from '../../lib/packs'
 import { BY_PRODUCT_COST_METHOD, type Problem } from '../../lib/posting'
 import type { BulkProductInput, MelangeInput } from '../../lib/posting'
@@ -27,9 +28,26 @@ export function useBulkProducts({ state, setState, nextId, log, showToast }: Cor
       ) {
         return `${input.name.trim()} already exists.`
       }
+      // A bulk is pressed out of something, and only out of a raw material the plant
+      // extracts — one used as bought goes into blends as it is and has no bulk.
+      const source = state.items.find((i) => i.id === input.sourceItem)
+      if (!source || source.type !== 'Raw Material') {
+        return 'Pick the raw material this bulk is extracted from.'
+      }
+      if (source.directUse) {
+        return `${source.name} goes into blends as bought, so nothing is extracted from it. Turn on “Needs extraction” on ${source.name} first.`
+      }
+      // Batches already booked this bulk off the raw material they pressed, so once it
+      // has history it cannot be re-pointed at another — a bulk saved before it named a
+      // source can still be given one.
+      const existing = id ? state.items.find((i) => i.id === id) : undefined
+      const was = sourceItemOf(existing)
+      if (existing && was && was !== input.sourceItem && state.ledger.some((l) => l.item === id)) {
+        return `${existing.name} has already been extracted from ${itemName(state, was)}, so it stays linked to it.`
+      }
       return null
     },
-    [state.items],
+    [state],
   )
 
   const addBulkProduct = useCallback(
@@ -51,12 +69,14 @@ export function useBulkProducts({ state, setState, nextId, log, showToast }: Cor
           lotControlled: true,
           reorder: 0,
           costMethod: input.byProduct ? BY_PRODUCT_COST_METHOD : 'Batch Actual',
+          sourceItem: input.sourceItem,
+          ...(input.qcExempt ? { qcExempt: true } : {}),
         })
         log(
           draft,
           'Added bulk product',
           id,
-          `${input.name.trim()} — measured in ${input.uom}${input.byProduct ? ', a by-product carrying no batch cost' : ''}.`,
+          `${input.name.trim()} — extracted from ${itemName(draft, input.sourceItem)}, measured in ${input.uom}${input.byProduct ? ', a by-product carrying no batch cost' : ''}${input.qcExempt ? ', skips QC' : ''}.`,
         )
         createdId = id
         return draft
@@ -97,7 +117,20 @@ export function useBulkProducts({ state, setState, nextId, log, showToast }: Cor
         item.name = input.name.trim()
         item.uom = input.uom
         item.costMethod = input.byProduct ? BY_PRODUCT_COST_METHOD : 'Batch Actual'
-        log(draft, 'Edited bulk product', id, `${item.name} — measured in ${item.uom}.`)
+        item.sourceItem = input.sourceItem
+        // Read by the next batch that books it; lots already made keep the decision
+        // their batch was posted under.
+        if (input.qcExempt) item.qcExempt = true
+        else delete item.qcExempt
+        const qcMoved = !!existing.qcExempt !== input.qcExempt
+        log(
+          draft,
+          'Edited bulk product',
+          id,
+          `${item.name} — extracted from ${itemName(draft, input.sourceItem)}, measured in ${item.uom}.${
+            qcMoved ? (input.qcExempt ? ' Skips QC from the next batch on.' : ' Goes through QC from the next batch on.') : ''
+          }`,
+        )
         return draft
       })
       showToast(`${input.name.trim()} updated.`)
@@ -153,15 +186,20 @@ export function useBulkProducts({ state, setState, nextId, log, showToast }: Cor
       // drop; fully blank rows stay harmless and are simply not counted.
       const lines = input.components.filter((c) => c.item || c.share > 0)
       if (lines.some((c) => !c.item || !(c.share > 0))) {
-        return 'Every component needs a bulk and a share — complete or remove the half-filled rows.'
+        return 'Every component needs an item and a share — complete or remove the half-filled rows.'
       }
-      if (lines.length < 2) return 'A blend mixes at least two bulk components.'
+      if (lines.length < 2) return 'A blend mixes at least two components.'
       if (new Set(lines.map((c) => c.item)).size !== lines.length) {
         return 'Each component can only be listed once.'
       }
       for (const c of lines) {
-        const item = state.items.find((i) => i.id === c.item && i.type === 'Semi Finished')
-        if (!item) return 'Every component must be a bulk product.'
+        const item = state.items.find((i) => i.id === c.item)
+        if (item?.type === 'Raw Material' && !item.directUse) {
+          return `${item.name} is extracted before it is blended — use the bulk pressed from it.`
+        }
+        if (item?.type !== 'Semi Finished' && !isDirectUse(item)) {
+          return 'Every component must be a bulk product or a raw material used as bought.'
+        }
       }
       const total = lines.reduce((a, c) => a + c.share, 0)
       if (Math.abs(total - 100) > 0.01) {

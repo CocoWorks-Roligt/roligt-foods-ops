@@ -136,11 +136,11 @@ interface AppContextValue {
   updateCustomer: (id: string, patch: Omit<Customer, 'id' | 'status'>) => string | null
   deleteCustomer: (id: string) => void
   addPurchaseProduct: (
-    input: Omit<PurchaseProduct, 'id' | 'status' | 'itemId'> & { itemId?: string },
+    input: Omit<PurchaseProduct, 'id' | 'status' | 'itemId'> & { itemId?: string; directUse?: boolean },
   ) => string | null
   updatePurchaseProduct: (
     id: string,
-    input: { name: string; uom: string; description: string; vendorIds?: string[] },
+    input: { name: string; uom: string; description: string; vendorIds?: string[]; directUse?: boolean },
   ) => string | null
   deletePurchaseProduct: (id: string) => void
   updatePurchaseProductVendors: (id: string, vendorIds: string[]) => void

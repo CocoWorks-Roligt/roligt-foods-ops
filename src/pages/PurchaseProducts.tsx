@@ -67,7 +67,7 @@ export function PurchaseProducts() {
   }, [search, state.purchaseProducts, state.vendors])
 
   /**
-   * Bulk a melange owns is edited with its recipe, not here — listing it in both
+   * Bulk a blend owns is edited with its recipe, not here — listing it in both
    * places is what made one bulk product look like two and forced each edit to
    * rename the other to stay in step.
    */
@@ -81,7 +81,11 @@ export function PurchaseProducts() {
   const packs = useMemo(() => packDefs(state.products, state.packs), [state.products, state.packs])
 
   const openMaterial = (p: PurchaseProduct) =>
-    setDialog({ kind: 'material', editId: p.id, initial: materialFrom(p) })
+    setDialog({
+      kind: 'material',
+      editId: p.id,
+      initial: materialFrom(p, state.items.find((i) => i.id === p.itemId)),
+    })
 
   const rawRows = rows.filter((p) => p.category !== 'Packing Material')
   const packingRows = rows.filter((p) => p.category === 'Packing Material')
@@ -121,8 +125,9 @@ export function PurchaseProducts() {
           <div>
             <h3>Raw materials</h3>
             <span>
-              The produce the plant buys and presses. Each one is linked to the farmers or vendors
-              it comes from.
+              What the plant buys. Produce is extracted into bulk; a flavour or essence bought ready
+              to use goes into blends as it arrives. Each one is linked to the farmers or vendors it
+              comes from.
             </span>
           </div>
           <div className="section-head-actions">
@@ -155,9 +160,10 @@ export function PurchaseProducts() {
           <div>
             <h3>Bulk</h3>
             <span>
-              What extraction presses out — coconut water, malai, beetroot juice. Packs are filled
-              from these, and melanges below blend them. A blend&rsquo;s own bulk is created and
-              edited with its melange, so it is not repeated here.
+              What extraction presses out of a raw material — coconut water and malai from tender
+              coconut, beetroot juice from beetroot. Packs are filled from these, and the blends
+              below mix them. A blend&rsquo;s own bulk is created and edited with its blend, so it
+              is not repeated here.
             </span>
           </div>
           <div className="section-head-actions">
@@ -169,8 +175,9 @@ export function PurchaseProducts() {
 
         {!bulks.length ? (
           <div className="empty vendors-empty">
-            No bulk products yet. Add one — a name and whether it is measured in litres or
-            kilograms — and production can book its output against it.
+            No bulk products yet. Add one — a name, the raw material it is extracted from and
+            whether it is measured in litres or kilograms — and production can book its output
+            against it.
           </div>
         ) : (
           <div className="vendor-grid">

@@ -121,7 +121,13 @@ export function linkedRecords(state: AppState, raw: string): LinkedRecords {
     case 'grn': {
       const g = state.grns.find((x) => x.id === ref.id)!
       state.batches.forEach((b) => {
-        if (b.sourceLines.some((s) => s.lot === g.lot)) add(wentInto, b.id)
+        // Pressed by an extraction, or drawn as bought into a blend.
+        if (
+          b.sourceLines.some((s) => s.lot === g.lot) ||
+          (b.blendLines || []).some((l) => l.lot === g.lot)
+        ) {
+          add(wentInto, b.id)
+        }
       })
       issues.forEach((i) => {
         if (i.lines.some((l) => l.lot === g.lot)) add(wentInto, i.id)

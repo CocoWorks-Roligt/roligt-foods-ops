@@ -6,13 +6,23 @@
  * books against, which is why they are created here and nowhere else.
  */
 import { useCallback, useMemo } from 'react'
-import { itemUom } from '../../lib/batches'
+import { bulksFrom, itemUom } from '../../lib/batches'
 import { bulkItemOf, bulkUomForUnit, mediumForUom, packDefs, packKeyOfDef, toBase } from '../../lib/packs'
 import type { PackDefInput, Problem } from '../../lib/posting'
 import { itemName } from '../../lib/stock'
 import { deepClone } from '../../lib/utils'
 import type { Pack, Product, PurchaseProduct } from '../../types'
 import { POSTED, type CoreDeps } from './deps'
+
+/**
+ * A raw material used as bought goes into a blend by its share of the finished
+ * blend, and a blend is counted in litres or kilograms — a share of "pieces" of
+ * essence would put a number on the run that means nothing.
+ */
+const checkDirectUse = (input: { name: string; uom: string; directUse?: boolean }): Problem =>
+  input.directUse && input.uom !== 'Litre' && input.uom !== 'Kg'
+    ? `${input.name.trim() || 'A raw material'} goes into blends as bought, so it has to be measured in Litre or Kg.`
+    : null
 
 export function useCatalog({ state, setState, nextId, log, showToast }: CoreDeps) {
   /** Shared by add and edit. The melange form has always guarded its names; this one
@@ -33,11 +43,17 @@ export function useCatalog({ state, setState, nextId, log, showToast }: CoreDeps
     [state.purchaseProducts],
   )
 
+
   const addPurchaseProduct = useCallback(
     (
-      input: Omit<PurchaseProduct, 'id' | 'status' | 'itemId'> & { itemId?: string },
+      input: Omit<PurchaseProduct, 'id' | 'status' | 'itemId'> & {
+        itemId?: string
+        /** Raw material only: bought ready to use, so it skips extraction. */
+        directUse?: boolean
+      },
     ): string | null => {
-      const error = checkPurchaseProduct(input)
+      const directUse = input.category !== 'Packing Material' && !!input.directUse
+      const error = checkPurchaseProduct(input) || checkDirectUse({ ...input, directUse })
       if (error) {
         showToast(error)
         return null
@@ -70,6 +86,7 @@ export function useCatalog({ state, setState, nextId, log, showToast }: CoreDeps
             lotControlled: true,
             reorder: 0,
             costMethod: input.category === 'Packing Material' ? 'Weighted Avg' : 'Lot Actual',
+            ...(directUse ? { directUse: true } : {}),
           })
         }
         const pp: PurchaseProduct = {
@@ -83,7 +100,12 @@ export function useCatalog({ state, setState, nextId, log, showToast }: CoreDeps
           status: 'Active',
         }
         draft.purchaseProducts.push(pp)
-        log(draft, 'Created purchase product', pp.id, pp.name)
+        log(
+          draft,
+          'Created purchase product',
+          pp.id,
+          directUse ? `${pp.name} — used in blends as bought, no extraction.` : pp.name,
+        )
         createdId = pp.id
         return draft
       })
@@ -96,14 +118,42 @@ export function useCatalog({ state, setState, nextId, log, showToast }: CoreDeps
   const updatePurchaseProduct = useCallback(
     (
       id: string,
-      input: { name: string; uom: string; description: string; vendorIds?: string[] },
+      input: {
+        name: string
+        uom: string
+        description: string
+        vendorIds?: string[]
+        /** Left out, the setting stays as it is. */
+        directUse?: boolean
+      },
     ): string | null => {
       const existing = state.purchaseProducts.find((p) => p.id === id)
       if (!existing) return null
-      const error = checkPurchaseProduct(input, id)
+      const item = state.items.find((i) => i.id === existing.itemId)
+      const directUse =
+        existing.category !== 'Packing Material' && (input.directUse ?? !!item?.directUse)
+      const error = checkPurchaseProduct(input, id) || checkDirectUse({ ...input, directUse })
       if (error) {
         showToast(error)
         return null
+      }
+      // Turning extraction off would strand the bulks pressed from it; turning it back on
+      // would leave recipes listing a raw material a blend can no longer take.
+      if (item && directUse && !item.directUse) {
+        const bulks = bulksFrom(state, item.id)
+        if (bulks.length) {
+          showToast(
+            `${bulks.map((b) => b.name).join(', ')} ${bulks.length > 1 ? 'are' : 'is'} extracted from ${existing.name}, so it still needs extraction. Re-link or delete ${bulks.length > 1 ? 'those bulks' : 'that bulk'} first.`,
+          )
+          return null
+        }
+      }
+      if (item && !directUse && item.directUse) {
+        const recipe = state.melanges.find((m) => m.components.some((c) => c.item === item.id))
+        if (recipe) {
+          showToast(`${recipe.name} blends ${existing.name} as bought — take it out of that recipe first.`)
+          return null
+        }
       }
       // the same rule add enforces: produce names who grew it, a packing
       // material may float free. Without it the edit dialog could legally
@@ -135,17 +185,27 @@ export function useCatalog({ state, setState, nextId, log, showToast }: CoreDeps
         // (the Suppliers button on the card worked, the edit form did not).
         if (input.vendorIds) p.vendorIds = [...input.vendorIds]
         const item = draft.items.find((i) => i.id === p.itemId)
+        const switched = !!item && !!item.directUse !== directUse
         if (item) {
           item.name = p.name
           item.uom = p.uom
+          if (directUse) item.directUse = true
+          else delete item.directUse
         }
-        log(draft, 'Edited item', id, p.name)
+        log(
+          draft,
+          'Edited item',
+          id,
+          switched
+            ? `${p.name} — ${directUse ? 'now used in blends as bought, no extraction' : 'now needs extraction before it is blended'}.`
+            : p.name,
+        )
         return draft
       })
       showToast(`${input.name.trim()} updated.`)
       return id
     },
-    [checkPurchaseProduct, log, setState, showToast, state.ledger, state.purchaseProducts],
+    [checkPurchaseProduct, log, setState, showToast, state],
   )
 
   const deletePurchaseProduct = useCallback(
@@ -165,6 +225,16 @@ export function useCatalog({ state, setState, nextId, log, showToast }: CoreDeps
         showToast(`Cannot delete: ${pack.name} consumes ${p.name}.`)
         return
       }
+      const recipe = p.itemId && state.melanges.find((m) => m.components.some((c) => c.item === p.itemId))
+      if (recipe) {
+        showToast(`Cannot delete: ${recipe.name} blends ${p.name}.`)
+        return
+      }
+      const bulk = p.itemId ? bulksFrom(state, p.itemId)[0] : undefined
+      if (bulk) {
+        showToast(`Cannot delete: ${bulk.name} is extracted from ${p.name}.`)
+        return
+      }
       setState((prev) => {
         const draft = deepClone(prev)
         draft.purchaseProducts = draft.purchaseProducts.filter((x) => x.id !== id)
@@ -174,7 +244,7 @@ export function useCatalog({ state, setState, nextId, log, showToast }: CoreDeps
       })
       showToast(`${p.name} deleted.`)
     },
-    [log, setState, showToast, state.grns, state.ledger, state.products, state.purchaseProducts],
+    [log, setState, showToast, state],
   )
 
   const updatePurchaseProductVendors = useCallback(

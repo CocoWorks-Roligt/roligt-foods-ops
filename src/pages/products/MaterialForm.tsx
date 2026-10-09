@@ -60,6 +60,7 @@ export function MaterialForm({
               uom: form.uom,
               description: form.description,
               vendorIds: form.vendorIds,
+              directUse: packing ? undefined : form.directUse,
             })
           : addPurchaseProduct(form)
         if (ok) (onSaved || onClose)()
@@ -100,6 +101,23 @@ export function MaterialForm({
             onChange={(next) => setForm((f) => ({ ...f, uom: next }))}
           />
         </div>
+        {packing ? null : (
+          <div className="field span-3">
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={!form.directUse}
+                onChange={(e) => setForm((f) => ({ ...f, directUse: !e.target.checked }))}
+              />
+              Needs extraction
+            </label>
+            <div className="small">
+              {form.directUse
+                ? 'Bought ready to use — a flavour, an essence. It goes into blends as it arrives, has no bulk products, and is measured in Litre or Kg.'
+                : 'Pressed or extracted into bulk first. Its bulk products are added in the Bulk section and name it as their source.'}
+            </div>
+          </div>
+        )}
         <div className="field span-3">
           <label>Description</label>
           <textarea

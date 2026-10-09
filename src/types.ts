@@ -250,6 +250,19 @@ export interface Item {
   lotControlled: boolean
   reorder: number
   costMethod: string
+  /** Raw material only: bought ready to use — a flavour, an essence — so it goes into
+   *  blends as it arrives and is never extracted. Absent on everything the plant
+   *  presses, which is every raw material saved before this existed. */
+  directUse?: boolean
+  /** Bulk only: the raw material extraction presses this out of — tender coconut for
+   *  both the water and the malai. Absent on a blend's own bulk (its recipe says what
+   *  went in) and on bulks saved before the link existed; coconut water and malai
+   *  answer for themselves through `sourceItemOf`. */
+  sourceItem?: string
+  /** Bulk only: its lots skip QC — booked straight to Released, no QC record raised.
+   *  Read when a batch is posted and copied onto the output line, so changing it later
+   *  never restates a lot already made. A blend's own bulk always goes through QC. */
+  qcExempt?: boolean
 }
 
 export interface BomLine {
@@ -403,6 +416,9 @@ export interface BulkOutputLine {
   qty: number
   uom: string
   costShare: number
+  /** Booked without QC, because the bulk was QC-exempt when this batch was posted.
+   *  The line keeps the decision so a later change to the bulk cannot restate it. */
+  qcExempt?: boolean
 }
 
 /** Extraction presses raw material into bulk; a melange blends bulks into one. */

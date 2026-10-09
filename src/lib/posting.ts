@@ -7,7 +7,7 @@
  * is what owns cloning, so nothing below ever has to think about immutability.
  */
 
-import { COCONUT_ITEM, batchOutputs, fmtBulk, itemUom } from './batches'
+import { COCONUT_ITEM, batchOutputs, fmtBulk, isDirectUse, itemUom, sourceItemOf } from './batches'
 import { bulkItemOf, mediumForUom } from './packs'
 import { withStockIds } from './stockIds'
 import { isRow, itemName, product, rowKey, stockRows, areaRefusal, defaultArea, inHoldArea } from './stock'
@@ -135,6 +135,10 @@ export interface BulkProductInput {
    * it a pressing happens to throw off.
    */
   byProduct: boolean
+  /** The raw material extraction presses this out of. */
+  sourceItem: string
+  /** True when its lots skip QC and are booked straight to Released. */
+  qcExempt: boolean
 }
 
 /** Stored on the item, so the rule survives without a second field to keep in step. */
@@ -175,6 +179,16 @@ export function batchDisposition(records: { disposition: string }[]): string {
   if (all.includes('Retest')) return 'On Hold'
   if (all.includes('Pending')) return 'Awaiting QC'
   return 'Partly Released'
+}
+
+/**
+ * A batch's status from its QC records and its outputs. Outputs booked without QC raise
+ * no record, so a batch that made nothing needing QC is released as it is posted — rolling
+ * up an empty list would leave it awaiting a verdict nobody is ever asked for.
+ */
+export function batchRollUp(records: { disposition: string }[], outputs: BulkOutputLine[]): string {
+  if (!records.length && outputs.length && outputs.every((o) => o.qcExempt)) return 'Released'
+  return batchDisposition(records)
 }
 
 /** The QC record covering one bulk output of one batch. */
@@ -380,7 +394,7 @@ export function checkBatch(state: AppState, input: BatchInput, ignoreDoc?: strin
   const blending = input.kind === 'Melange'
   const sources = liveLines(input.sourceLines)
   const blends = liveLines(input.blendLines)
-  if (blending && !blends.length) return 'Add at least one bulk component to blend.'
+  if (blending && !blends.length) return 'Add at least one component to blend.'
   if (!blending && !sources.length) return 'Add at least one source lot.'
 
   const outputs = liveOutputs(input.outputs)
@@ -417,6 +431,18 @@ export function checkBatch(state: AppState, input: BatchInput, ignoreDoc?: strin
     }
     return null
   }
+  for (const s of sources) {
+    const item = state.items.find((i) => i.id === s.item)
+    if (isDirectUse(item)) {
+      return `${item!.name} goes into blends as bought — it is not extracted. Blend it on the Blend tab.`
+    }
+  }
+  for (const b of blends) {
+    const item = state.items.find((i) => i.id === b.item)
+    if (item?.type === 'Raw Material' && !item.directUse) {
+      return `${item.name} is extracted before it is blended — draw the bulk pressed from it instead.`
+    }
+  }
   const sourceShort = short(sources, ['Available'])
   if (sourceShort) return sourceShort
   const blendShort = short(blends, DRAWABLE)
@@ -449,6 +475,22 @@ export function checkBatch(state: AppState, input: BatchInput, ignoreDoc?: strin
       return `${recipe?.name || 'This blend'} is blended from ${names}, and this run draws none. Add ${
         missing.length > 1 ? 'them' : 'it'
       }, or pick a different blend.`
+    }
+  }
+
+  /**
+   * A bulk names the raw material it is pressed from, so an extraction can only book the
+   * bulks of what it issued — beetroot juice out of a load of coconuts is a typo, not a
+   * yield. Bulks saved before the link existed name nothing and stay bookable; so does
+   * an edit that leaves the batch as it was.
+   */
+  if (!blending && !componentsUntouched) {
+    const pressed = new Set(sources.map((s) => s.item))
+    for (const o of outputs) {
+      const from = sourceItemOf(state.items.find((i) => i.id === o.item))
+      if (from && !pressed.has(from)) {
+        return `${itemName(state, o.item)} is extracted from ${itemName(state, from)}, and this batch issues none.`
+      }
     }
   }
 
@@ -523,12 +565,24 @@ export function postBatchLines(draft: AppState, id: string, input: BatchInput) {
   const existing = draft.batches.find((b) => b.id === id)
   const outputLines = withStockIds<BulkOutputLine>(
     id,
-    liveOutputs(input.outputs).map((o) => ({
-      item: o.item,
-      qty: o.qty,
-      uom: itemUom(draft, o.item),
-      costShare: o.main ? 100 : 0,
-    })),
+    liveOutputs(input.outputs).map((o) => {
+      // An output the batch already booked keeps the QC decision it was booked under;
+      // only a new one reads the bulk as it stands now. What a blend makes is always
+      // tested — by the run that made it, and by the item a recipe owns.
+      const before = existing ? batchOutputs(existing).find((l) => l.item === o.item) : undefined
+      const qcExempt = before
+        ? !!before.qcExempt
+        : !blending &&
+          !!draft.items.find((i) => i.id === o.item)?.qcExempt &&
+          !draft.melanges.some((m) => m.outputItem === o.item)
+      return {
+        item: o.item,
+        qty: o.qty,
+        uom: itemUom(draft, o.item),
+        costShare: o.main ? 100 : 0,
+        ...(qcExempt ? { qcExempt: true } : {}),
+      }
+    }),
     (l) => l.item,
     existing ? batchOutputs(existing) : [],
   )
@@ -541,7 +595,7 @@ export function postBatchLines(draft: AppState, id: string, input: BatchInput) {
       itemType: 'Semi Finished',
       lot: id,
       location: input.location || defaultBulkStore(draft) || '',
-      status: 'Quarantine',
+      status: line.qcExempt ? 'Released' : 'Quarantine',
       qtyIn: line.qty,
       qtyOut: 0,
       uom: line.uom,
@@ -761,7 +815,9 @@ export function postPackingLines(
    * the bench. A batch posted before QC was per-product answers for itself.
    */
   const bulkQc = qcFor(draft, batch.id, math.bulkItem)
-  const released = bulkQc ? bulkQc.disposition === 'Released' : batch.status === 'Released'
+  const exempt = !!batchOutputs(batch).find((o) => o.item === math.bulkItem)?.qcExempt
+  const released =
+    exempt || (bulkQc ? bulkQc.disposition === 'Released' : batch.status === 'Released')
   const freezer = defaultPackStore(draft) || ''
 
   let bulkCost = 0
