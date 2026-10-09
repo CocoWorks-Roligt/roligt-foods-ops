@@ -233,7 +233,9 @@ export function PackDefForm({
               setPack((f) => ({ ...f, size: e.target.value === '' ? '' : Number(e.target.value) }))
             }
           />
-          <div className="small">Total the pack holds — 480 for a 4 × 120 ml bottle.</div>
+          <div className="small">
+            Everything one pack holds — a case of 4 × 120 ml bottles is 480 ml.
+          </div>
         </div>
         <div className="field">
           <label>Unit</label>
@@ -361,7 +363,7 @@ export function PackDefForm({
         </div>
         <div className="subform-body">
           <div className="subform-row recipe-row pack-row-head">
-            <span>Recipe (bulk)</span>
+            <span>Recipe</span>
             <span>Finished SKU</span>
             <span>Frozen (days)</span>
             <span>Chilled (days)</span>
@@ -382,7 +384,7 @@ export function PackDefForm({
                   // moving a recipe between bulks is unassign + assign, not an edit.
                   <input
                     disabled
-                    value={allBulks.find((b) => b.id === row.bulkItem)?.name || row.bulkItem}
+                    value={drinkName(allBulks.find((b) => b.id === row.bulkItem)?.name || row.bulkItem)}
                   />
                 ) : (
                   <Select
@@ -400,7 +402,7 @@ export function PackDefForm({
                     <option value="">Select bulk</option>
                     {freeBulks.map((b) => (
                       <option key={b.id} value={b.id}>
-                        {b.name}
+                        {drinkName(b.name)}
                       </option>
                     ))}
                   </Select>

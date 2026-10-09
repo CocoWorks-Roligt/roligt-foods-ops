@@ -123,3 +123,67 @@ describe('blend recipes', () => {
     )
   })
 })
+
+describe('bulk edits', () => {
+  /** The preview's catalog: the bulk and the finished good share a name, and the
+   *  vanilla bulk predates sources and was pressed from a material now used as bought. */
+  function twins() {
+    const { d, setState, showToast } = deps()
+    d.state = migrateState({
+      items: [
+        { ...sf('SF-0009', 'Cold Brew Coffee'), uom: 'Litre', sourceItem: 'RM-COFFEE' },
+        { ...sf('FG-0009', 'Cold Brew Coffee'), type: 'Finished Goods', uom: 'Pack' },
+        { ...sf('RM-COFFEE', 'Arabica Coffee'), type: 'Raw Material' },
+        { ...sf('SF-0008', 'Vanilla Bean Extract'), uom: 'Litre' },
+        { ...sf('RM-VAN', 'Vanilla Extract'), type: 'Raw Material', uom: 'Litre', directUse: true },
+      ],
+      ledger: [
+        { id: 'L1', type: 'Production Output', doc: 'B1', item: 'SF-0008', itemType: 'Semi Finished', lot: 'B1', location: 'S', status: 'Quarantine', qtyIn: 1, qtyOut: 0, uom: 'Litre', unitCost: 1, time: '2026-10-08T00:00:00.000Z' },
+      ],
+    })
+    return { d, setState, showToast }
+  }
+
+  it('saves a bulk whose name a finished good already carries, as long as the name is not being changed', () => {
+    const { d, setState, showToast } = twins()
+    const { result } = renderHook(() => useBulkProducts(d))
+    const out = result.current.updateBulkProduct('SF-0009', {
+      name: 'Cold Brew Coffee',
+      uom: 'Litre',
+      byProduct: false,
+      sourceItem: 'RM-COFFEE',
+      qcExempt: true,
+    })
+    expect(out).toBe('SF-0009')
+    expect(setState).toHaveBeenCalled()
+    expect(showToast).not.toHaveBeenCalledWith('Cold Brew Coffee already exists.')
+  })
+
+  it('still refuses renaming a bulk onto another item’s name', () => {
+    const { d, showToast } = twins()
+    const { result } = renderHook(() => useBulkProducts(d))
+    const out = result.current.updateBulkProduct('SF-0008', {
+      name: 'cold brew coffee',
+      uom: 'Litre',
+      byProduct: false,
+      sourceItem: '',
+      qcExempt: false,
+    })
+    expect(out).toBeNull()
+    expect(showToast).toHaveBeenCalledWith('cold brew coffee already exists.')
+  })
+
+  it('lets a bulk with history and no source be edited without inventing one', () => {
+    const { d, setState } = twins()
+    const { result } = renderHook(() => useBulkProducts(d))
+    const out = result.current.updateBulkProduct('SF-0008', {
+      name: 'Vanilla Bean Extract',
+      uom: 'Litre',
+      byProduct: false,
+      sourceItem: '',
+      qcExempt: true,
+    })
+    expect(out).toBe('SF-0008')
+    expect(setState).toHaveBeenCalled()
+  })
+})

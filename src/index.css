@@ -1393,6 +1393,18 @@ textarea:disabled {
   border-bottom: 0;
 }
 
+/* A label beside a figure. A long figure ("12.4 L per Kg · 9.1 L per Kg …")
+   sized its auto column to fit and squeezed the label to a word per line; the
+   label now keeps a floor and the figure wraps, right-aligned, instead. */
+.kpi-row-stat {
+  grid-template-columns: minmax(14ch, 1fr) minmax(0, max-content);
+}
+
+.kpi-row-stat > b {
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
 /* Attention lead bars (§5): an exception paints its severity off the same
    status its badge carries — clay for danger, amber for warning, nothing for
    the informational rest. Never a full-row tint. */

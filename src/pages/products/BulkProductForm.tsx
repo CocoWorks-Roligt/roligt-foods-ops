@@ -4,6 +4,7 @@ import { Select } from '../../components/Select'
 import { useApp } from '../../context/AppContext'
 import { extractableItems, sourceItemOf } from '../../lib/batches'
 import { isByProduct } from '../../lib/posting'
+import { itemName } from '../../lib/stock'
 import type { Item } from '../../types'
 
 const blank = { name: '', uom: 'Litre', byProduct: false, sourceItem: '', qc: true }
@@ -104,6 +105,10 @@ export function BulkProductForm({
             onChange={(e) => setBulk((f) => ({ ...f, sourceItem: e.target.value }))}
           >
             <option value="">Select raw material</option>
+            {/* the source it already has, even when that material is used as bought now */}
+            {editing && bulk.sourceItem && !sources.some((i) => i.id === bulk.sourceItem) ? (
+              <option value={bulk.sourceItem}>{itemName(state, bulk.sourceItem)}</option>
+            ) : null}
             {sources.map((i) => (
               <option key={i.id} value={i.id}>
                 {i.name}

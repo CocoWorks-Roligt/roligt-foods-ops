@@ -31,7 +31,9 @@ export function useCatalog({ state, setState, nextId, log, showToast }: CoreDeps
     (input: { name: string; vendorIds?: string[] }, id?: string): Problem => {
       const name = input.name.trim()
       if (!name) return 'Give the item a name.'
+      const was = id ? state.purchaseProducts.find((p) => p.id === id)?.name.trim().toLowerCase() : undefined
       if (
+        name.toLowerCase() !== was &&
         state.purchaseProducts.some(
           (p) => p.id !== id && p.name.trim().toLowerCase() === name.toLowerCase(),
         )
@@ -302,7 +304,9 @@ export function useCatalog({ state, setState, nextId, log, showToast }: CoreDeps
         if (bulk.uom !== bulkUomForUnit(input.unit)) {
           return `${bulk.name} is held in ${bulk.uom.toLowerCase()}, so a pack sized in ${input.unit} cannot be filled from it.`
         }
+        const was = r.skuId ? state.products.find((p) => p.id === r.skuId)?.name.trim().toLowerCase() : undefined
         if (
+          r.name.trim().toLowerCase() !== was &&
           state.products.some(
             (p) =>
               p.id !== r.skuId && p.name.trim().toLowerCase() === r.name.trim().toLowerCase(),

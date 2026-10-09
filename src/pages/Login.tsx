@@ -44,7 +44,7 @@ export function Login() {
           </div>
           <p className="login-lede">
             One ledger from the farm gate to the dispatch truck — procurement, extraction,
-            melange, packing and quality, posted as they happen.
+            blending, packing and quality, posted as they happen.
           </p>
           <div className="login-flow" aria-label="Production flow">
             <span>Receiving</span>

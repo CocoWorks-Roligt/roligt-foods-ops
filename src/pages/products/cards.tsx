@@ -3,7 +3,7 @@ import { useApp } from '../../context/AppContext'
 import { bulksFrom, sourceItemOf } from '../../lib/batches'
 import { isByProduct } from '../../lib/posting'
 import { itemName } from '../../lib/stock'
-import { bulkItemOf, bulkUomForUnit, formatSize, packLabel, toBase, type PackDef } from '../../lib/packs'
+import { bulkItemOf, bulkUomForUnit, drinkName, formatSize, packLabel, toBase, type PackDef } from '../../lib/packs'
 import type { Item, PurchaseProduct } from '../../types'
 
 /** The cards each master section lays out. One file, so they stay a family. */
@@ -158,8 +158,17 @@ export function BulkCard({
   )
 }
 
+/** Recipes in one pack may keep for different times; say the range, not the first. */
+const shelfLifeText = (def: PackDef) => {
+  const days = def.members.map((m) => m.shelfLifeDays).filter((d) => Number.isFinite(d))
+  if (!days.length) return '—'
+  const lo = Math.min(...days)
+  const hi = Math.max(...days)
+  return lo === hi ? `${lo} day${lo === 1 ? '' : 's'}` : `${lo}–${hi} days`
+}
+
 /** One pack as the catalog holds it: the physical format, with a chip per recipe
- *  (each chip is that recipe's finished SKU). Retire is the off-ramp that keeps
+ *  (each chip names the drink; hover shows its finished SKU). Retire is the off-ramp that keeps
  *  history — a pack with stock behind it refuses Delete and says so. */
 export function PackDefCard({
   def,
@@ -188,14 +197,16 @@ export function PackDefCard({
       </div>
       <div className="small">
         Holds {toBase(def.size, def.unit)} {bulkUomForUnit(def.unit) === 'Kg' ? 'kg' : 'L'} per
-        pack · {def.members[0]?.shelfLifeDays ?? '—'} day shelf life
+        pack · {shelfLifeText(def)} frozen shelf life
       </div>
       <div className="chip-row">
         <span className="chip-row-label">Recipes</span>
         <div className="supplier-chips">
+          {/* The recipe is the drink filled into the pack; the SKU is how that
+              drink-in-this-pack is sold, so it rides along as the chip's hover. */}
           {def.members.map((m) => (
-            <span className="supplier-chip" key={m.id}>
-              {m.name}
+            <span className="supplier-chip" key={m.id} title={`${m.name} · ${m.id}`}>
+              {drinkName(itemName(state, bulkItemOf(m)))}
             </span>
           ))}
         </div>

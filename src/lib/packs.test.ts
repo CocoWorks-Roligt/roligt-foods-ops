@@ -57,6 +57,39 @@ describe('packDefs', () => {
     expect(def).toMatchObject({ key: master.id, name: 'D1 300 ml bottle', type: 'Glass Bottle', size: 300 })
   })
 
+  it('re-projects a drifted member onto its stored master, so packing draws the right materials', () => {
+    // FG-0016 on the preview: grouped under the 120 ml bottle, still carrying a
+    // BiB pouch in its own bom — packing reads p.bom and would have spent pouches.
+    const master = {
+      id: 'PACK:bottle',
+      name: '120 ml Glass Bottle',
+      type: 'Glass Bottle',
+      size: 120,
+      unit: 'ml' as const,
+      packVolume: 0.12,
+      bom: [{ item: 'PM-BOTTLE-120', qty: 1 }],
+    }
+    const drifted = member({ id: 'FG-2', packId: master.id, bom: [{ item: 'PM-BIB-2.5', qty: 1 }] })
+    const converged = member({
+      id: 'FG-3',
+      packId: master.id,
+      packName: master.name,
+      type: master.type,
+      size: 120,
+      packVolume: 0.12,
+      bom: [{ item: 'PM-BOTTLE-120', qty: 1 }],
+    })
+    const { products } = materializePacks([drifted, converged], [master])
+    expect(products[0]).toMatchObject({
+      packName: '120 ml Glass Bottle',
+      type: 'Glass Bottle',
+      size: 120,
+      packVolume: 0.12,
+      bom: [{ item: 'PM-BOTTLE-120', qty: 1 }],
+    })
+    expect(products[1]).toBe(converged)
+  })
+
   it('groups by name, type, size and unit — one pack, many recipes', () => {
     const state = stateOf([
       member({ id: 'FG-1', name: 'TCW 250 ml', packName: '250 ml BiB' }),

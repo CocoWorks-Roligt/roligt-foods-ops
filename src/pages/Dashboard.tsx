@@ -30,17 +30,6 @@ function breakdownByItem(
   return Array.from(byItem.values()).sort((a, b) => b.qty - a.qty)
 }
 
-function breakdownByLot(rows: StockRow[], itemType: string, status: string): BreakdownLine[] {
-  const byLot = new Map<string, BreakdownLine>()
-  for (const r of rows) {
-    if (r.itemType !== itemType || r.status !== status || r.qty <= 0) continue
-    const existing = byLot.get(r.lot)
-    if (existing) existing.qty += r.qty
-    else byLot.set(r.lot, { label: r.lot, qty: r.qty, uom: r.uom })
-  }
-  return Array.from(byLot.values()).sort((a, b) => a.label.localeCompare(b.label))
-}
-
 export function Dashboard() {
   const { state, rows } = useApp()
   const navigate = useNavigate()
@@ -67,8 +56,10 @@ export function Dashboard() {
       key: 'rm',
       label: 'Raw material available',
       value: fmtRowTotal(rmRows, 'None'),
-      sub: 'Lot-controlled produce awaiting pressing',
-      breakdown: breakdownByLot(rows, 'Raw Material', 'Available'),
+      sub: 'Bought in and waiting to be extracted or blended',
+      // By material, not by receipt: the floor asks "how much vanilla do we have",
+      // and lot numbers live on Stock and Traceability for when it asks "which".
+      breakdown: breakdownByItem(rows, 'Raw Material', 'Available', itemName),
       emptyText: 'No raw material on hand.',
     },
     {
@@ -281,7 +272,8 @@ export function Dashboard() {
                       <div className="metric-breakdown-row" key={b.label}>
                         <span>{b.label}</span>
                         <b>
-                          {Math.round(b.qty)} {b.uom}
+                          {/* small lots (0.25 kg chocolate, 0.02 L vanilla) used to round to 0 */}
+                          {Number(b.qty.toFixed(2))} {b.uom}
                         </b>
                       </div>
                     ))
@@ -325,7 +317,7 @@ export function Dashboard() {
           </div>
           <div className="kpi-list">
             {today.map(([label, value]) => (
-              <div className="kpi-row" key={label}>
+              <div className="kpi-row kpi-row-stat" key={label}>
                 <span>{label}</span>
                 <b>{value}</b>
               </div>

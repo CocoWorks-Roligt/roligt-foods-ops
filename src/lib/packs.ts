@@ -97,11 +97,18 @@ export function derivePacks(products: Product[]): Pack[] {
 }
 
 /** Normalise a snapshot around first-class masters. Missing masters are legacy
- * rows from Zoho/the initial D1 import and are derived exactly once by stable id. */
+ * rows from Zoho/the initial D1 import and are derived exactly once by stable id.
+ * A stored master is the truth for its members' physicals and materials: packing
+ * reads `bom` off the product, so a member whose projection drifted from its
+ * master (a legacy row grouped under a master derived from another SKU) would
+ * consume the wrong packaging. Each such member is re-projected here. */
 export function materializePacks(products: Product[], stored: Pack[]): { products: Product[]; packs: Pack[] } {
   const masters = new Map(stored.map((p) => [p.id, { ...p, bom: p.bom.map((b) => ({ ...b })) }]))
+  const storedIds = new Set(stored.map((p) => p.id))
   const nextProducts = products.map((p) => {
     const packId = p.packId || legacyPackIdOf(p)
+    const master = storedIds.has(packId) ? masters.get(packId) : undefined
+    if (master) return projectPack(p, master)
     if (!masters.has(packId)) {
       masters.set(packId, {
         id: packId,
@@ -117,6 +124,34 @@ export function materializePacks(products: Product[], stored: Pack[]): { product
     return p.packId === packId ? p : { ...p, packId }
   })
   return { products: nextProducts, packs: [...masters.values()] }
+}
+
+const sameBom = (a: BomLine[], b: BomLine[]) =>
+  a.length === b.length && a.every((l, i) => l.item === b[i].item && l.qty === b[i].qty)
+
+/** A member carrying its master's physicals and materials — the same object when
+ *  it already does, so a converged catalog costs no churn. */
+function projectPack(p: Product, master: Pack): Product {
+  if (
+    p.packId === master.id &&
+    p.packName === master.name &&
+    p.type === master.type &&
+    p.size === master.size &&
+    p.unit === master.unit &&
+    p.packVolume === master.packVolume &&
+    sameBom(p.bom, master.bom)
+  )
+    return p
+  return {
+    ...p,
+    packId: master.id,
+    packName: master.name,
+    type: master.type,
+    size: master.size,
+    unit: master.unit,
+    packVolume: master.packVolume,
+    bom: master.bom.map((b) => ({ ...b })),
+  }
 }
 
 /** One pack as the catalog shows it: the physical format, with a member SKU per

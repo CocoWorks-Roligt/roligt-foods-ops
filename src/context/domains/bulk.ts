@@ -10,10 +10,22 @@ import { isDirectUse, sourceItemOf } from '../../lib/batches'
 import { bulkItemOf } from '../../lib/packs'
 import { BY_PRODUCT_COST_METHOD, type Problem } from '../../lib/posting'
 import type { BulkProductInput, MelangeInput } from '../../lib/posting'
+import { releaseExemptPending, type ExemptRelease } from '../../lib/qcExempt'
 import { itemName } from '../../lib/stock'
 import { deepClone } from '../../lib/utils'
 import { POSTED, goneFromDevice } from './deps'
 import type { CoreDeps } from './deps'
+
+/** What the save did to the QC queue, appended to its toast. */
+function exemptToastTail(r: ExemptRelease | null): string {
+  if (!r) return ''
+  const n = (k: number, one: string, many: string) => `${k} ${k === 1 ? one : many}`
+  const parts: string[] = []
+  if (r.released.length) parts.push(` Released ${n(r.released.length, 'batch', 'batches')} that were awaiting QC (${r.released.join(', ')}).`)
+  if (r.started.length) parts.push(` ${r.started.join(', ')} already ${r.started.length === 1 ? 'has' : 'have'} lab results — close ${r.started.length === 1 ? 'it' : 'them'} on Quality.`)
+  if (r.setAside.length) parts.push(` ${r.setAside.join(', ')} ${r.setAside.length === 1 ? 'has' : 'have'} stock in a hold area — move it out, then save again.`)
+  return parts.join('')
+}
 
 export function useBulkProducts({ state, setState, nextId, log, showToast }: CoreDeps) {
   /** Litre or kilogram — the only two units bulk is ever held in. */
@@ -21,12 +33,24 @@ export function useBulkProducts({ state, setState, nextId, log, showToast }: Cor
     (input: BulkProductInput, id?: string): Problem => {
       if (!input.name.trim()) return 'Give the bulk product a name.'
       if (input.uom !== 'Litre' && input.uom !== 'Kg') return 'Bulk is measured in litres or kilograms.'
+      const existing = id ? state.items.find((i) => i.id === id) : undefined
+      // Only a name being given is judged: the catalog already holds twins (the bulk
+      // and the finished good both called "Cold Brew Coffee"), and refusing a name the
+      // item already carries made every other edit of it impossible.
+      const named = input.name.trim().toLowerCase()
       if (
-        state.items.some(
-          (i) => i.id !== id && i.name.trim().toLowerCase() === input.name.trim().toLowerCase(),
-        )
+        named !== existing?.name.trim().toLowerCase() &&
+        state.items.some((i) => i.id !== id && i.name.trim().toLowerCase() === named)
       ) {
         return `${input.name.trim()} already exists.`
+      }
+      const was = sourceItemOf(existing)
+      // An edit that leaves the link as it stands is not re-deciding it. A bulk saved
+      // before bulks named a source, or pressed from a material since switched to
+      // "used as bought" (vanilla), would otherwise refuse every edit — including the
+      // one that takes it out of QC — until someone invented a source for it.
+      if (existing && (input.sourceItem || '') === (was || '') && state.ledger.some((l) => l.item === id)) {
+        return null
       }
       // A bulk is pressed out of something, and only out of a raw material the plant
       // extracts — one used as bought goes into blends as it is and has no bulk.
@@ -40,8 +64,6 @@ export function useBulkProducts({ state, setState, nextId, log, showToast }: Cor
       // Batches already booked this bulk off the raw material they pressed, so once it
       // has history it cannot be re-pointed at another — a bulk saved before it named a
       // source can still be given one.
-      const existing = id ? state.items.find((i) => i.id === id) : undefined
-      const was = sourceItemOf(existing)
       if (existing && was && was !== input.sourceItem && state.ledger.some((l) => l.item === id)) {
         return `${existing.name} has already been extracted from ${itemName(state, was)}, so it stays linked to it.`
       }
@@ -110,6 +132,7 @@ export function useBulkProducts({ state, setState, nextId, log, showToast }: Cor
         showToast(`${existing.name} belongs to the ${owner.name} blend — edit it there.`)
         return null
       }
+      let release: ExemptRelease | null = null
       setState((prev) => {
         const draft = deepClone(prev)
         const item = draft.items.find((i) => i.id === id)
@@ -117,7 +140,8 @@ export function useBulkProducts({ state, setState, nextId, log, showToast }: Cor
         item.name = input.name.trim()
         item.uom = input.uom
         item.costMethod = input.byProduct ? BY_PRODUCT_COST_METHOD : 'Batch Actual'
-        item.sourceItem = input.sourceItem
+        if (input.sourceItem) item.sourceItem = input.sourceItem
+        else delete item.sourceItem
         // Read by the next batch that books it; lots already made keep the decision
         // their batch was posted under.
         if (input.qcExempt) item.qcExempt = true
@@ -127,13 +151,27 @@ export function useBulkProducts({ state, setState, nextId, log, showToast }: Cor
           draft,
           'Edited bulk product',
           id,
-          `${item.name} — extracted from ${itemName(draft, input.sourceItem)}, measured in ${item.uom}.${
+          `${item.name} — ${input.sourceItem ? `extracted from ${itemName(draft, input.sourceItem)}` : 'no raw material linked'}, measured in ${item.uom}.${
             qcMoved ? (input.qcExempt ? ' Skips QC from the next batch on.' : ' Goes through QC from the next batch on.') : ''
           }`,
         )
+        // Lots pressed before the switch are still waiting on a verdict nobody will be
+        // asked for. Saving an exempt bulk (again) releases the ones the lab never
+        // started; lab work already begun, and verdicts already given, stand.
+        if (input.qcExempt) {
+          release = releaseExemptPending(draft, id)
+          for (const batchId of release.released) {
+            log(
+              draft,
+              'Released without QC',
+              batchId,
+              `${item.name} from ${batchId} — ${item.name} skips QC now, so its untested QC record was withdrawn and its stock released.`,
+            )
+          }
+        }
         return draft
       })
-      showToast(`${input.name.trim()} updated.`)
+      showToast(`${input.name.trim()} updated.${exemptToastTail(release)}`)
       return id
     },
     [checkBulkProduct, log, setState, showToast, state.items, state.ledger, state.melanges],
@@ -175,7 +213,11 @@ export function useBulkProducts({ state, setState, nextId, log, showToast }: Cor
     (input: MelangeInput, id?: string): Problem => {
       const name = input.name.trim()
       if (!name) return 'Give the blend a name — ABC Juice, Tropical Blend…'
-      if (state.melanges.some((m) => m.id !== id && m.name.toLowerCase() === name.toLowerCase())) {
+      const was = id ? state.melanges.find((m) => m.id === id)?.name.toLowerCase() : undefined
+      if (
+        name.toLowerCase() !== was &&
+        state.melanges.some((m) => m.id !== id && m.name.toLowerCase() === name.toLowerCase())
+      ) {
         return `${name} already exists.`
       }
       if (input.uom !== 'Litre' && input.uom !== 'Kg') return 'A blend is measured in litres or kilograms.'

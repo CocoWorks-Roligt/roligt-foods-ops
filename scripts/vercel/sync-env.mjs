@@ -8,8 +8,15 @@
  * Production itself takes a typed `--production production` and refuses to run
  * half-configured.
  *
+ * D1 keys sync too, each environment pinned to its own database: Development and
+ * Preview take only the scratch id, Production only the production id — and
+ * Production's D1_DATABASE_ID is the engine switch itself (all three D1_* set ⇒
+ * D1 serves on the next deploy), so it is withheld until the cutover passes
+ * --cutover. The account id and token alone switch nothing.
+ *
  * usage: node scripts/vercel/sync-env.mjs <development|preview|production>
- *          [--dry-run] [--from <file>] [--replace] [--production production]
+ *          [--dry-run] [--from <file>] [--replace] [--production production] [--cutover]
+ *          [--only <PREFIX,...>]   (e.g. --only D1_ --replace re-sets just the D1 keys)
  * Source is .env + .env.local (local wins) or --from <file> when the production
  * values shouldn't disturb local dev. Existing vars are skipped unless --replace.
  * Values travel via stdin and are never printed.
@@ -25,6 +32,9 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const argv = process.argv.slice(2)
 const DRY = argv.includes('--dry-run')
 const REPLACE = argv.includes('--replace')
+const CUTOVER = argv.includes('--cutover')
+const onlyIdx = argv.indexOf('--only')
+const ONLY = onlyIdx >= 0 ? argv[onlyIdx + 1].split(',').filter(Boolean) : null
 const fromIdx = argv.indexOf('--from')
 const FROM = fromIdx >= 0 ? argv[fromIdx + 1] : null
 const hatchIdx = argv.indexOf('--production')
@@ -53,6 +63,10 @@ const OPTIONAL_KEYS = [
   'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'MAIL_FROM', 'MAIL_REPLY_TO',
   'R2_ACCOUNT_ID', 'R2_BUCKET', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY',
 ]
+// the D1 engine's three keys, and which database each environment may point at
+const D1_KEYS = ['D1_ACCOUNT_ID', 'D1_API_TOKEN', 'D1_DATABASE_ID']
+const D1_SCRATCH = '28356095-f72a-41a4-9797-1414c92e0e57' // roligt-ops-scratch
+const D1_PROD = 'de8175f2-567d-492f-b2f4-63736fb1d402' // roligt-ops-prod
 const APPTICS_KEYS = ['VITE_APPTICS_PROJECT_ID', 'VITE_APPTICS_ZSOID', 'VITE_APPTICS_APP_TOKEN', 'VITE_APPTICS_DC']
 // never leave this checkout, whatever the source file says
 const REFUSED_KEYS = ['ALLOW_DEV_SESSION', 'ALLOW_DEV_HOSTS']
@@ -75,19 +89,21 @@ if (FROM) {
 // Production Apptics has its own identifier (aaID), minted in the console under the
 // Production environment — the one in .env.local is Development's. So the mirror
 // never carries Apptics into Production; only a deliberate --from file may.
-const names = [...BFF_KEYS, ...OPTIONAL_KEYS, ...(TARGET === 'production' && !FROM ? [] : APPTICS_KEYS)]
+const names = [...BFF_KEYS, ...OPTIONAL_KEYS, ...D1_KEYS, ...(TARGET === 'production' && !FROM ? [] : APPTICS_KEYS)]
+  .filter((k) => !ONLY || ONLY.some((p) => k.startsWith(p)))
 for (const k of REFUSED_KEYS) if (src[k]) console.log(`  ! ${k} present in source — REFUSED, it never leaves this checkout`)
 for (const k of Object.keys(src)) if (REFUSED_PATTERN.test(k)) console.log(`  ! ${k} present in source — REFUSED (Supabase retirement is manual)`)
 
-// Production refuses to run half-configured: every WORKOS_ key the BFF needs must be
-// present and nonempty in the source, whatever it is set from.
-if (TARGET === 'production') {
-  const missing = BFF_KEYS.filter((k) => k.startsWith('WORKOS_') && !src[k])
-  if (missing.length) {
-    console.error(`REFUSING: Production would end up half-configured — missing from source: ${missing.join(', ')}`)
+// a database id in the wrong environment is refused outright: preview writing the
+// plant's real data, or production serving scratch, are both worse than no D1
+if (src.D1_DATABASE_ID) {
+  const want = TARGET === 'production' ? D1_PROD : D1_SCRATCH
+  if (src.D1_DATABASE_ID !== want) {
+    console.error(`REFUSING: D1_DATABASE_ID in source is not the ${TARGET === 'production' ? 'production' : 'scratch'} database (${want}) — ${TARGET} must point there`)
     process.exit(1)
   }
 }
+const withheld = new Set(TARGET === 'production' && !CUTOVER ? ['D1_DATABASE_ID'] : [])
 
 // what the environment already carries: pull to a throwaway file and read the key
 // names (secret values come back masked; only the names matter here)
@@ -104,6 +120,16 @@ const existing = new Set(
     .map((l) => l.slice(0, l.indexOf('=')).trim()),
 )
 rmSync(pullF, { force: true })
+
+// Production refuses to run half-configured: every WORKOS_ key the BFF needs must be
+// present and nonempty — in the source, or already set on Production.
+if (TARGET === 'production') {
+  const missing = BFF_KEYS.filter((k) => k.startsWith('WORKOS_') && !src[k] && !existing.has(k))
+  if (missing.length) {
+    console.error(`REFUSING: Production would end up half-configured — missing: ${missing.join(', ')}`)
+    process.exit(1)
+  }
+}
 
 console.log(`sync-env → ${TARGET}${DRY ? ' (dry run — nothing will be written)' : ''}${FROM ? ` from ${FROM}` : ' from .env + .env.local'}`)
 // run one vercel command; failures print the CLI's own message, never the value
@@ -122,6 +148,10 @@ let acted = 0
 for (const name of names) {
   const value = src[name]
   if (!value) { console.log(`  · ${name} not set in source — skipped`); continue }
+  if (withheld.has(name)) {
+    console.log(`  · ${name} withheld — it switches Production to D1 on the next deploy; pass --cutover at T0`)
+    continue
+  }
   // the CLI has opinions per name: *TOKEN must be Config, and VITE_* exposes the
   // value to the browser so Secret is refused for it — both land as Config
   const type = /TOKEN$/.test(name) || name.startsWith('VITE_') ? 'config' : 'secret'

@@ -21,7 +21,7 @@ import { migrateState } from '../../lib/migrate'
 import { checkBatch, postPackingLines, type BatchInput } from '../../lib/posting'
 import { itemFlows } from '../../lib/reports/inventoryReports'
 import { traceChain } from '../../lib/trace'
-import { deepClone } from '../../lib/utils'
+import { deepClone, localDay } from '../../lib/utils'
 import type { AppState, Grn, Item, LedgerEntry, Product, PurchaseProduct, StorageLocation } from '../../types'
 
 const COLD: StorageLocation = {
@@ -226,7 +226,7 @@ describe('a raw material used as bought', () => {
     const { result } = renderHook(() => useProduction(d))
     result.current.createBatch(blending)
     const draft = applied(d, setState)
-    const day = draft.ledger.find((l) => l.type === 'Melange Consume')!.time.slice(0, 10)
+    const day = localDay(draft.ledger.find((l) => l.type === 'Melange Consume')!.time)
     const van = itemFlows(draft, { from: day, to: day }, ['Raw Material']).find((r) => r.item === VANILLA.id)!
     expect(van.issued).toBe(5)
   })

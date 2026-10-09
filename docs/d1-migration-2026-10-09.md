@@ -99,6 +99,16 @@ new entries queue on your device".
    D1_API_TOKEN=<token> \
      node scripts/d1/verify.mjs --manifest scripts/d1/dump-gerc53fe-<date>.manifest.json
    ```
+   Then the **browsing views** — one read-only `v_<collection>` view per
+   collection (`v_items`, `v_batches`, `v_ledger`…), a column per field, so
+   the Cloudflare dashboard shows tables instead of a JSON column. The engine
+   never reads them; `--drop` removes them; re-run after a new field appears:
+   ```sh
+   D1_ACCOUNT_ID=d189eb0424c72ded675161f747cf85bd \
+   D1_DATABASE_ID=de8175f2-567d-492f-b2f4-63736fb1d402 \
+   D1_API_TOKEN=<token> \
+     node scripts/d1/views.mjs
+   ```
 4. **Flip the env in Vercel** — Production scope this time:
    `D1_ACCOUNT_ID`, `D1_DATABASE_ID` (prod id), `D1_API_TOKEN`.
    **Do not remove `ZOHO_*`** — it stays for the week as the rollback path.
