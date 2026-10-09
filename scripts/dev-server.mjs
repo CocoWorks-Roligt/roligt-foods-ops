@@ -57,6 +57,8 @@ const complianceDocuments = (await import('../api/compliance/documents.ts')).def
 const complianceUpload = (await import('../api/compliance/upload.ts')).default
 const complianceFile = (await import('../api/compliance/file.ts')).default
 const complianceRemind = (await import('../api/compliance/remind.ts')).default
+const attachmentsUpload = (await import('../api/attachments/upload.ts')).default
+const attachmentsFile = (await import('../api/attachments/file.ts')).default
 
 const API_ROUTES = {
   '/api/snapshot': snapshotHandler,
@@ -72,6 +74,8 @@ const API_ROUTES = {
   '/api/compliance/upload': complianceUpload,
   '/api/compliance/file': complianceFile,
   '/api/compliance/remind': complianceRemind,
+  '/api/attachments/upload': attachmentsUpload,
+  '/api/attachments/file': attachmentsFile,
 }
 
 const DIST = join(root, 'dist')

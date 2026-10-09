@@ -3,11 +3,16 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 import { initApptics } from './lib/apptics'
+import { initAttachmentQueue } from './lib/attachmentQueue'
 import { RootErrorBoundary } from './components/ErrorBoundary'
 
 // Staging-only Apptics trial: boots crash capture before any app code can
 // throw. A no-op unless the token env is present (src/lib/apptics.ts).
 initApptics()
+
+// Attachments added offline (or in an earlier session) wait in this device's
+// outbox; drain them now and whenever the connection returns.
+initAttachmentQueue()
 
 // App renders AuthProvider (and everything else) itself. With WorkOS the
 // browser holds no tokens, so there is no provider to mount here: the session

@@ -534,10 +534,10 @@ export interface PackingRun {
 /**
  * A file uploaded alongside a record — a lab report, a delivery photo.
  *
- * Interim: the file's bytes stay on the device that took them for the length of
- * its session (`sessionOnly`), so a record can hold an attachment no other
- * device — and no later session — can open. What travels with the record is its
- * object key, so nothing has to be rewritten when the server-side store arrives.
+ * What travels with the record is the object key (`attachments/<qc|pod>/…`),
+ * minted on the device so a record saved offline already carries it; the bytes
+ * follow from that device's outbox into the private R2 bucket (lib/uploads.ts).
+ * Records from before the store hold keys whose bytes were never uploaded.
  */
 export interface Attachment {
   fileName: string
@@ -547,7 +547,7 @@ export interface Attachment {
   /** Object key the attachment is filed under. */
   path?: string
   uploadedAt: string
-  /** True while the bytes exist only on the device that uploaded them, this session. */
+  /** True when the uploading device would not keep the bytes — they never left its session. */
   sessionOnly?: boolean
 }
 

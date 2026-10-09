@@ -2,10 +2,11 @@
  * Files kept in the private bucket — lab reports and delivery photographs — and how a
  * screen shows them.
  *
- * Nothing here can hold a plain `<img src>` or `<a href>`: the bucket is private, so
- * every object has to be opened through a signed URL that lasts ten minutes. That is
- * why a photograph is fetched on mount rather than simply rendered, and why a link
- * opens its tab on the click and points it at the file afterwards.
+ * Nothing here can hold a plain `<img src>` or `<a href>`: the bucket is private and a
+ * file may still be waiting in this device's outbox, so every one is resolved to a
+ * local object URL first (lib/uploads.ts `signedUrlFor`). That is why a photograph is
+ * fetched on mount rather than simply rendered, and why a link opens its tab on the
+ * click and points it at the file afterwards.
  */
 
 import { useEffect, useState } from 'react'
@@ -31,7 +32,11 @@ export function AttachmentLink({ file }: { file: Attachment }) {
         className="link-button"
         disabled={busy}
         onClick={async () => {
-          const tab = window.open('', '_blank', 'noopener')
+          // 'noopener' in the features string makes window.open return null, which
+          // used to open a blank tab AND navigate the app itself to the file —
+          // so the tab is opened plainly and cut loose from its opener here.
+          const tab = window.open('', '_blank')
+          if (tab) tab.opener = null
           setBusy(true)
           setError('')
           try {

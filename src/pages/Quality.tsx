@@ -199,12 +199,15 @@ export function Quality() {
     if (!file || !form) return
     setUploading(key)
     try {
-      const uploaded = await uploadAttachment(file, `qc-${active?.id || 'report'}-${key}`)
+      const uploaded = await uploadAttachment(file, 'qc', `${active?.id || 'report'}.${key}`)
       setTest(key, { report: uploaded })
-      // Honest about what the interim store did: the file is on this device for
-      // this session, not in a server-side bucket, and saying "uploaded" here
-      // used to promise durability nothing behind it provided.
-      showToast(`${file.name} attached — held on this device for this session.`)
+      // Honest about where the bytes are: the record saves now, the file follows
+      // from this device's outbox — and says so when the device would not keep it.
+      showToast(
+        uploaded.sessionOnly
+          ? `${file.name} attached for this session only — this device could not store it durably.`
+          : `${file.name} attached — it uploads to the file store automatically when this device is online.`,
+      )
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Upload failed.')
     } finally {

@@ -61,12 +61,12 @@ Absent SMTP/R2 values make those routes answer 503 — the rest of the app is un
 1. **Re-seed RBAC** (closes the admin window, §8): `npx tsx scripts/workos/seed-rbac.mjs` — creates `page.compliance` in WorkOS and reconciles `app-admin` to all 27 slugs. Admin sessions pick it up within a poll cycle.
 2. **CRON_SECRET**: `openssl rand -hex 32` → `vercel env add CRON_SECRET production` + `preview`, same value into `.env` (else the cron 500s daily once deployed — fail-closed, noisy, harmless).
 3. **Zoho Mail**: confirm the plan has SMTP access → create an app password → set `SMTP_HOST/SMTP_USER/SMTP_PASS` (+`MAIL_FROM`) in `.env`/Vercel. Send one test mail to a plant inbox.
-4. **Cloudflare R2**: create private bucket `roligt-compliance`; create an Object Read & Write API token scoped to it; note the account id from the S3 endpoint; set the four `R2_*` values. Bucket → Settings → CORS policy (add every origin the app is served from):
+4. **Cloudflare R2**: create private bucket `coco` (shared since 2026-10-09 with the QC lab reports and proof-of-delivery photos — compliance files live under `compliance/`, record attachments under `attachments/qc/` and `attachments/pod/`; one bucket, one token, one CORS rule); create an Object Read & Write API token scoped to it; note the account id from the S3 endpoint; set the four `R2_*` values (`R2_BUCKET=coco`). Bucket → Settings → CORS policy (add every origin the app is served from — `GET` is for the attachments, which the app fetches through the download route's redirect and opens itself):
    ```json
    [
      {
        "AllowedOrigins": ["https://roligt-foods-ops.vercel.app", "http://localhost:3000"],
-       "AllowedMethods": ["PUT"],
+       "AllowedMethods": ["PUT", "GET"],
        "AllowedHeaders": ["content-type"],
        "MaxAgeSeconds": 3600
      }
@@ -75,6 +75,7 @@ Absent SMTP/R2 values make those routes answer 503 — the rest of the app is un
 5. **Production base**: `node scripts/zoho/topup.mjs gerc53fe9f1e44e5f4a13809d9bd47367ba9d --production gerc53fe9f1e44e5f4a13809d9bd47367ba9d` — creates the table; commit the regenerated `api/_lib/baseSchema.ts` with the feature.
 6. **Env sync + push**: `node scripts/vercel/sync-env.mjs production --production production` (new keys are in `OPTIONAL_KEYS`; `CRON_SECRET` in `BFF_KEYS`), then commit + push — the push deploys.
 7. **Grant + smoke**: tick `page.compliance` onto a role on the Roles screen (admins can grant it now — they hold it); as that operator: add a document with a real PDF → list shows it → the file link opens it (**first live R2 PUT/GET — the presigner's final proof**); then force a due one (expiry inside the window) and `curl -H "Authorization: Bearer $CRON_SECRET" https://roligt-foods-ops.vercel.app/api/compliance/remind` → email arrives, `reminderSentFor` set, second call sends nothing, one audit row lands. The automatic cron fires 09:00 IST the next day.
+8. **Attachments smoke** (same R2 setup, no extra step): on Quality, attach a PDF to a test row → toast says it uploads automatically → DevTools → IndexedDB `roligt-ops-attachments` / `outbox` empties within seconds → open the row from a second browser profile (fetched through `/api/attachments/file`). Then DevTools offline → attach a delivery photo on Dispatch → it opens locally and the outbox holds it → back online → the outbox empties. Before R2 is set, the outbox simply waits (503 counts against no file) and every file still opens on the device that added it.
 
 ## 8. Push safety (asked 2026-10-08: "if we push this now, will it break anything?")
 
@@ -89,6 +90,7 @@ The safe order is §7's: everything through step 5 can run **before** the push, 
 ## 9. Limits & notes
 
 - Daily cron ⇒ a reminder can land up to ~24 h after entering the window — noise at a 30-day default lead.
-- Orphan blobs (an abandoned modal after upload, a removed document) are left in R2 by design — trivial cost, honest references.
+- Orphan blobs (an abandoned modal after upload, a removed document) are left in R2 by design — trivial cost, honest references. The same holds for record attachments (a QC test re-attached, a dispatch photo removed before save).
+- Record attachments (`api/attachments/*`) invert this feature's key rule on purpose: the device mints `attachments/<qc|pod>/…` so a record saved offline already carries its key; the routes refuse anything outside that grammar and any area the caller's page permission does not cover (`page.quality` / `page.dispatch`).
 - The reminder's wording lives in `complianceRules.ts` (`reminderSubject`/`reminderHtml`), escaped; the resend path marks only after the SMTP send resolves, so a refused send retries next run, and a CAS race on the mark (a concurrent human edit) defers to the edit and re-evaluates tomorrow.
 - Free-tier posture: Zoho SMTP within any plan's daily cap at this volume; R2 free tier (10 GB / 1M writes / 10M reads per month, zero egress) — both far beyond a licence register's needs.

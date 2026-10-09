@@ -80,9 +80,9 @@ export function DispatchPage() {
 
   /**
    * Photographs taken at the door. They travel on the dispatch as object keys, so
-   * the challan carries its own proof rather than a name somebody typed — though
-   * the bytes themselves are interim, held on this device for the session (see
-   * lib/uploads.ts) until the BFF grows its upload endpoint.
+   * the challan carries its own proof rather than a name somebody typed. The bytes
+   * wait in this device's outbox and upload to the file store once it is online
+   * (see lib/uploads.ts), so a delivery at a gate with no signal still records them.
    */
   const addPhotos = async (files: FileList | null) => {
     if (!files?.length) return
@@ -90,10 +90,14 @@ export function DispatchPage() {
     try {
       const uploaded: Attachment[] = []
       for (const file of Array.from(files)) {
-        uploaded.push(await uploadAttachment(file, `pod-${deliveryId || 'delivery'}`))
+        uploaded.push(await uploadAttachment(file, 'pod', deliveryId || 'delivery'))
       }
       setDelivery((d) => ({ ...d, photos: [...d.photos, ...uploaded] }))
-      showToast(`${uploaded.length} photo(s) attached — held on this device for this session.`)
+      showToast(
+        uploaded.some((u) => u.sessionOnly)
+          ? `${uploaded.length} photo(s) attached for this session only — this device could not store them durably.`
+          : `${uploaded.length} photo(s) attached — they upload to the file store automatically when this device is online.`,
+      )
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Upload failed.')
     } finally {
