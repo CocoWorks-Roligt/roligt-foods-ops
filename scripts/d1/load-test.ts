@@ -223,11 +223,12 @@ const census = async () => {
   const [ctrs] = await one('SELECT COUNT(*) AS n FROM counters')
   return { collections: rows, revision: String(rev?.value ?? '0'), counters: Number(ctrs?.n ?? 0) }
 }
-const before = await census()
-console.log(`revision ${before.revision} · ${before.counters} counter series · collections: ${before.collections.map((c) => `${c.collection}:${c.n}`).join(' ')}`)
-// a re-run after an aborted attempt must start clean
+// a re-run after an aborted attempt must start clean — swept BEFORE the
+// census, or cleanup's baseline compare counts the aborted run's ghost rows
 await rest({ sql: `DELETE FROM documents WHERE id LIKE '${PREFIX}%'` })
 await rest({ sql: "DELETE FROM counters WHERE series = 'loadtest'" })
+const before = await census()
+console.log(`revision ${before.revision} · ${before.counters} counter series · collections: ${before.collections.map((c) => `${c.collection}:${c.n}`).join(' ')}`)
 
 const summary: { phases: Record<string, unknown> } = { phases: {} }
 
