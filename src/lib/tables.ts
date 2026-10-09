@@ -112,7 +112,9 @@ export const COLLECTIONS: CollectionSpec[] = [
   { key: 'orders', table: 'orders', id: byId, page: 'orders' },
   { key: 'qcs', table: 'qcs', id: byId, page: 'quality' },
   { key: 'dispatches', table: 'dispatches', id: byId, page: 'dispatch' },
-  { key: 'stockIssues', table: 'stock_issues', id: byId, page: 'stock-issues' },
+  // NPD's use records are stock issues (reason 'NPD use'), so the NPD page's holder
+  // writes this collection too — and through it the ledger lines that ride along.
+  { key: 'stockIssues', table: 'stock_issues', id: byId, page: ['stock-issues', 'npd'] },
   { key: 'labReports', table: 'lab_reports', id: byId, page: ['quality', 'reports'] },
   { key: 'shifts', table: 'shifts', id: byId, page: 'roster' },
   { key: 'attendance', table: 'attendance', id: byId, page: 'roster' },

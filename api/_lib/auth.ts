@@ -77,10 +77,10 @@ export function devHostAllowed(host: string | null | undefined): boolean {
     .some((named) => named.trim().toLowerCase() === bare)
 }
 
-/** The dev session for an x-dev-role header value ('Operator'/'QualityTester' pick themselves, anything else admin). */
+/** The dev session for an x-dev-role header value ('Operator'/'QualityTester'/'Npd' pick themselves, anything else admin). */
 export function devCaller(xDevRole: unknown): Caller {
   const raw = Array.isArray(xDevRole) ? xDevRole[0] : xDevRole
-  const role: Role = raw === 'Operator' || raw === 'QualityTester' ? raw : 'Admin'
+  const role: Role = raw === 'Operator' || raw === 'QualityTester' || raw === 'Npd' ? raw : 'Admin'
   return {
     email: 'dev@roligt.local',
     permissions: devPermissions(role),

@@ -7,7 +7,8 @@
  *
  * The picker offers stock in *any* status on purpose — writing off rejected or
  * expired stock is the whole point of half the reasons, so what is on offer is what
- * is physically there, and the reason is what says why it left.
+ * is physically there, and the reason is what says why it left. The one exception is
+ * stock held by NPD: its use is recorded on the NPD page, and so are those records.
  */
 
 import { useMemo, useState } from 'react'
@@ -26,8 +27,9 @@ import { useApp } from '../context/AppContext'
 import { DocLink } from '../components/DocLink'
 import { RecordTrail } from '../components/RecordTrail'
 import { describeIssue, type IssueLineInput } from '../lib/issues'
+import { isNpdUse } from '../lib/npd'
 import { useLinkedView } from '../lib/linkedView'
-import { itemName as lookupItemName, locationLabel, stockRowKey } from '../lib/stock'
+import { itemName as lookupItemName, locationLabel, NPD_STATUS, stockRowKey } from '../lib/stock'
 import { fmtDate, fmtQty, inr, QTY_EPSILON, toLocalInputValue, statusLabel } from '../lib/utils'
 import { ISSUE_REASONS, type IssueReason, type StockIssue } from '../types'
 import { keyed, keyedAll, bareAll, type Keyed } from '../lib/rows'
@@ -52,7 +54,7 @@ export function StockIssues() {
   const [open, setOpen] = useState(false)
   const [editId, setEditId] = useState('')
   const [viewId, setViewId, closeView] = useLinkedView((id) =>
-    (state.stockIssues || []).some((i) => i.id === id),
+    (state.stockIssues || []).some((i) => i.id === id && !isNpdUse(i)),
   )
   const [date, setDate] = useState(toLocalInputValue())
   const [reason, setReason] = useState<IssueReason>('Lab / testing')
@@ -105,8 +107,11 @@ export function StockIssues() {
     return merged
   }, [editing, rows])
 
-  /** Everything physically on hand, whatever its status. */
-  const issuable = useMemo(() => formRows.filter((r) => r.qty > QTY_EPSILON), [formRows])
+  /** Everything physically on hand, whatever its status — except what NPD holds. */
+  const issuable = useMemo(
+    () => formRows.filter((r) => r.qty > QTY_EPSILON && r.status !== NPD_STATUS),
+    [formRows],
+  )
 
   const issuableItems = useMemo(() => {
     const seen = new Map<string, string>()
@@ -117,7 +122,7 @@ export function StockIssues() {
 
   const shown = useMemo(() => {
     const q = search.trim().toLowerCase()
-    const all = state.stockIssues
+    const all = state.stockIssues.filter((i) => !isNpdUse(i))
     if (!q) return all
     return all.filter((i) =>
       [i.id, i.reason, i.recipient || '', i.notes || '', describeIssue(state, i.lines), ...i.lines.map((l) => l.lot)]
@@ -205,7 +210,8 @@ export function StockIssues() {
 
       <div className="note">
         Stock comes off the books the moment an issue is saved. Any status can go — writing off
-        rejected or expired stock is what half these reasons are for.
+        rejected or expired stock is what half these reasons are for. Stock sent to NPD is not
+        here: NPD records what it used on the NPD page.
       </div>
 
       <div className="toolbar">

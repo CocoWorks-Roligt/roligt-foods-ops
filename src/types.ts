@@ -6,7 +6,7 @@
  * numbering series. The values here are the ones `public.app_user.role` is checked
  * against in the database, so the screen and the row-level policies cannot disagree.
  */
-export type Role = 'Operator' | 'QualityTester' | 'Admin'
+export type Role = 'Operator' | 'QualityTester' | 'Npd' | 'Admin'
 
 export type ViewId =
   | 'dashboard'
@@ -23,6 +23,7 @@ export type ViewId =
   | 'inventory'
   | 'packing-materials'
   | 'stock-issues'
+  | 'npd'
   | 'stickers'
   | 'traceability'
   | 'roster'
@@ -219,7 +220,7 @@ export interface PurchaseProduct {
  * kinds of thing while a bulk store and a quarantine shelf were the same one. There
  * is one list of storage areas now, and this says what each area is.
  */
-export type StorageType = 'Cold Room' | 'Dry Store' | 'Hold Area'
+export type StorageType = 'Cold Room' | 'Dry Store' | 'Hold Area' | 'NPD Area'
 
 /**
  * A physical place stock can sit — a cold room, a dry store, a hold shelf. One
@@ -237,7 +238,7 @@ export interface StorageLocation {
   label: string
   /** One line explaining what belongs here. */
   holds: string
-  /** Cold room, dry store or hold area. Decides what may be kept here. */
+  /** Cold room, dry store, hold area or NPD area. Decides what may be kept here. */
   type: StorageType
   status: string
 }
@@ -1005,7 +1006,26 @@ export const ISSUE_REASONS = [
   'Other',
 ] as const
 
-export type IssueReason = (typeof ISSUE_REASONS)[number]
+/**
+ * What NPD records against the stock it holds. Not among ISSUE_REASONS on purpose:
+ * the Stock Issues page never offers it, and NPD stock is used only from the NPD page.
+ */
+export const NPD_USE = 'NPD use'
+
+export type IssueReason = (typeof ISSUE_REASONS)[number] | typeof NPD_USE
+
+/** What NPD used its stock for — the categories the monthly report groups by. */
+export const NPD_PURPOSES = [
+  'New product trial',
+  'Recipe / formulation',
+  'Shelf-life study',
+  'Tasting / sensory',
+  'Customer sample',
+  'Wasted / discarded',
+  'Other',
+] as const
+
+export type NpdPurpose = (typeof NPD_PURPOSES)[number]
 
 /**
  * One line of an issue: a specific stock row and how much of it went.
@@ -1047,4 +1067,6 @@ export interface StockIssue {
   lines: StockIssueLine[]
   /** What left, at the cost the stock carried. */
   value: number
+  /** NPD use only: what the stock was used for. `notes` carries the reason in words. */
+  npdPurpose?: NpdPurpose
 }

@@ -306,6 +306,13 @@ export const STORAGE_TYPES: { value: StorageType; label: string; plural: string;
     blurb:
       'Where stock QC has rejected is set aside until somebody decides what happens to it. It only takes rejected stock, so nothing in it can be packed, blended or dispatched — write it off from Stock Issues.',
   },
+  {
+    value: 'NPD Area',
+    label: 'NPD area',
+    plural: 'NPD areas',
+    blurb:
+      'Where stock sent to new product development is kept. It only takes stock sent with “Send to NPD”, which leaves production for good — nothing in it can be packed, blended or dispatched, and NPD records what it used it for on the NPD page.',
+  },
 ]
 
 export const storageTypeLabel = (type: StorageType) =>
@@ -332,9 +339,13 @@ export const HOME_TYPES: Record<string, StorageType[]> = {
   'Packing Material': ['Dry Store'],
 }
 
-/** Whether an area of this type is a usual home for this stock. A hold area is the home of rejected stock of any kind. */
+/** Whether an area of this type is a usual home for this stock. A hold area is the home of rejected stock of any kind, an NPD area of NPD stock. */
 export const roomSuits = (itemType: string, type: StorageType, status?: string) =>
-  type === 'Hold Area' ? status === 'Rejected' : (HOME_TYPES[itemType] || []).includes(type)
+  type === 'Hold Area'
+    ? status === 'Rejected'
+    : type === 'NPD Area'
+      ? status === NPD_STATUS
+      : (HOME_TYPES[itemType] || []).includes(type)
 
 /**
  * Bulk is the one thing that may never sit in a dry store.
@@ -348,7 +359,7 @@ export const needsColdRoom = (itemType: string) => itemType === 'Semi Finished'
 /**
  * Why stock of this sort, in this QC status, may not go into an area — or null when it may.
  *
- * Two rules, enforced wherever stock is put away or moved:
+ * The rules, enforced wherever stock is put away or moved (plus the NPD pairing above):
  *  - bulk never goes into a dry store: it is unsealed and perishable;
  *  - a hold area only takes stock QC has rejected. Nothing else may be parked there, so
  *    nothing sitting in one can be packed, blended or dispatched.
@@ -360,6 +371,14 @@ export function areaRefusal(
   status = 'Available',
 ): string | null {
   if (!area || area.status !== 'Active') return 'Pick an active storage area.'
+  // NPD stock and NPD areas only ever meet each other: the status is what keeps the
+  // stock out of production, and the area is where NPD finds it.
+  if (area.type === 'NPD Area' && status !== NPD_STATUS) {
+    return `${area.label} is an NPD area — stock goes into it with “Send to NPD”, not a move.`
+  }
+  if (status === NPD_STATUS && area.type !== 'NPD Area') {
+    return 'Stock sent to NPD stays in an NPD area — NPD records what it used it for on the NPD page.'
+  }
   if (area.type === 'Hold Area' && status !== 'Rejected') {
     return `${area.label} is a hold area — it only takes stock QC has rejected.`
   }
@@ -368,6 +387,14 @@ export function areaRefusal(
   }
   return null
 }
+
+/**
+ * The QC-like status stock carries once it has been sent to NPD. It is in none of the
+ * statuses anything downstream draws on — not DRAWABLE, not 'Available', not 'Released'
+ * — so production, packing, blending, dispatch and QC transfers all walk past it. That
+ * one value is the whole isolation; the NPD area is only where it sits.
+ */
+export const NPD_STATUS = 'NPD'
 
 /** Whether stock sitting in this area has been set aside in a hold area. */
 export const inHoldArea = (state: AppState, location: string) =>

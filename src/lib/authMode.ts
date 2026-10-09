@@ -13,7 +13,9 @@ export const WORKOS_CONFIGURED = Boolean(import.meta.env.VITE_WORKOS_CLIENT_ID)
 /** Reads the persisted login-screen role choice for the dev fallback session. */
 export function getDevRole(): Role {
   const saved = localStorage.getItem('devRole')
-  return saved === 'Operator' || saved === 'QualityTester' || saved === 'Admin' ? saved : 'Admin'
+  return saved === 'Operator' || saved === 'QualityTester' || saved === 'Npd' || saved === 'Admin'
+    ? saved
+    : 'Admin'
 }
 
 /** Persists the login-screen role choice for the dev fallback session. */

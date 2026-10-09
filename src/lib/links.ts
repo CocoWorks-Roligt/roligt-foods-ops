@@ -15,6 +15,7 @@
  */
 
 import { batchKind, runBulkItem } from './batches'
+import { isNpdUse } from './npd'
 import { dispatchRuns, happenedAt, receiptsFor, resolveStockId, runsFilling } from './stockIds'
 import type { AppState } from '../types'
 
@@ -28,6 +29,7 @@ export type DocKind =
   | 'dispatch'
   | 'order'
   | 'issue'
+  | 'npd'
   | 'stock'
   | 'report'
 
@@ -46,6 +48,7 @@ export const KIND_LABEL: Record<DocKind, string> = {
   dispatch: 'Dispatch',
   order: 'Order',
   issue: 'Stock issue',
+  npd: 'NPD use',
   stock: 'Stock item',
   report: 'Lab report',
 }
@@ -64,7 +67,8 @@ export function docRef(state: AppState, raw: string | undefined): DocRef | undef
   if (state.ledger.some((l) => l.type === 'PM Receipt' && l.doc === id)) return { id, kind: 'material' }
   if (state.dispatches.some((d) => d.id === id)) return { id, kind: 'dispatch' }
   if (state.orders.some((o) => o.id === id)) return { id, kind: 'order' }
-  if ((state.stockIssues || []).some((i) => i.id === id)) return { id, kind: 'issue' }
+  const issue = (state.stockIssues || []).find((i) => i.id === id)
+  if (issue) return { id, kind: isNpdUse(issue) ? 'npd' : 'issue' }
   if (resolveStockId(state, id)) return { id, kind: 'stock' }
   return undefined
 }
@@ -91,6 +95,8 @@ export function docHref(ref: DocRef): string {
       return `/orders?view=${v}`
     case 'issue':
       return `/stock-issues?view=${v}`
+    case 'npd':
+      return `/npd?view=${v}`
     case 'stock':
       return `/traceability?q=${v}`
     case 'report':
@@ -261,7 +267,8 @@ export function linkedRecords(state: AppState, raw: string): LinkedRecords {
       })
       break
     }
-    case 'issue': {
+    case 'issue':
+    case 'npd': {
       const i = issues.find((x) => x.id === ref.id)!
       for (const l of i.lines) {
         const at = { expiry: l.expiry, location: l.location, time: i.date }

@@ -48,6 +48,7 @@ import { formatDocNo, periodKeyFor, ruleFor } from '../lib/numbering'
 import {
   type StockIssueInput,
 } from '../lib/issues'
+import { type SendToNpdInput } from '../lib/npd'
 import { itemName, overdrawnLots, stockRows, type OverdrawnLot } from '../lib/stock'
 import {
   type StickerJob,
@@ -77,6 +78,7 @@ export type {
   DispatchInput,
   MelangeInput,
   MoveStockInput,
+  SendToNpdInput,
   PackingInput,
   PackDefInput,
   QcUpdate,
@@ -159,6 +161,8 @@ interface AppContextValue {
   deletePackingStock: (doc: string) => void
   updateControlSample: (runId: string, index: number, patch: ControlSamplePatch) => string | null
   moveStock: (input: MoveStockInput) => string | null
+  /** Hands stock to NPD — a move into an NPD area that takes it out of production for good. */
+  sendToNpd: (input: SendToNpdInput) => string | null
   addStorageLocation: (input: StorageLocationInput) => string | null
   updateStorageLocation: (id: string, patch: StorageLocationInput) => string | null
   setStorageLocationStatus: (id: string, status: string) => void

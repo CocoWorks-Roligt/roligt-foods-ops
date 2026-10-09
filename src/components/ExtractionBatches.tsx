@@ -16,8 +16,10 @@ import { Select } from './Select'
 import { SortHeader, SortSelect, sortRows, useTableSort, type SortAccessors } from './tableSort'
 import { StatusBadge } from './StatusBadge'
 import { EmptyState } from './EmptyState'
+import { SendStockModal } from './SendStockModal'
 import { useApp } from '../context/AppContext'
 import { useLinkedView } from '../lib/linkedView'
+import { sendable } from '../lib/npd'
 import { defaultBulkStore, isByProduct, postedLocation } from '../lib/posting'
 
 /** "1 piece", "960 pieces" — the unit is stored singular. */
@@ -40,12 +42,14 @@ import {
 } from '../lib/batches'
 import {
   itemName as lookupItemName,
+  locationLabel,
   poolByLot,
+  stockRowKey,
   stockRowsExcluding,
   areaChoices,
 } from '../lib/stock'
-import { fmtDate, fmtQty, inr, toLocalInputValue } from '../lib/utils'
-import type { Batch } from '../types'
+import { fmtDate, fmtQty, inr, statusLabel, toLocalInputValue } from '../lib/utils'
+import type { Batch, StockRow } from '../types'
 import { keyed, keyedAll, type Keyed } from '../lib/rows'
 
 /** A raw-material issue as the form holds it: the stock row picked, and how much of it. */
@@ -188,6 +192,41 @@ export function ExtractionBatches() {
       </>
     )
   }
+  /**
+   * What of the batch's output is still on hand, each with a Send to testing or NPD.
+   * The send dialog opens over the page, not the record view, so the view closes first.
+   */
+  const [sending, setSending] = useState<StockRow | null>(null)
+  const onHandNow = (batchId: string) => {
+    const left = rows.filter((r) => r.lot === batchId && r.qty > 0 && r.itemType === 'Semi Finished')
+    if (!left.length) return 'Nothing left on hand'
+    return (
+      <>
+        {left.map((r, i) => (
+          <Fragment key={stockRowKey(r)}>
+            {i ? ' · ' : ''}
+            {fmtBulk(r.qty, r.uom)} {itemName(r.item)} in {locationLabel(state, r.location)} (
+            {statusLabel(r.status)})
+            {sendable(r) ? (
+              <>
+                {' '}
+                <button
+                  className="btn btn-light"
+                  type="button"
+                  onClick={() => {
+                    closeView()
+                    setSending(r)
+                  }}
+                >
+                  Send to testing / NPD
+                </button>
+              </>
+            ) : null}
+          </Fragment>
+        ))}
+      </>
+    )
+  }
   const labReports = viewing ? labReportSection(state, viewing.id) : null
   const viewSections: DetailSection[] = viewing
     ? [
@@ -266,6 +305,11 @@ export function ExtractionBatches() {
             {
               label: 'Blended into',
               value: blendedInto(viewing.id),
+              wide: true,
+            },
+            {
+              label: 'On hand now',
+              value: onHandNow(viewing.id),
               wide: true,
             },
           ],
@@ -535,6 +579,8 @@ export function ExtractionBatches() {
         onClose={closeView}
         record={viewing?.id}
       />
+
+      <SendStockModal row={sending} onClose={() => setSending(null)} />
 
       <Modal
         open={open}

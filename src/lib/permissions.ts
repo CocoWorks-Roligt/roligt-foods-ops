@@ -66,6 +66,8 @@ export function devPermissions(devRole: Role): PermissionKey[] {
     // the lab tester's app: the four quality pages, and nothing else to tap through
     return ['page.quality', 'page.control-samples', 'page.reports', 'page.test-parameters']
   }
+  // the NPD person: the NPD page and nothing else — an admin ticks more on the Roles screen
+  if (devRole === 'Npd') return ['page.npd']
   return []
 }
 

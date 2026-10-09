@@ -106,7 +106,7 @@ export const NUMBER_SERIES: SeriesDef[] = [
   series('product', 'Masters', 'Pack product', 'A finished-goods SKU', 'FG', PLAIN),
   series('bulkProduct', 'Masters', 'Bulk product', 'A semi-finished output', 'SF', PLAIN),
   series('melange', 'Masters', 'Blend recipe', 'A blend the plant can run', 'MLG', PLAIN),
-  series('storageLocation', 'Masters', 'Storage area', 'A cold room, dry store or hold area', 'LOC', PLAIN),
+  series('storageLocation', 'Masters', 'Storage area', 'A cold room, dry store, hold area or NPD area', 'LOC', PLAIN),
   series('staff', 'Masters', 'Staff member', 'Someone on the plant roster', 'STF', PLAIN),
 ]
 

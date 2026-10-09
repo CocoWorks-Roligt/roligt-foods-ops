@@ -36,6 +36,7 @@ const STATUS_LABELS: Record<string, string> = {
   Suspended: 'Inactive',
   Retired: 'Inactive',
   Approved: 'Active',
+  NPD: 'With NPD',
 }
 
 export const statusLabel = (value: string) => STATUS_LABELS[value] || value
@@ -86,9 +87,13 @@ export const PAGES: Record<string, [string, string]> = {
     'Stock Issues',
     'Stock out for something that is not a sale — lab samples, BTL activities, breakage and write-offs. No customer, no challan, no dispatch label.',
   ],
+  npd: [
+    'NPD',
+    'Stock production has handed to new product development, what NPD used it for and why, and the month in one report.',
+  ],
   storage: [
     'Storage',
-    'Every storage area the plant keeps stock in. What an area is — cold room, dry store or hold area — decides what may go into it: bulk only ever into a cold room, and only stock QC has rejected into a hold area.',
+    'Every storage area the plant keeps stock in. What an area is — cold room, dry store or hold area — decides what may go into it: bulk only ever into a cold room, only stock QC has rejected into a hold area, and only stock sent to NPD into an NPD area.',
   ],
   stickers: [
     'Stickers',

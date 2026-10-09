@@ -45,7 +45,7 @@ export function useStorageLocations({ state, setState, nextId, log, showToast, f
         return null
       }
       if (!isType(input.type)) {
-        showToast('Pick what kind of storage area it is — cold room, dry store or hold area.')
+        showToast('Pick what kind of storage area it is — cold room, dry store, hold area or NPD area.')
         return null
       }
       if (state.storageLocations.some((s) => s.label.toLowerCase() === label.toLowerCase())) {
@@ -88,7 +88,7 @@ export function useStorageLocations({ state, setState, nextId, log, showToast, f
         return null
       }
       if (!isType(patch.type)) {
-        showToast('Pick what kind of storage area it is — cold room, dry store or hold area.')
+        showToast('Pick what kind of storage area it is — cold room, dry store, hold area or NPD area.')
         return null
       }
       if (

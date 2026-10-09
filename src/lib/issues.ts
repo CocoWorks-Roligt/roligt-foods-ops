@@ -17,9 +17,18 @@
  */
 
 import { withoutDoc, type Problem } from './posting'
-import { itemName, stockRows } from './stock'
+import { itemName, NPD_STATUS, stockRows } from './stock'
 import { nowISO, QTY_EPSILON, uid } from './utils'
-import type { AppState, IssueReason, StockIssue, StockIssueLine, StockRow } from '../types'
+import {
+  NPD_PURPOSES,
+  NPD_USE,
+  type AppState,
+  type IssueReason,
+  type NpdPurpose,
+  type StockIssue,
+  type StockIssueLine,
+  type StockRow,
+} from '../types'
 
 /** One line as the form holds it: a stock row, named in full, and a quantity. */
 export interface IssueLineInput {
@@ -37,6 +46,8 @@ export interface StockIssueInput {
   recipient?: string
   notes?: string
   lines: IssueLineInput[]
+  /** NPD use only — what the stock went on. */
+  npdPurpose?: NpdPurpose
 }
 
 /**
@@ -86,6 +97,21 @@ export function checkStockIssue(
   }
   const lines = liveLines(input.lines)
   if (!lines.length) return 'Add at least one line of stock to issue.'
+  // NPD stock and the rest never mix. NPD use draws only what NPD holds, so its
+  // monthly report accounts for every unit sent to it; an ordinary issue never
+  // reaches into NPD's stock behind that report's back.
+  const npd = input.reason === NPD_USE
+  if (npd) {
+    if (!input.npdPurpose || !NPD_PURPOSES.includes(input.npdPurpose)) {
+      return 'Say what the stock was used for.'
+    }
+    if (!input.notes?.trim()) return 'Give the reason — what was made or tried with it.'
+    if (lines.some((l) => l.status !== NPD_STATUS)) {
+      return 'NPD can only record use of stock it holds — send it to NPD first.'
+    }
+  } else if (lines.some((l) => l.status === NPD_STATUS)) {
+    return 'That stock is held by NPD — its use is recorded on the NPD page.'
+  }
 
   /**
    * Two lines can name the same row, and compared one at a time each would clear on
@@ -167,6 +193,7 @@ export function postStockIssueLines(
     notes: input.notes?.trim() || undefined,
     lines,
     value: issueValue(lines),
+    ...(input.reason === NPD_USE && input.npdPurpose ? { npdPurpose: input.npdPurpose } : {}),
   }
 }
 
