@@ -8,7 +8,7 @@
  *
  * Phases (each prints its own table; a JSON summary lands at the end):
  *   0  census        — the baseline this run must leave behind when it ends
- *   1  volume        — ROWS melange-shaped documents through commitChangesD1
+ *   1  volume        — ROWS blend-recipe documents through commitChangesD1
  *                      in honest-client commits (≤16 rows each), plus the
  *                      idempotent re-send contract under load
  *   2  boundary      — the REST shapes the app never sends but cutover day
@@ -186,7 +186,7 @@ class Recorder {
 }
 const phase = (name: string, note = ''): void => console.log(`\n=== ${name}${note ? ` — ${note}` : ''} ===`)
 
-// a melange-shaped document: a real collection's realistic width, components and all
+// a blend-recipe-shaped document: a real collection's realistic width, components and all
 const melangeDoc = (i: number) => ({
   id: `${PREFIX}MEL-${String(i).padStart(4, '0')}`,
   name: `Load blend ${i}`,
@@ -232,7 +232,7 @@ await rest({ sql: "DELETE FROM counters WHERE series = 'loadtest'" })
 const summary: { phases: Record<string, unknown> } = { phases: {} }
 
 // ============================================================ 1. volume
-phase('1 volume', `${ROWS} melange documents through the engine, honest ≤16-row commits`)
+phase('1 volume', `${ROWS} blend documents through the engine, honest ≤16-row commits`)
 {
   const docs = Array.from({ length: ROWS }, (_, i) => melangeDoc(i))
   const commits = chunk(docs.map((d) => ({ id: d.id, data: d })), 16)

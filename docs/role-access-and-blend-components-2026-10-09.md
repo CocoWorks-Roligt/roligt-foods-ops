@@ -2,7 +2,7 @@
 
 Two questions from the floor, one session: why could a role user (Josh,
 "production manager" — every page except Roles) not edit anything in production,
-and why do melange components look like they are not being stored. Both answers
+and why do blend components look like they are not being stored. Both answers
 were checked against the deployed build, the production dump, and a live D1
 scratch run; the real defects found are fixed on this branch.
 
@@ -55,20 +55,26 @@ that a non-admin can hold. It now says what is actually true:
 "**X needs a permission your role does not hold — ask an administrator to grant
 it.**"
 
-## 2. Why melange components look "not stored"
+## 2. Why blend components look "not stored"
 
-**They are stored.** The recipe's `components` array lives inside the Melanges
-row's Data JSON (Zoho) / `documents.json` (D1), byte-for-byte. Hard evidence: the
-production dump (`dump-gerc53fe-…`) carries all 5 production melanges with their
-full component arrays, and today's 1000-row D1 load test round-tripped every
-component array exactly (docs/d1-load-test-2026-10-09.md, phase 5).
+Naming first: these are **blend** components, not melange components — a blend
+is any recipe that mixes bulks into one finished product, and the plant's
+smoothies and shakes are blends too. "Melange" survives only as code and data
+names (the `melanges` collection, `Melange` types, ledger types) — the UI says
+Blends everywhere a person reads.
+
+**They are stored.** The recipe's `components` array lives inside the blend
+row's Data JSON (Zoho) / `documents.json` (D1), byte-for-byte. Hard evidence:
+the production dump (`dump-gerc53fe-…`) carries all 5 production blend recipes
+with their full component arrays, and today's 1000-row D1 load test round-tripped
+every component array exactly (docs/d1-load-test-2026-10-09.md, phase 5).
 
 **Why it looks otherwise**: the Zoho base's visible "Melange Components" child
-table and the link columns are never written — deliberately; the app never read
-them back and the D1 migration drops them outright (schema.sql documents this).
-Anyone inspecting the base or building Analytics over that child table sees it
-empty forever and reasonably concludes "not stored". The data is in the parent
-row's JSON.
+table (a legacy name) and the link columns are never written — deliberately; the
+app never read them back and the D1 migration drops them outright (schema.sql
+documents this). Anyone inspecting the base or building Analytics over that
+child table sees it empty forever and reasonably concludes "not stored". The
+data is in the parent row's JSON.
 
 **Where components genuinely could vanish — all fixed on this branch:**
 
