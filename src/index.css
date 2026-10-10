@@ -1166,6 +1166,17 @@ tbody tr:nth-child(even) td {
   white-space: nowrap;
 }
 
+/* The same goes for a record link, and for "3 reports" (it broke as "3 report / s").
+   What may wrap is the line under an id — "from BAT-…, BAT-…, BAT-…" — between its
+   links: held to one line it was what pushed the QC table past a laptop screen. */
+.table-wrap .link-button {
+  white-space: nowrap;
+}
+
+.table-wrap .cell-id .cell-sub {
+  white-space: normal;
+}
+
 .cell-num {
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -2310,6 +2321,11 @@ table tbody tr.subrow > td {
 /* Vendors page */
 .vendors-page {
   display: grid;
+  /* An explicit minmax(0, 1fr) track, as .production-page has: the implicit auto
+     track sizes to the card's min-content, so a wide table stretched the card past
+     the viewport at every width and .app's overflow-x: clip cut its right edge off,
+     instead of the table scrolling inside its .table-wrap. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
 }
 
@@ -2630,6 +2646,8 @@ table tbody tr.subrow > td {
 
 .products-page {
   display: grid;
+  /* See .vendors-page — the QC table cut off its Action column without this. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
 }
 
@@ -3689,6 +3707,8 @@ table tbody tr.subrow > td {
    record, what does it look like, print. */
 .stickers-page {
   display: grid;
+  /* See .vendors-page. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
 }
 
