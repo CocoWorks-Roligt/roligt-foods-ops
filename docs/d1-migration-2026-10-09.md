@@ -109,6 +109,16 @@ new entries queue on your device".
    D1_API_TOKEN=<token> \
      node scripts/d1/views.mjs
    ```
+   Then the **vanilla correction** — the production base carries an extraction
+   (BAT-2026-0009) of vanilla that arrives already extracted; the script restates
+   it as the blend run MEL-2026-0007 drawing RM-PP-0008 directly and removes the
+   bulk SF-0008. Dry-run first, then apply (a re-run says "nothing to do"):
+   ```sh
+   D1_ACCOUNT_ID=d189eb0424c72ded675161f747cf85bd \
+   D1_DATABASE_ID=de8175f2-567d-492f-b2f4-63736fb1d402 \
+   D1_API_TOKEN=<token> \
+     node scripts/d1/fix-vanilla-direct-use.mjs [--apply]
+   ```
 4. **Flip the env in Vercel** — Production scope this time:
    `D1_ACCOUNT_ID`, `D1_DATABASE_ID` (prod id), `D1_API_TOKEN`.
    **Do not remove `ZOHO_*`** — it stays for the week as the rollback path.

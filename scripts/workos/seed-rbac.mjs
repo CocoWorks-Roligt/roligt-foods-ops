@@ -22,14 +22,23 @@ import { WorkOS } from '@workos-inc/node'
 const ORG_NAME = 'Roligt Foods'
 // slug `admin` is WorkOS's own system role — the app's roles must not collide
 // with it (slugs are unique, and reconciling by slug would overwrite the
-// system role's permissions). `app-admin` is the only seeded bundle; there is
-// deliberately no seeded "operator" role — a user holding no roles at all is
-// an operator (the day's work only).
+// system role's permissions). There is deliberately no seeded "operator" role —
+// a user holding no roles at all is an operator (the day's work only).
+//
+// `reconcile: false` seeds a role once and then leaves it to the Roles screen:
+// the NPD role starts as the NPD page alone, and an admin may tick more pages on
+// it later without a re-run of this script taking them away again.
 const SEED_ROLES = {
   'app-admin': {
     name: 'App Admin',
     description: 'Administrator — every permission in the catalog',
     permissions: [...PERMISSIONS],
+  },
+  npd: {
+    name: 'NPD',
+    description: 'New product development — the NPD page: what production sent, recording its use, the monthly report',
+    permissions: ['page.npd'],
+    reconcile: false,
   },
 }
 
@@ -91,6 +100,10 @@ async function main() {
       continue
     }
     const held = bySlug.get(slug).permissions
+    if (seed.reconcile === false) {
+      log(`role ${slug} exists — left as the Roles screen has it (${held.join(', ') || 'none'})`)
+      continue
+    }
     const same =
       held.length === wanted.length && [...held].sort().every((p, i) => p === [...wanted].sort()[i])
     if (same) {

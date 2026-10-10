@@ -9,6 +9,10 @@
  * expired stock is the whole point of half the reasons, so what is on offer is what
  * is physically there, and the reason is what says why it left. The one exception is
  * stock held by NPD: its use is recorded on the NPD page, and so are those records.
+ *
+ * Stock meant for NPD does not leave the books, so it is not an issue — "Send to NPD"
+ * picks the lot here and hands it to the same send dialog Inventory uses, which moves
+ * it into an NPD area.
  */
 
 import { useMemo, useState } from 'react'
@@ -26,12 +30,13 @@ import {
 import { useApp } from '../context/AppContext'
 import { DocLink } from '../components/DocLink'
 import { RecordTrail } from '../components/RecordTrail'
+import { SendStockModal } from '../components/SendStockModal'
 import { describeIssue, type IssueLineInput } from '../lib/issues'
-import { isNpdUse } from '../lib/npd'
+import { isNpdUse, sendable } from '../lib/npd'
 import { useLinkedView } from '../lib/linkedView'
 import { itemName as lookupItemName, locationLabel, NPD_STATUS, stockRowKey } from '../lib/stock'
 import { fmtDate, fmtQty, inr, QTY_EPSILON, toLocalInputValue, statusLabel } from '../lib/utils'
-import { ISSUE_REASONS, type IssueReason, type StockIssue } from '../types'
+import { ISSUE_REASONS, type IssueReason, type StockIssue, type StockRow } from '../types'
 import { keyed, keyedAll, bareAll, type Keyed } from '../lib/rows'
 
 const blankLine: IssueLineInput = {
@@ -61,6 +66,11 @@ export function StockIssues() {
   const [recipient, setRecipient] = useState('')
   const [notes, setNotes] = useState('')
   const [lines, setLines] = useState<Keyed<IssueLineInput>[]>([keyed(blankLine)])
+  // Send to NPD: pick the lot first, then the send dialog takes over.
+  const [picking, setPicking] = useState(false)
+  const [npdItem, setNpdItem] = useState('')
+  const [npdRef, setNpdRef] = useState('')
+  const [sending, setSending] = useState<StockRow | null>(null)
 
   const itemName = (id: string) => lookupItemName(state, id)
 
@@ -119,6 +129,22 @@ export function StockIssues() {
     return [...seen.entries()].map(([id, itemType]) => ({ id, itemType, name: itemName(id) }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [issuable, state.items])
+
+  /** What can go to NPD: on hand, not Rejected, not NPD's already. */
+  const toNpd = useMemo(() => rows.filter(sendable), [rows])
+  const toNpdItems = useMemo(() => {
+    const ids = [...new Set(toNpd.map((r) => r.item))]
+    return ids.map((id) => ({ id, name: itemName(id) })).sort((a, b) => a.name.localeCompare(b.name))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toNpd, state.items])
+  const npdLots = toNpd.filter((r) => r.item === npdItem)
+  const npdPicked = npdLots.find((r) => rowRef(r) === npdRef)
+
+  const openNpd = () => {
+    setNpdItem('')
+    setNpdRef('')
+    setPicking(true)
+  }
 
   const shown = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -202,6 +228,9 @@ export function StockIssues() {
           <span>What left, why it left and who it went to, newest first</span>
         </div>
         <div className="section-head-actions">
+          <button className="btn btn-light" type="button" onClick={openNpd}>
+            Send to NPD
+          </button>
           <button className="btn btn-primary" type="button" onClick={openNew}>
             + New Issue
           </button>
@@ -210,8 +239,8 @@ export function StockIssues() {
 
       <div className="note">
         Stock comes off the books the moment an issue is saved. Any status can go — writing off
-        rejected or expired stock is what half these reasons are for. Stock sent to NPD is not
-        here: NPD records what it used on the NPD page.
+        rejected or expired stock is what half these reasons are for. Stock meant for NPD is not
+        an issue — use Send to NPD, and NPD records what it used on the NPD page.
       </div>
 
       <div className="toolbar">
@@ -428,6 +457,59 @@ export function StockIssues() {
             : 'Pick what is going and how much of it.'}
         </div>
       </Modal>
+
+      <Modal
+        open={picking}
+        title="Send stock to NPD"
+        saveLabel="Continue"
+        saveDisabled={!npdPicked}
+        onClose={() => setPicking(false)}
+        onSave={() => {
+          if (!npdPicked) return
+          setPicking(false)
+          setSending(npdPicked)
+        }}
+      >
+        <div className="form-grid">
+          <div className="field">
+            <label>Item</label>
+            <Select
+              value={npdItem}
+              onChange={(e) => {
+                setNpdItem(e.target.value)
+                setNpdRef('')
+              }}
+            >
+              <option value="">{toNpdItems.length ? 'Select item' : 'Nothing on hand to send'}</option>
+              {toNpdItems.map((i) => (
+                <option key={i.id} value={i.id}>
+                  {i.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="field span-2">
+            <label>Lot</label>
+            <Select value={npdRef} disabled={!npdItem} onChange={(e) => setNpdRef(e.target.value)}>
+              <option value="">{npdLots.length || !npdItem ? 'Select lot' : 'No stock'}</option>
+              {npdLots.map((r) => (
+                <option key={rowRef(r)} value={rowRef(r)}>
+                  {r.lot} · {locationLabel(state, r.location)} · {statusLabel(r.status)} ·{' '}
+                  {fmtQty(r.qty)} {r.uom}
+                  {r.expiry ? ` · exp ${fmtDate(r.expiry)}` : ''}
+                </option>
+              ))}
+            </Select>
+          </div>
+        </div>
+        <div className="note" style={{ marginTop: 12 }}>
+          {npdPicked
+            ? 'Continue to choose the NPD area and how much goes.'
+            : 'Pick the lot NPD is getting. Rejected stock cannot go to NPD — write it off with a New Issue instead.'}
+        </div>
+      </Modal>
+
+      <SendStockModal row={sending} initialTo="npd" onClose={() => setSending(null)} />
 
       <Modal
         open={!!viewing}

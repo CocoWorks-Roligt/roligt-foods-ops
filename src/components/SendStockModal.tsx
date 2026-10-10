@@ -22,17 +22,26 @@ import { stockIdOfRow } from '../lib/stockIds'
 import { fmtDate, fmtQty, statusLabel, toLocalInputValue } from '../lib/utils'
 import type { StockRow } from '../types'
 
-type Destination = 'testing' | 'npd'
+export type Destination = 'testing' | 'npd'
 
-export function SendStockModal({ row, onClose }: { row: StockRow | null; onClose: () => void }) {
-  // Keyed by the row, so opening it for another lot starts from a clean form.
-  return row ? <SendStockForm key={stockRowKey(row)} row={row} onClose={onClose} /> : null
+interface Props {
+  row: StockRow | null
+  onClose: () => void
+  /** Where the form starts — testing unless the caller already knows. */
+  initialTo?: Destination
 }
 
-function SendStockForm({ row, onClose }: { row: StockRow; onClose: () => void }) {
+export function SendStockModal({ row, onClose, initialTo }: Props) {
+  // Keyed by the row, so opening it for another lot starts from a clean form.
+  return row ? (
+    <SendStockForm key={stockRowKey(row)} row={row} onClose={onClose} initialTo={initialTo} />
+  ) : null
+}
+
+function SendStockForm({ row, onClose, initialTo = 'testing' }: Props & { row: StockRow }) {
   const { state, getItemName, createStockIssue, sendToNpd } = useApp()
   const areas = npdAreas(state)
-  const [to, setTo] = useState<Destination>('testing')
+  const [to, setTo] = useState<Destination>(initialTo)
   const [qty, setQty] = useState(Math.round(row.qty * 100) / 100)
   const [area, setArea] = useState(areas[0]?.name || '')
   const [recipient, setRecipient] = useState('')
