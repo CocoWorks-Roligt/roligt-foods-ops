@@ -20,6 +20,7 @@ import {
   mainOutput,
   runBulkItem,
 } from './batches'
+import { gradedUnit } from './grn'
 import { formatSize } from './packs'
 import { itemName, locationLabel, stockRows } from './stock'
 import { receiptsFor } from './stockIds'
@@ -199,7 +200,7 @@ export function candidatesFor(state: AppState, stage: StickerStage): StickerCand
           area: dash(g.area),
           harvested: g.harvestedOn ? dateOnly(g.harvestedOn) : '—',
           qty: `${g.accepted} ${g.uom || 'Piece'}`,
-          grades: `A ${g.a} · B ${g.b} · C ${g.c}`,
+          grades: gradedUnit(g.uom) ? `A ${g.a} · B ${g.b} · C ${g.c}` : 'Not graded',
           store: whereNow(state, g.lot, g.location),
         },
       }))

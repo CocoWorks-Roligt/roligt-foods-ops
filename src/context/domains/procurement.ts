@@ -8,7 +8,7 @@
 
 import { useCallback, useMemo } from 'react'
 import { itemUom } from '../../lib/batches'
-import { grnCostsChanged, priceGrn } from '../../lib/grn'
+import { asReceived, grnCostsChanged, priceGrn } from '../../lib/grn'
 import type { GrnInput } from '../../lib/grn'
 import { defaultRawStore, checkArea, postedLocation } from '../../lib/posting'
 import { itemName } from '../../lib/stock'
@@ -19,7 +19,9 @@ import type { CoreDeps } from './deps'
 
 export function useProcurement({ state, setState, nextId, nextLot, log, showToast, announcement }: CoreDeps) {
   const createGrn = useCallback(
-    (input: GrnInput): string | null => {
+    (given: GrnInput): string | null => {
+      // Weighed produce is not graded: stored with no free quantity and all of it in A.
+      const input = asReceived(given)
       const math = priceGrn(input)
       if (!math.ok) {
         showToast(math.error)
@@ -96,6 +98,9 @@ export function useProcurement({ state, setState, nextId, nextLot, log, showToas
           qtyOut: 0,
           uom,
           unitCost: g.usableCost,
+          // The supplier rides the ledger line, as PM receipts always did — so a
+          // receipt line names who it came from without a trip to its GRN.
+          vendorId: g.farmerId,
           time: nowISO(),
         })
         log(
@@ -114,7 +119,8 @@ export function useProcurement({ state, setState, nextId, nextLot, log, showToas
   )
 
   const updateGrn = useCallback(
-    (id: string, input: GrnInput): string | null => {
+    (id: string, given: GrnInput): string | null => {
+      const input = asReceived(given)
       const existing = state.grns.find((x) => x.id === id)
       if (!existing) {
         showToast(goneFromDevice('GRN'))
@@ -207,6 +213,7 @@ export function useProcurement({ state, setState, nextId, nextLot, log, showToas
           receipt.item = itemId
           receipt.uom = uom
           receipt.location = location
+          receipt.vendorId = g.farmerId
         }
         log(
           draft,

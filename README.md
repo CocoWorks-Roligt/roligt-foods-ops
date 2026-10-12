@@ -249,6 +249,7 @@ Design notes, runbooks and audits live in `docs/`, one file per topic, dated:
 | `docs/adversarial-audit-2026-10-07.md` | Five-pass adversarial audit and its remediation plan |
 | `docs/zoho-version-probe-results.md` | Raw results of the Version-column (optimistic concurrency) probe, written by `scripts/zoho/probe-version.mjs` |
 | `docs/zoho-books-integration-2026-09-28.md` | Plan for pushing invoices and bills to Zoho Books (not implemented yet) |
+| `docs/zoho-packaging-visibility-2026-10-08.md` | Why packing receipts are ledger lines, not GRNs, and Plan B — promoting them to GRNs (not implemented yet) |
 
 ## Things to know before changing anything
 

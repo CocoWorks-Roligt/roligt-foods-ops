@@ -16,6 +16,7 @@ import {
   reportDef,
   type ReportDef,
 } from '../lib/reports/index.ts'
+import { gradedUnit } from '../lib/grn'
 import { fmtByUom } from '../lib/stock'
 import { isWholeMonth, monthLabel, monthOf, windowLabel } from '../lib/reports/params.ts'
 import {
@@ -277,7 +278,7 @@ function ProcurementView({ def, fruits }: { def: ReportDef; fruits?: boolean }) 
                   </td>
                   <td data-label="Free" className="cell-num">{fmtQty(r.free)}</td>
                   <td data-label="Grades" className="cell-num">
-                    {r.a} / {r.b} / {r.c}
+                    {gradedUnit(r.uom) ? `${r.a} / ${r.b} / ${r.c}` : '—'}
                   </td>
                   <td data-label="Reject" className="cell-num">{fmtQty(r.reject)}</td>
                   <td data-label="Landed" className="cell-num">{inr(r.landed)}</td>

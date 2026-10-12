@@ -39,6 +39,27 @@ export type GrnMath =
     }
 
 /**
+ * Whether a receipt is graded. Produce counted by the piece (coconuts) is sorted into
+ * grades A, B and C and can come with free pieces; produce bought by weight or volume
+ * (beetroot by the kilo, vanilla by the litre) is not — what was received is what
+ * went into stock, and that is all there is to say about it.
+ */
+export const gradedUnit = (uom?: string) => (uom || 'Piece').toLowerCase() === 'piece'
+
+/**
+ * The receipt as it is stored. An ungraded one has no free or rejected quantity and
+ * books the whole load as grade A — the shape every kilogram and litre receipt
+ * already had, from operators putting the whole load in A — so `accepted`, the
+ * reports and the cost arithmetic read it exactly as before.
+ */
+export function asReceived<T extends Pick<GrnInput, 'uom' | 'total' | 'free' | 'a' | 'b' | 'c' | 'reject'>>(
+  input: T,
+): T {
+  if (gradedUnit(input.uom)) return input
+  return { ...input, free: 0, a: input.total, b: 0, c: 0, reject: 0 }
+}
+
+/**
  * Validates a receipt and derives its costs. Free produce arrives and is graded with
  * the rest of the load — it sits inside `total` and adds to stock — it is only left
  * out of the priced quantity, which pulls the cost per usable unit down. Rejected
@@ -47,7 +68,8 @@ export type GrnMath =
  * Coconuts are counted in pieces and beetroot in kilograms, but the arithmetic is the
  * same either way, so the unit only ever shows up in the wording.
  */
-export function priceGrn(input: GrnInput): GrnMath {
+export function priceGrn(given: GrnInput): GrnMath {
+  const input = asReceived(given)
   const { total, free, a, b, c, reject, rate } = input
   const unit = (input.uom || 'Piece').toLowerCase()
   // The product is what tells the receipt which stock item to book, what it is counted

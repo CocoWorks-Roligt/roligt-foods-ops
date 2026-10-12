@@ -23,7 +23,7 @@ Databases (both `weur`, beside Vercel fra1):
 
 ## Two decisions before the window
 
-### 1. The compliance register's ordering (pick one)
+### 1. The compliance register's ordering — **decided 2026-10-12: A**
 
 Tonight's dump **skipped** Compliance Documents — its Zoho production topup
 never ran (the register isn't live in production yet). Two clean orders:
@@ -66,7 +66,7 @@ deployed image.
 - [ ] Announce the window to the plant (the app is offline-first: during the
       window existing clients keep working on cached data and queue their
       writes; nothing is lost, changes sync after).
-- [ ] Confirm decision 1 (compliance ordering).
+- [x] Confirm decision 1 (compliance ordering) — A: cutover first, register starts empty on D1.
 - [ ] Merge `d1-migration` → `dev` → `main` if not already there (the branch
       is the engine; main should carry it before the flip so rollback-by-env
       doesn't depend on branch state).

@@ -36,6 +36,7 @@ import {
   pmReceiptConsumed,
   pmReceiptRows,
 } from '../lib/procurementView'
+import { asReceived, gradedUnit } from '../lib/grn'
 import { fmtDate, fmtQty, inr, toLocalInputValue } from '../lib/utils'
 import type { Grn, LedgerEntry } from '../types'
 
@@ -68,18 +69,28 @@ const blankForm = {
 
 const num = (v: NumValue) => Number(v) || 0
 
-/** `unit` is the product's own unit — pieces of coconut, kilograms of beetroot. */
+/**
+ * `unit` is the product's own unit — pieces of coconut, kilograms of beetroot. Only
+ * produce counted by the piece is graded and comes with free pieces; weighed produce
+ * asks only for what arrived, the rate and the transport.
+ */
 const numberFields = (unit: string) =>
-  [
-    ['total', `Total received (incl. free), in ${unit}`],
-    ['free', `Free ${unit} (not charged)`],
-    ['rate', `Common rate / ${unit.replace(/s$/, '')}`],
-    ['a', 'Grade A'],
-    ['b', 'Grade B'],
-    ['c', 'Grade C'],
-    ['reject', 'Rejected'],
-    ['transport', 'Transport cost'],
-  ] as const
+  gradedUnit(unit)
+    ? ([
+        ['total', `Total received (incl. free), in ${unit}`],
+        ['free', `Free ${unit} (not charged)`],
+        ['rate', `Common rate / ${unit.replace(/s$/, '')}`],
+        ['a', 'Grade A'],
+        ['b', 'Grade B'],
+        ['c', 'Grade C'],
+        ['reject', 'Rejected'],
+        ['transport', 'Transport cost'],
+      ] as const)
+    : ([
+        ['total', `Total received, in ${unit}`],
+        ['rate', `Rate / ${unit}`],
+        ['transport', 'Transport cost'],
+      ] as const)
 
 /** A packing-material receipt as the form holds it. */
 const blankPm = {
@@ -340,12 +351,16 @@ export function Procurement() {
           fields: [
             { label: 'Unit', value: viewing.uom || 'Piece' },
             { label: 'Total received', value: viewing.total },
-            { label: 'Free (not charged)', value: viewing.free || 0 },
-            { label: 'Chargeable', value: viewing.total - (viewing.free || 0) },
-            { label: 'Grade A', value: viewing.a },
-            { label: 'Grade B', value: viewing.b },
-            { label: 'Grade C', value: viewing.c },
-            { label: 'Rejected', value: viewing.reject },
+            ...(gradedUnit(viewing.uom)
+              ? [
+                  { label: 'Free (not charged)', value: viewing.free || 0 },
+                  { label: 'Chargeable', value: viewing.total - (viewing.free || 0) },
+                  { label: 'Grade A', value: viewing.a },
+                  { label: 'Grade B', value: viewing.b },
+                  { label: 'Grade C', value: viewing.c },
+                  { label: 'Rejected', value: viewing.reject },
+                ]
+              : []),
             { label: 'Accepted into stock', value: viewing.accepted },
           ],
         },
@@ -405,15 +420,19 @@ export function Procurement() {
     graded,
     ungraded,
   } = grnPreview({
-    total: num(form.total),
-    free: num(form.free),
     rate: num(form.rate),
     transport: num(form.transport),
-    a: num(form.a),
-    b: num(form.b),
-    c: num(form.c),
-    reject: num(form.reject),
+    ...asReceived({
+      uom: buying?.uom,
+      total: num(form.total),
+      free: num(form.free),
+      a: num(form.a),
+      b: num(form.b),
+      c: num(form.c),
+      reject: num(form.reject),
+    }),
   })
+  const grading = gradedUnit(buying?.uom)
 
   return (
     <div className="card">
@@ -548,7 +567,7 @@ export function Procurement() {
                       </div>
                     </td>
                     <td data-label="Grades">
-                      A {g.a} · B {g.b} · C {g.c}
+                      {gradedUnit(g.uom) ? `A ${g.a} · B ${g.b} · C ${g.c}` : 'Not graded'}
                       {!!g.reject && <div className="cell-sub">{g.reject} rejected</div>}
                     </td>
                     <td data-label="Landed Cost" className="cell-num cell-tight">
@@ -1002,7 +1021,7 @@ export function Procurement() {
         {/* Both summaries sit with the numbers they are reading, not below the notes box —
             pushed under the textarea they fell past the bottom of the modal, so the grading
             and the cost only appeared to someone who scrolled for them. */}
-        {num(form.total) > 0 && (
+        {grading && num(form.total) > 0 && (
           <div className={`note${ungraded === 0 ? '' : ' warning-note'}`}>
             {ungraded === 0 ? (
               <>
@@ -1025,7 +1044,7 @@ export function Procurement() {
         {num(form.total) > 0 && (
           <div className="note">
             Charging {chargeable} of {num(form.total)} {unit}
-            {num(form.free) > 0 ? ` — ${num(form.free)} free` : ''} · landed{' '}
+            {grading && num(form.free) > 0 ? ` — ${num(form.free)} free` : ''} · landed{' '}
             <b>{inr(previewLanded)}</b> · {previewAccepted} accepted at{' '}
             <b>{inr(previewAccepted ? previewLanded / previewAccepted : 0)}</b>/usable{' '}
             {unit.replace(/s$/, '')}
