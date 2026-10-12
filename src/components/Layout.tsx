@@ -80,30 +80,6 @@ function SaveIndicator() {
   return <span>All changes saved.</span>
 }
 
-/**
- * The shared-device sign-out (the audit's S3-1): sign out AND remove this
- * device's stored copy of the plant, so a floor tablet handed to the next
- * shift — or a revoked user's phone — leaves nothing behind. It is a separate
- * button from the plain sign-out on purpose: work saved on this device that
- * the server has not accepted dies with the wipe, so the confirm names that
- * when it is true, and nothing wipes on the ordinary paths (sign-out, session
- * expiry) — surviving to push after re-sign-in is the offline design.
- */
-function WipeSignOutButton({ onWipe }: { onWipe: () => void }) {
-  const saveStatus = useSaveStatus()
-  const confirmAndWipe = () => {
-    const warning = saveStatus.dirty
-      ? "Remove this device's stored copy of the plant and sign out? Unsaved work on this device will be LOST."
-      : "Remove this device's stored copy of the plant and sign out?"
-    if (window.confirm(warning)) onWipe()
-  }
-  return (
-    <button className="btn btn-light" type="button" onClick={confirmAndWipe}>
-      Sign out &amp; wipe
-    </button>
-  )
-}
-
 const NAV_PATHS = PAGE_CATALOG.map((p) => p.path)
 
 /**
@@ -326,9 +302,6 @@ export function Layout() {
             <button className="btn btn-light" type="button" onClick={() => void signOut()}>
               Sign out
             </button>
-            {/* Shared floor hardware's variant — the confirm inside warns when
-                unsaved work would die with the wipe. */}
-            <WipeSignOutButton onWipe={() => void signOut({ wipeDevice: true })} />
           </div>
         </div>
       </aside>
