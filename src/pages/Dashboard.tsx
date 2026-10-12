@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { buildExceptions } from '../lib/alerts'
 import { batchInputUom, batchKind, batchWastage, batchYield, fmtBulk, mainOutput } from '../lib/batches'
+import { madeOn } from '../lib/productionDates'
 import { fmtByUom, fmtRowTotal, sumByUom } from '../lib/stock'
 import { inr } from '../lib/utils'
 import { StatusBadge } from '../components/StatusBadge'
@@ -380,7 +381,7 @@ export function Dashboard() {
                     <div>
                       <b>{b.id}</b>
                       <div className="small">
-                        {main ? fmtBulk(main.qty, main.uom) : '—'} ·{' '}
+                        {madeOn(state, b.id)} · {main ? fmtBulk(main.qty, main.uom) : '—'} ·{' '}
                         {batchKind(b) === 'Melange'
                           ? 'blended'
                           : `${batchYield(b).toFixed(3)} ${unit} per unit issued`}

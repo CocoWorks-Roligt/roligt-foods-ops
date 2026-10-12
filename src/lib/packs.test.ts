@@ -5,9 +5,9 @@
  * the catalog page and the run form lean on.
  */
 import { describe, expect, it } from 'vitest'
-import { formatSize, materializePacks, packDefs, packKeyOfDef, packLabel } from './packs'
+import { blendItemName, formatSize, materializePacks, packDefs, packKeyOfDef, packLabel } from './packs'
 import { migrateState } from './migrate'
-import type { AppState, Product } from '../types'
+import type { AppState, Item, Product } from '../types'
 
 const member = (over: Partial<Product>): Product => ({
   id: 'FG-1',
@@ -136,5 +136,48 @@ describe('packKeyOfDef', () => {
   it('is the exact grouping key — same parts, same pack', () => {
     expect(packKeyOfDef('5 L BiB', 'BiB', 5, 'L')).toBe(packKeyOfDef('5 L BiB', 'BiB', 5, 'L'))
     expect(packKeyOfDef('5 L BiB', 'BiB', 5, 'L')).not.toBe(packKeyOfDef('5 L BiB', 'Glass Bottle', 5, 'L'))
+  })
+})
+
+describe('blendItemName', () => {
+  const bulk = (id: string, name: string, qcExempt?: boolean) =>
+    ({ id, name, type: 'Semi Finished', uom: 'Litre', qcExempt }) as Item
+  const items = [
+    bulk('SF-0009', 'Cold Brew Coffee', true),
+    bulk('SF-0002', 'Tender Coconut Water'),
+    { id: 'FG-0011', name: 'Vanilla Smoothie', type: 'Finished Goods', uom: 'Piece' } as Item,
+  ]
+
+  it('is the recipe name when nothing that goes through QC shares it', () => {
+    expect(blendItemName(items, 'Vanilla Smoothie', 'SF-MLG-0005')).toBe('Vanilla Smoothie')
+    // a same-named component that skips QC never shows on the QC page
+    expect(blendItemName(items, 'Cold Brew Coffee', 'SF-MLG-0003')).toBe('Cold Brew Coffee')
+  })
+
+  it('reads "(blend)" when a bulk that goes through QC already has the name', () => {
+    expect(blendItemName(items, ' tender coconut water ', 'SF-MLG-0009')).toBe('tender coconut water (blend)')
+  })
+
+  it('does not clash with itself', () => {
+    expect(blendItemName([...items, bulk('SF-MLG-0005', 'Vanilla Smoothie')], 'Vanilla Smoothie', 'SF-MLG-0005')).toBe(
+      'Vanilla Smoothie',
+    )
+  })
+})
+
+describe('migrateState renames minted blend bulks', () => {
+  it('drops the minted "(bulk)" and leaves a chosen name alone', () => {
+    const next = migrateState({
+      items: [
+        { id: 'SF-MLG-0001', name: 'Pinacolada (bulk)', type: 'Semi Finished', uom: 'Litre' },
+        { id: 'SF-MLG-0002', name: 'House Smoothie Base', type: 'Semi Finished', uom: 'Litre' },
+      ],
+      melanges: [
+        { id: 'MLG-0001', name: 'Pinacolada', uom: 'Litre', outputItem: 'SF-MLG-0001', components: [], status: 'Active' },
+        { id: 'MLG-0002', name: 'House Smoothie', uom: 'Litre', outputItem: 'SF-MLG-0002', components: [], status: 'Active' },
+      ],
+    } as unknown as Partial<AppState>)
+    expect(next.items.find((i) => i.id === 'SF-MLG-0001')?.name).toBe('Pinacolada')
+    expect(next.items.find((i) => i.id === 'SF-MLG-0002')?.name).toBe('House Smoothie Base')
   })
 })

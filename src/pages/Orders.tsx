@@ -28,6 +28,7 @@ import {
 import { StatusBadge } from '../components/StatusBadge'
 import { useApp } from '../context/AppContext'
 import { bulkItemOf, formatSize } from '../lib/packs'
+import { lotDates } from '../lib/productionDates'
 import { locationLabel, parseRowKey, rowKey } from '../lib/stock'
 import {
   drinkCatalog,
@@ -709,6 +710,10 @@ export function Orders() {
                     <div className="subform-row" key={rowKey(r)}>
                       <span className="subform-unit" style={{ display: 'block' }}>
                         <b>{r.lot}</b>
+                        {(() => {
+                          const dates = lotDates(state, r.lot, { sku: r.item, expiry: r.expiry, location: r.location })
+                          return dates ? <div className="small">{dates}</div> : null
+                        })()}
                         <div className="small">
                           {locationLabel(state, r.location)} · {fmtQty(r.qty)} on hand ·
                           exp {r.shownExpiry || '—'}

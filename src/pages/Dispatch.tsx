@@ -26,6 +26,7 @@ import {
   inHoldArea,
 } from '../lib/stock'
 import { useLinkedView } from '../lib/linkedView'
+import { dispatchDates, lotDates, stockIdDates } from '../lib/productionDates'
 import { stockIdOfRow } from '../lib/stockIds'
 import { uploadAttachment } from '../lib/uploads'
 import { fmtDate, toLocalInputValue } from '../lib/utils'
@@ -167,6 +168,7 @@ export function DispatchPage() {
           fields: [
             { label: 'SKU', value: viewing.sku },
             { label: 'Batch', value: <DocLink doc={viewing.batchId} /> },
+            { label: 'Packed / extracted', value: dispatchDates(state, viewing) },
             { label: 'Quantity', value: viewing.qty },
             { label: 'Expiry', value: viewing.expiry || expiryFor(state, viewing.batchId, viewing.sku) },
           ],
@@ -303,28 +305,36 @@ export function DispatchPage() {
               </tr>
             </thead>
             <tbody>
-              {packed.map((r) => (
-                <tr key={rowKey(r)} className="selectable-row">
-                  <td data-label="Stock ID">
-                    <b className="cell-id">{stockIdOfRow(state, r)}</b>
-                    <div className="cell-sub">{getItemName(r.item)}</div>
-                  </td>
-                  <td data-label="Batch / Lot">{r.lot}</td>
-                  <td data-label="Location">{locationLabel(state, r.location)}</td>
-                  <td data-label="Available" className="cell-num cell-tight">
-                    {r.qty} {r.uom}
-                  </td>
-                  <td data-label="Expiry" className="cell-tight">{r.shownExpiry || '—'}</td>
-                  <td className="cell-actions">
-                    <button
-                      className="btn btn-light"
-                      onClick={() => openForm(rowKey(r))}
-                    >
-                      Dispatch
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {packed.map((r) => {
+                const sid = stockIdOfRow(state, r)
+                const dates =
+                  stockIdDates(state, sid) || lotDates(state, r.lot, { sku: r.item, expiry: r.expiry, location: r.location })
+                return (
+                  <tr key={rowKey(r)} className="selectable-row">
+                    <td data-label="Stock ID">
+                      <b className="cell-id">{sid}</b>
+                      <div className="cell-sub">{getItemName(r.item)}</div>
+                    </td>
+                    <td data-label="Batch / Lot">
+                      {r.lot}
+                      {dates ? <div className="cell-sub">{dates}</div> : null}
+                    </td>
+                    <td data-label="Location">{locationLabel(state, r.location)}</td>
+                    <td data-label="Available" className="cell-num cell-tight">
+                      {r.qty} {r.uom}
+                    </td>
+                    <td data-label="Expiry" className="cell-tight">{r.shownExpiry || '—'}</td>
+                    <td className="cell-actions">
+                      <button
+                        className="btn btn-light"
+                        onClick={() => openForm(rowKey(r))}
+                      >
+                        Dispatch
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -399,6 +409,10 @@ export function DispatchPage() {
                   <td data-label="Batch">
                     <DocLink doc={d.batchId} />
                     <div className="cell-sub cell-id">{d.sku}</div>
+                    {(() => {
+                      const dates = dispatchDates(state, d)
+                      return dates ? <div className="cell-sub">{dates}</div> : null
+                    })()}
                     {d.notes ? <div className="small">{d.notes}</div> : null}
                     {d.deliveryNote ? <div className="small">Delivery note: {d.deliveryNote}</div> : null}
                   </td>
@@ -515,12 +529,18 @@ export function DispatchPage() {
               onChange={(e) => setForm((f) => ({ ...f, stock: e.target.value }))}
             >
               <option value="">Select packed stock</option>
-              {options.map((r) => (
-                <option key={rowKey(r)} value={rowKey(r)}>
-                  {stockIdOfRow(state, r)} · {getItemName(r.item)} · {locationLabel(state, r.location)} · {r.qty} available · exp{' '}
-                  {r.shownExpiry || 'n/a'}
-                </option>
-              ))}
+              {options.map((r) => {
+                const sid = stockIdOfRow(state, r)
+                const dates =
+                  stockIdDates(state, sid) || lotDates(state, r.lot, { sku: r.item, expiry: r.expiry, location: r.location })
+                return (
+                  <option key={rowKey(r)} value={rowKey(r)}>
+                    {sid} · {getItemName(r.item)} · {locationLabel(state, r.location)} · {r.qty} available · exp{' '}
+                    {r.shownExpiry || 'n/a'}
+                    {dates ? ` · ${dates}` : ''}
+                  </option>
+                )
+              })}
             </Select>
           </div>
           <div className="field">

@@ -32,6 +32,7 @@ import {
   storageTypeCount,
   storageTypeLabel,
 } from '../lib/stock'
+import { stockIdDates } from '../lib/productionDates'
 import { stockIdOfRow } from '../lib/stockIds'
 import { fmtDate, fmtQty, inr, QTY_EPSILON, statusLabel } from '../lib/utils'
 import type { StockRow, StorageLocation, StorageType } from '../types'
@@ -345,28 +346,33 @@ export function Storage() {
                       button. A stacked list carries the same detail and fits. */}
                   {open && inside ? (
                     <div className="room-stock">
-                      {inside.rows.map((r) => (
-                        <div className="room-stock-row" key={stockRowKey(r)}>
-                          <div>
-                            <b>{getItemName(r.item)}</b>
-                            <div className="small">
-                              {stockIdOfRow(state, r)} · {itemTypeLabel(r.itemType)} ·{' '}
-                              {statusLabel(r.status)}
-                            </div>
-                            <div className="small">
-                              {fmtQty(r.qty)} {r.uom} · {inr(r.value)}
-                            </div>
-                            {!roomSuits(r.itemType, s.type, r.status) ? (
+                      {inside.rows.map((r) => {
+                        const sid = stockIdOfRow(state, r)
+                        const dates = stockIdDates(state, sid)
+                        return (
+                          <div className="room-stock-row" key={stockRowKey(r)}>
+                            <div>
+                              <b>{getItemName(r.item)}</b>
                               <div className="small">
-                                <b>Not usually kept in a {storageTypeLabel(s.type).toLowerCase()}</b>
+                                {sid} · {itemTypeLabel(r.itemType)} ·{' '}
+                                {statusLabel(r.status)}
+                                {dates ? ` · ${dates}` : ''}
                               </div>
-                            ) : null}
+                              <div className="small">
+                                {fmtQty(r.qty)} {r.uom} · {inr(r.value)}
+                              </div>
+                              {!roomSuits(r.itemType, s.type, r.status) ? (
+                                <div className="small">
+                                  <b>Not usually kept in a {storageTypeLabel(s.type).toLowerCase()}</b>
+                                </div>
+                              ) : null}
+                            </div>
+                            <button className="btn btn-light" type="button" onClick={() => setMoving(r)}>
+                              Move
+                            </button>
                           </div>
-                          <button className="btn btn-light" type="button" onClick={() => setMoving(r)}>
-                            Move
-                          </button>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   ) : null}
 
@@ -468,6 +474,10 @@ export function Storage() {
                     <td data-label="When">{fmtDate(m.time)}</td>
                     <td data-label="Stock ID" className="cell-id">
                       {m.stockId}
+                      {(() => {
+                        const dates = stockIdDates(state, m.stockId)
+                        return dates ? <div className="cell-sub">{dates}</div> : null
+                      })()}
                     </td>
                     <td data-label="Item">{m.item}</td>
                     <td data-label="Quantity" className="cell-num">

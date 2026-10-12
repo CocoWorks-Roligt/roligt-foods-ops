@@ -99,7 +99,7 @@ describe('blend recipes', () => {
     ])
     // the recipe owns the semi-finished bulk it is booked as
     expect(draft.items.find((i) => i.id === 'SF-MEL-0001')).toMatchObject({
-      name: 'ABC Juice (bulk)',
+      name: 'ABC Juice',
       type: 'Semi Finished',
     })
   })

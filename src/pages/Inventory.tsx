@@ -15,6 +15,7 @@ import {
   stockRowKey,
   storageTypeLabel,
 } from '../lib/stock'
+import { madeOn } from '../lib/productionDates'
 import { resolveStockId, stockIdOfRow, stockOrigin } from '../lib/stockIds'
 import { fmtDate, fmtQty, inr, QTY_EPSILON } from '../lib/utils'
 import type { StockRow, StorageLocation } from '../types'
@@ -128,6 +129,7 @@ export function Inventory() {
           places,
           value: places.reduce((a, p) => a + p.value, 0),
           origin: ref ? stockOrigin(state, ref) : undefined,
+          made: ref?.kind === 'pack' ? madeOn(state, ref.batchId) : '',
         }
       })
       .sort(
@@ -270,6 +272,7 @@ export function Inventory() {
                             {s.origin.verb} {fmtDate(s.origin.when)}
                           </div>
                         ) : null}
+                        {s.made ? <div className="cell-sub">{s.made}</div> : null}
                       </td>
                       <td data-label="Product">
                         <div>{getItemName(s.item)}</div>

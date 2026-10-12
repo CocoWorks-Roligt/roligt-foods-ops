@@ -22,6 +22,7 @@ import {
   stockRowKey,
   storageTypeLabel,
 } from '../lib/stock'
+import { stockIdDates } from '../lib/productionDates'
 import { stockIdOfRow } from '../lib/stockIds'
 import { fmtDate, fmtQty, statusLabel } from '../lib/utils'
 import type { StockRow } from '../types'
@@ -45,12 +46,14 @@ function MoveStockForm({ row, onClose }: { row: StockRow; onClose: () => void })
   const picked = choices.find((c) => c.value === to)?.area
   const unusual = picked && !roomSuits(row.itemType, picked.type, row.status) ? picked : undefined
   const expiry = displayExpiry(state, row)
+  const stockId = stockIdOfRow(state, row)
+  const made = stockIdDates(state, stockId)
   const kind = itemTypeLabel(row.itemType).toLowerCase()
 
   return (
     <Modal
       open
-      title={`Move ${getItemName(row.item)} — ${stockIdOfRow(state, row)}`}
+      title={`Move ${getItemName(row.item)} — ${stockId}`}
       saveLabel="Move stock"
       onClose={onClose}
       onSave={() => {
@@ -83,6 +86,7 @@ function MoveStockForm({ row, onClose }: { row: StockRow; onClose: () => void })
             {statusLabel(row.status)}
             {expiry ? ` · best before ${fmtDate(expiry)}` : ''}
           </div>
+          {made ? <div className="small">{made}</div> : null}
         </div>
         <div className="field">
           <label>Quantity to move ({row.uom})</label>

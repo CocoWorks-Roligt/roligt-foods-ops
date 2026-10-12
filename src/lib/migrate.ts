@@ -2,7 +2,7 @@ import type { AppState, BomLine, BulkOutputLine, StorageType, Vendor } from '../
 import { batchInputQty, mainOutput, usableYield } from './batches'
 import { batchDisposition } from './posting'
 import { stockIdFor } from './stockIds'
-import { materializePacks, toBase } from './packs'
+import { blendItemName, materializePacks, toBase } from './packs'
 import {
   DEFAULT_STICKER_HEIGHT_MM,
   DEFAULT_STICKER_WIDTH_MM,
@@ -357,10 +357,16 @@ export function migrateState(raw: unknown): AppState {
   for (const m of next.melanges) {
     // 'Retired' was a third word for a state the rest of the app calls Inactive.
     if (m.status === 'Retired') m.status = 'Inactive'
-    if (next.items.some((i) => i.id === m.outputItem)) continue
+    const own = next.items.find((i) => i.id === m.outputItem)
+    if (own) {
+      // Blend bulks used to be minted "<recipe> (bulk)" whatever else was called that.
+      // Only that minted form is renamed — a name someone chose is theirs.
+      if (own.name === `${m.name} (bulk)`) own.name = blendItemName(next.items, m.name, own.id)
+      continue
+    }
     next.items.push({
       id: m.outputItem,
-      name: `${m.name} (bulk)`,
+      name: blendItemName(next.items, m.name, m.outputItem),
       type: 'Semi Finished',
       uom: m.uom || 'Litre',
       lotControlled: true,

@@ -17,6 +17,7 @@ import {
   type ReportDef,
 } from '../lib/reports/index.ts'
 import { gradedUnit } from '../lib/grn'
+import { exportDates, lotDates, lotPackedDates, madeDate, madeOn } from '../lib/productionDates'
 import { fmtByUom } from '../lib/stock'
 import { isWholeMonth, monthLabel, monthOf, windowLabel } from '../lib/reports/params.ts'
 import {
@@ -555,8 +556,8 @@ function BatchWiseView({ def }: { def: ReportDef }) {
 
   const columns: ExportColumn<typeof rows[number]>[] = [
     { header: 'Batch', value: (r) => r.batchId },
-    { header: 'Date', value: (r) => r.date },
-    { header: 'Kind', value: (r) => r.kind },
+    { header: 'Extracted / blended on', value: (r) => r.date },
+    { header: 'Kind', value: (r) => (r.kind === 'Melange' ? 'Blend' : r.kind) },
     { header: 'Product', value: (r) => r.label },
     { header: 'Input', value: (r) => r.inputLabel },
     { header: 'Spoiled', value: (r) => r.spoiled },
@@ -676,6 +677,8 @@ function DispatchView({ def }: { def: ReportDef }) {
   const columns: ExportColumn<typeof rows[number]>[] = [
     { header: group === 'month' ? 'Month' : 'Batch', value: (r) => r.group },
     { header: 'SKU', value: (r) => r.skuName },
+    { header: 'Extracted / blended on', value: (r) => exportDates(r.madeDates) },
+    { header: 'Packed on', value: (r) => exportDates(r.packedDates) },
     { header: 'Qty', value: (r) => `${r.qty} ${r.uom}` },
     { header: 'Delivered', value: (r) => r.deliveredQty },
     { header: 'Outstanding', value: (r) => r.pendingQty },
@@ -738,7 +741,10 @@ function DispatchView({ def }: { def: ReportDef }) {
                     {r.skuName}
                     <div className="cell-sub">{r.sku}</div>
                   </td>
-                  <td data-label="Batch"><DocLink doc={r.batchId} /></td>
+                  <td data-label="Batch">
+                    <DocLink doc={r.batchId} />
+                    {madeOn(state, r.batchId) ? <div className="cell-sub">{madeOn(state, r.batchId)}</div> : null}
+                  </td>
                   <td data-label="Qty" className="cell-num">
                     {fmtQty(r.qty)} {r.uom}
                   </td>
@@ -969,6 +975,8 @@ function StorageView({ def }: { def: ReportDef }) {
     { header: 'Item', value: (r) => r.name },
     { header: 'Code', value: (r) => r.item },
     { header: 'Lot', value: (r) => r.lot },
+    { header: 'Extracted / blended on', value: (r) => madeDate(state, r.lot) },
+    { header: 'Packed on', value: (r) => lotPackedDates(state, r.lot, { sku: r.item, expiry: r.expiry, location: r.location }) },
     { header: 'Storage area', value: (r) => r.locationLabel },
     { header: 'Status', value: (r) => r.status },
     { header: 'Qty', value: (r) => `${r.qty} ${r.uom}` },
@@ -1040,7 +1048,10 @@ function StorageView({ def }: { def: ReportDef }) {
                     <div className="cell-sub">{r.item}</div>
                   </td>
                   <td data-label="Storage area">{r.locationLabel}</td>
-                  <td data-label="Lot">{r.lot}</td>
+                  <td data-label="Lot">
+                    {r.lot}
+                    {lotDates(state, r.lot, { sku: r.item, expiry: r.expiry, location: r.location }) ? <div className="cell-sub">{lotDates(state, r.lot, { sku: r.item, expiry: r.expiry, location: r.location })}</div> : null}
+                  </td>
                   <td data-label="Status">{r.status}</td>
                   <td data-label="On hand" className="cell-num">
                     {fmtQty(r.qty)} {r.uom}
@@ -1225,7 +1236,10 @@ function QualityView({ def }: { def: ReportDef }) {
                   <tbody>
                     {report.partlyReleased.map((p) => (
                       <tr key={p.batchId}>
-                        <td data-label="Batch"><DocLink doc={p.batchId} /></td>
+                        <td data-label="Batch">
+                          <DocLink doc={p.batchId} />
+                          {madeOn(state, p.batchId) ? <div className="cell-sub">{madeOn(state, p.batchId)}</div> : null}
+                        </td>
                         <td data-label="Products">
                           {p.outputs.map((o, i) => (
                             <span key={o.item}>

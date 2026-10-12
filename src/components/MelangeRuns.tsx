@@ -22,6 +22,7 @@ import { StatusBadge } from './StatusBadge'
 import { useApp } from '../context/AppContext'
 import { batchLabel, batchLossToMain, batchOutputs, blendComponentItems, fmtBatchInput, fmtBulk, itemUom, mainOutput } from '../lib/batches'
 import { useLinkedView } from '../lib/linkedView'
+import { madeOn } from '../lib/productionDates'
 import { DRAWABLE, defaultBulkStore, postedLocation } from '../lib/posting'
 import {
   itemName as lookupItemName,
@@ -192,17 +193,23 @@ export function MelangeRuns() {
   const viewQc = viewing ? state.qcs.find((q) => q.batchId === viewing.id) : undefined
 
   /** Every pack filled from a run, each linked to the packing run that filled it. */
+  /** " · Extracted 1 Oct 2026" for a component lot made here, else nothing. */
+  const madeNote = (lot: string) => {
+    const made = madeOn(state, lot)
+    return made ? ` · ${made}` : ''
+  }
+
   const packedFrom = (batchId: string) => {
     const lines = state.packingRuns
       .filter((r) => r.batchId === batchId)
-      .flatMap((r) => r.lines.map((l) => ({ run: r.id, l })))
+      .flatMap((r) => r.lines.map((l) => ({ run: r.id, date: r.date, l })))
     if (!lines.length) return 'Not packed yet'
     return (
       <>
-        {lines.map(({ run, l }, i) => (
+        {lines.map(({ run, date, l }, i) => (
           <Fragment key={`${run}-${l.sku}-${i}`}>
             {i ? ' · ' : ''}
-            {l.packs} × {itemName(l.sku)} (<DocLink doc={run} />)
+            {l.packs} × {itemName(l.sku)} (<DocLink doc={run} /> · packed {fmtDate(date)})
           </Fragment>
         ))}
       </>
@@ -240,6 +247,7 @@ export function MelangeRuns() {
             value: (
               <>
                 {fmtBulk(l.qty, l.uom || 'Litre')} from <DocLink doc={l.lot} /> @ {inr(l.unitCost)}
+                {madeNote(l.lot)}
               </>
             ),
             wide: true,
@@ -392,7 +400,11 @@ export function MelangeRuns() {
                         {(b.blendLines || []).map((l) => (
                           <div key={`${l.item}-${l.lot}`}>
                             {fmtBulk(l.qty, l.uom || uom)} {itemName(l.item)}
-                            <span className="small cell-id"> · <DocLink doc={l.lot} /></span>
+                            <span className="small cell-id">
+                              {' · '}
+                              <DocLink doc={l.lot} />
+                              {madeNote(l.lot)}
+                            </span>
                           </div>
                         ))}
                       </td>
@@ -600,6 +612,7 @@ export function MelangeRuns() {
                         {lots.map((l) => (
                           <option key={l.lot} value={l.lot}>
                             {l.lot} · {fmtQty(l.qty)} {l.uom} · {l.statuses.join(', ')}
+                            {madeNote(l.lot)}
                           </option>
                         ))}
                       </Select>

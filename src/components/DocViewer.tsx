@@ -9,6 +9,7 @@ import { useApp } from '../context/AppContext'
 import { batchLabel, batchOutputs, fmtBatchInput, fmtBulk } from '../lib/batches'
 import { categoryTitle, qcAttachments } from '../lib/qcCategories'
 import { docRef } from '../lib/links'
+import { dispatchDates, madeOn, productionDateRows, productionDates } from '../lib/productionDates'
 import { itemName } from '../lib/stock'
 import { scoreSensory } from '../lib/sensory'
 import { fmtDate, fmtQty, inr } from '../lib/utils'
@@ -108,6 +109,7 @@ function docSections(state: AppState, id: string): { title: string; sections: De
             fields: [
               { label: 'QC', value: q.id },
               { label: 'Batch', value: <DocLink doc={q.batchId} /> },
+              ...productionDateRows(productionDates(state, q.batchId, q.item)).map(([label, value]) => ({ label, value })),
               { label: 'Product tested', value: itemName(state, q.item || '') },
               { label: 'Disposition', value: <StatusBadge value={q.disposition} /> },
               { label: 'Reviewed by', value: q.reviewedBy || '—' },
@@ -130,6 +132,7 @@ function docSections(state: AppState, id: string): { title: string; sections: De
               { label: 'Run', value: r.id },
               { label: 'Packed on', value: fmtDate(r.date) },
               { label: 'Batch', value: <DocLink doc={r.batchId} /> },
+              ...(madeOn(state, r.batchId) ? [{ label: 'Batch made', value: madeOn(state, r.batchId) }] : []),
               { label: 'Status', value: <StatusBadge value={r.status} /> },
               ...r.lines.map((l) => ({
                 label: itemName(state, l.sku),
@@ -155,6 +158,7 @@ function docSections(state: AppState, id: string): { title: string; sections: De
               { label: 'Dispatched', value: fmtDate(d.dispatchTime) },
               { label: 'Vehicle', value: d.vehicle || '—' },
               { label: 'Quantity', value: `${fmtQty(d.qty)} ${itemName(state, d.sku)} from ${d.batchId}` },
+              ...(dispatchDates(state, d) ? [{ label: 'Production dates', value: dispatchDates(state, d) }] : []),
               { label: 'Status', value: <StatusBadge value={d.status} /> },
               { label: 'Received by (POD)', value: d.pod || '—' },
             ],
@@ -199,7 +203,7 @@ function docSections(state: AppState, id: string): { title: string; sections: De
               { label: 'Issued to', value: i.recipient || '—' },
               ...i.lines.map((l) => ({
                 label: itemName(state, l.item),
-                value: `${fmtQty(l.qty)} ${l.uom} · ${l.lot}`,
+                value: `${fmtQty(l.qty)} ${l.uom} · ${l.lot}${madeOn(state, l.lot) ? ` · ${madeOn(state, l.lot)}` : ''}`,
                 wide: true,
               })),
             ],
@@ -240,6 +244,7 @@ function docSections(state: AppState, id: string): { title: string; sections: De
               { label: 'Report', value: r.id },
               { label: 'Type', value: categoryTitle(state, r.category) },
               { label: 'Batch', value: r.batchId ? <DocLink doc={r.batchId} /> : r.batchLotDetails || '—' },
+              ...(r.batchId ? productionDateRows(productionDates(state, r.batchId)).map(([label, value]) => ({ label, value })) : []),
               { label: 'Sample', value: r.sampleName || '—' },
               { label: 'Date', value: fmtDate(r.scores ? r.sampleDate : r.issueDate) },
               ...(r.scores

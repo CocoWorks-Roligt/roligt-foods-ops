@@ -19,6 +19,7 @@ import { EmptyState } from './EmptyState'
 import { SendStockModal } from './SendStockModal'
 import { useApp } from '../context/AppContext'
 import { useLinkedView } from '../lib/linkedView'
+import { madeOn } from '../lib/productionDates'
 import { sendable } from '../lib/npd'
 import { defaultBulkStore, isByProduct, postedLocation } from '../lib/posting'
 
@@ -163,14 +164,14 @@ export function ExtractionBatches() {
   const packedFrom = (batchId: string) => {
     const lines = state.packingRuns
       .filter((r) => r.batchId === batchId)
-      .flatMap((r) => r.lines.map((l) => ({ run: r.id, l })))
+      .flatMap((r) => r.lines.map((l) => ({ run: r.id, date: r.date, l })))
     if (!lines.length) return 'Not packed yet'
     return (
       <>
-        {lines.map(({ run, l }, i) => (
+        {lines.map(({ run, date, l }, i) => (
           <Fragment key={`${run}-${l.sku}-${i}`}>
             {i ? ' · ' : ''}
-            {l.packs} × {itemName(l.sku)} (<DocLink doc={run} />)
+            {l.packs} × {itemName(l.sku)} (<DocLink doc={run} /> · packed {fmtDate(date)})
           </Fragment>
         ))}
       </>
@@ -186,7 +187,7 @@ export function ExtractionBatches() {
         {blends.map((b, i) => (
           <Fragment key={b.id}>
             {i ? ' · ' : ''}
-            <DocLink doc={b.id} /> {batchLabel(state, b)}
+            <DocLink doc={b.id} /> {batchLabel(state, b)} · blended {fmtDate(b.date)}
           </Fragment>
         ))}
       </>
@@ -574,7 +575,7 @@ export function ExtractionBatches() {
 
       <DetailView
         open={!!viewing}
-        title={viewing ? `${viewing.id} · ${batchLabel(state, viewing)}` : 'Batch'}
+        title={viewing ? [viewing.id, batchLabel(state, viewing), madeOn(state, viewing.id)].filter(Boolean).join(' · ') : 'Batch'}
         sections={viewSections}
         onClose={closeView}
         record={viewing?.id}

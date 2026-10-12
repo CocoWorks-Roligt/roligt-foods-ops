@@ -34,6 +34,7 @@ import { SendStockModal } from '../components/SendStockModal'
 import { describeIssue, type IssueLineInput } from '../lib/issues'
 import { isNpdUse, sendable } from '../lib/npd'
 import { useLinkedView } from '../lib/linkedView'
+import { lotDates } from '../lib/productionDates'
 import { itemName as lookupItemName, locationLabel, NPD_STATUS, stockRowKey } from '../lib/stock'
 import { fmtDate, fmtQty, inr, QTY_EPSILON, toLocalInputValue, statusLabel } from '../lib/utils'
 import { ISSUE_REASONS, type IssueReason, type StockIssue, type StockRow } from '../types'
@@ -54,6 +55,13 @@ const rowRef = (r: { lot: string; location: string; status: string; expiry?: str
 
 export function StockIssues() {
   const { state, rows, createStockIssue, updateStockIssue, deleteStockIssue } = useApp()
+  /** When a lot was made; finished goods read the packing runs that filled that shelf. */
+  const datesOf = (r: Pick<StockRow, 'item' | 'itemType' | 'lot' | 'location'> & { expiry?: string }) =>
+    lotDates(
+      state,
+      r.lot,
+      r.itemType === 'Finished Goods' ? { sku: r.item, expiry: r.expiry, location: r.location } : undefined,
+    )
 
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState(false)
@@ -423,6 +431,10 @@ export function StockIssues() {
                         {r.lot} · {locationLabel(state, r.location)} · {statusLabel(r.status)} ·{' '}
                         {fmtQty(r.qty)} {r.uom}
                         {r.expiry ? ` · exp ${fmtDate(r.expiry)}` : ''}
+                        {(() => {
+                          const dates = datesOf(r)
+                          return dates ? ` · ${dates}` : ''
+                        })()}
                       </option>
                     ))}
                   </Select>
@@ -497,6 +509,10 @@ export function StockIssues() {
                   {r.lot} · {locationLabel(state, r.location)} · {statusLabel(r.status)} ·{' '}
                   {fmtQty(r.qty)} {r.uom}
                   {r.expiry ? ` · exp ${fmtDate(r.expiry)}` : ''}
+                  {(() => {
+                    const dates = datesOf(r)
+                    return dates ? ` · ${dates}` : ''
+                  })()}
                 </option>
               ))}
             </Select>
@@ -555,6 +571,10 @@ export function StockIssues() {
                       </td>
                       <td data-label="Lot">
                         <DocLink doc={l.lot} />
+                        {(() => {
+                          const dates = datesOf(l)
+                          return dates ? <div className="cell-sub">{dates}</div> : null
+                        })()}
                       </td>
                       <td data-label="From">{locationLabel(state, l.location)}</td>
                       <td data-label="Status" className="cell-tight">

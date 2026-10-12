@@ -22,6 +22,7 @@ import { useApp } from '../context/AppContext'
 import { describeIssue, type IssueLineInput, type StockIssueInput } from '../lib/issues'
 import { useLinkedView } from '../lib/linkedView'
 import { isNpdUse, monthOf, npdAreas, npdMonthReport, npdRows } from '../lib/npd'
+import { exportDates, lotDates, madeDate, madeOn, packedRunDates } from '../lib/productionDates'
 import { fmtRowTotal, itemName as lookupItemName, locationLabel, NPD_STATUS, stockRowKey } from '../lib/stock'
 import { fmtDate, fmtQty, inr, nowISO, QTY_EPSILON, toLocalInputValue } from '../lib/utils'
 import { keyed, keyedAll, bareAll, type Keyed } from '../lib/rows'
@@ -41,6 +42,13 @@ const monthLabel = (month: string) => {
 
 export function Npd() {
   const { state, createStockIssue, updateStockIssue, deleteStockIssue } = useApp()
+  /** When a lot was made; finished goods read the packing runs that filled that shelf. */
+  const datesOf = (r: Pick<StockRow, 'item' | 'itemType' | 'lot' | 'location'> & { expiry?: string }) =>
+    lotDates(
+      state,
+      r.lot,
+      r.itemType === 'Finished Goods' ? { sku: r.item, expiry: r.expiry, location: r.location } : undefined,
+    )
   const itemName = (id: string) => lookupItemName(state, id)
 
   const held = useMemo(() => npdRows(state), [state])
@@ -222,6 +230,10 @@ export function Npd() {
                     </td>
                     <td data-label="Lot">
                       <DocLink doc={r.lot} />
+                      {(() => {
+                        const dates = datesOf(r)
+                        return dates ? <div className="cell-sub">{dates}</div> : null
+                      })()}
                     </td>
                     <td data-label="Kept in">{locationLabel(state, r.location)}</td>
                     <td data-label="On hand" className="cell-num cell-tight">
@@ -329,6 +341,20 @@ export function Npd() {
                 { header: 'Used for', value: (u: StockIssue) => u.npdPurpose || 'Other' },
                 { header: 'Project', value: (u: StockIssue) => u.recipient || '' },
                 { header: 'What was used', value: (u: StockIssue) => describeIssue(state, u.lines) },
+                {
+                  header: 'Extracted / blended on',
+                  value: (u: StockIssue) => exportDates(u.lines.map((l) => madeDate(state, l.lot)), fmtDate),
+                },
+                {
+                  header: 'Packed on',
+                  value: (u: StockIssue) =>
+                    exportDates(
+                      u.lines
+                        .filter((l) => l.itemType === 'Finished Goods')
+                        .flatMap((l) => packedRunDates(state, l.lot, { sku: l.item, expiry: l.expiry, location: l.location })),
+                      fmtDate,
+                    ),
+                },
                 { header: 'Reason', value: (u: StockIssue) => u.notes || '' },
                 { header: 'Value', value: (u: StockIssue) => Number(u.value.toFixed(2)) },
               ]}
@@ -466,6 +492,10 @@ export function Npd() {
                     <td data-label="Item">{r.name}</td>
                     <td data-label="Lot">
                       <DocLink doc={r.lot} />
+                      {(() => {
+                        const dates = madeOn(state, r.lot)
+                        return dates ? <div className="cell-sub">{dates}</div> : null
+                      })()}
                     </td>
                     <td data-label="From">
                       {r.from}
@@ -576,6 +606,10 @@ export function Npd() {
                       <option key={rowRef(r)} value={rowRef(r)}>
                         {r.lot} · {locationLabel(state, r.location)} · {fmtQty(r.qty)} {r.uom}
                         {r.expiry ? ` · exp ${fmtDate(r.expiry)}` : ''}
+                        {(() => {
+                          const dates = datesOf(r)
+                          return dates ? ` · ${dates}` : ''
+                        })()}
                       </option>
                     ))}
                   </Select>
@@ -653,6 +687,10 @@ export function Npd() {
                       <td data-label="Item">{itemName(l.item)}</td>
                       <td data-label="Lot">
                         <DocLink doc={l.lot} />
+                        {(() => {
+                          const dates = datesOf(l)
+                          return dates ? <div className="cell-sub">{dates}</div> : null
+                        })()}
                       </td>
                       <td data-label="From">{locationLabel(state, l.location)}</td>
                       <td data-label="Qty" className="cell-tight">

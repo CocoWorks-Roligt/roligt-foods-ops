@@ -18,6 +18,7 @@ import { useApp } from '../context/AppContext'
 import { bulkItems, fmtBulk, itemUom } from '../lib/batches'
 import { bulkItemOf, formatSize, packLabel } from '../lib/packs'
 import { useLinkedView } from '../lib/linkedView'
+import { madeOn } from '../lib/productionDates'
 import { DRAWABLE, defaultPackStore, packingNeeds, pmAvailable, sampleBulk } from '../lib/posting'
 import { PackDefDialog } from './products/PackDefDialog'
 import { addDays, retentionDays, sampleProductName, sampleStatus } from '../lib/controlSamples'
@@ -299,6 +300,7 @@ export function Packing() {
             { label: 'Run', value: viewing.id },
             { label: 'Packed on', value: fmtDate(viewing.date) },
             { label: 'Batch', value: <DocLink doc={viewing.batchId} /> },
+            { label: 'Batch made', value: madeOn(state, viewing.batchId) || '—' },
             { label: 'Packed from', value: itemName(runBulk(viewing)) },
             { label: 'Status', value: viewing.status },
             { label: 'Batch QC', value: viewBatch?.status },
@@ -433,6 +435,7 @@ export function Packing() {
                   <td data-label="Date">{fmtDate(r.date)}</td>
                   <td data-label="Batch">
                     <DocLink doc={r.batchId} />
+                    {madeOn(state, r.batchId) && <div className="cell-sub">{madeOn(state, r.batchId)}</div>}
                   </td>
                   <td data-label="From">{itemName(runBulk(r))}</td>
                   <td data-label="Bulk Drawn">{fmtBulk(r.drawn, itemUom(state, runBulk(r)))}</td>
@@ -556,6 +559,7 @@ export function Packing() {
               {packableBatches.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.id} · {(bulkByBatch.get(b.id) || 0).toFixed(2)} {bulkUom} left · {b.status}
+                  {madeOn(state, b.id) ? ` · ${madeOn(state, b.id)}` : ''}
                 </option>
               ))}
             </Select>
@@ -838,6 +842,7 @@ export function Packing() {
           <div className={`note${willDraw > available + QTY_EPSILON ? ' warning-note' : ''}`}>
             Drawing {fmtBulk(willDraw, bulkUom)} of {fmtBulk(available, bulkUom)} available in{' '}
             {batchId}
+            {madeOn(state, batchId) ? ` (${madeOn(state, batchId)})` : ''}
             {willDraw > available + QTY_EPSILON ? ' — more than the batch has left.' : '.'}
           </div>
         )}

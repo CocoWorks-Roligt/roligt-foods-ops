@@ -18,6 +18,7 @@ import type { AppState } from '../../types.ts'
 import type { ReportWindow } from './params.ts'
 import { inWindow } from './params.ts'
 import { localDay } from '../utils.ts'
+import { dispatchRuns } from '../stockIds.ts'
 
 export type DispatchGrouping = 'month' | 'batch'
 
@@ -43,6 +44,10 @@ export interface DispatchRow {
   podMissing: number
   /** Orders these dispatches fulfilled, when they came from orders. */
   orderIds: string[]
+  /** ISO dates the goods' batches were extracted or blended on, oldest first. */
+  madeDates: string[]
+  /** ISO dates of the packing runs these dispatches drew, oldest first. */
+  packedDates: string[]
 }
 
 const OUTSTANDING = ['Dispatched', 'In Transit']
@@ -78,6 +83,8 @@ export function dispatchRows(
         challans: [],
         podMissing: 0,
         orderIds: [],
+        madeDates: [],
+        packedDates: [],
       }
       cells.set(key, row)
     }
@@ -90,6 +97,15 @@ export function dispatchRows(
     if (customer && !row.customers.includes(customer)) row.customers.push(customer)
     if (d.challan && !row.challans.includes(d.challan)) row.challans.push(d.challan)
     if (d.orderId && !row.orderIds.includes(d.orderId)) row.orderIds.push(d.orderId)
+    const made = state.batches.find((b) => b.id === d.batchId)?.date
+    if (made && !row.madeDates.includes(made)) row.madeDates.push(made)
+    for (const r of dispatchRuns(state, d)) {
+      if (r.date && !row.packedDates.includes(r.date)) row.packedDates.push(r.date)
+    }
+  }
+  for (const row of cells.values()) {
+    row.madeDates.sort()
+    row.packedDates.sort()
   }
 
   return [...cells.values()].sort(

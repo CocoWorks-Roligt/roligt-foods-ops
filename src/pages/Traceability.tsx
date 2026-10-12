@@ -6,6 +6,7 @@ import { StatusBadge } from '../components/StatusBadge'
 import { useApp } from '../context/AppContext'
 import { batchKind, batchLabel, fmtBulk } from '../lib/batches'
 import { describeIssue } from '../lib/issues'
+import { madeOn, stockIdDates } from '../lib/productionDates'
 import { itemName, locationLabel, stockRowKey } from '../lib/stock'
 import { traceChain, type TraceResult } from '../lib/trace'
 import { sourceKey, traceGraph } from '../lib/traceGraph'
@@ -218,7 +219,12 @@ export function Traceability() {
           i.reason,
           i.recipient,
           describeIssue(state, lines),
-          `from ${[...new Set(lines.map((l) => l.lot))].join(', ')}`,
+          `from ${[...new Set(lines.map((l) => l.lot))]
+            .map((lot) => {
+              const made = madeOn(state, lot)
+              return made ? `${lot} (${made})` : lot
+            })
+            .join(', ')}`,
         ]
           .filter(Boolean)
           .join(' · '),
@@ -342,7 +348,9 @@ export function Traceability() {
               {b?.blendLines?.length ? (
                 <div className="small">from {b.blendLines.map((l) => l.lot).join(', ')}</div>
               ) : null}
-              <div className="trace-date">Produced {day(b?.date) || '—'}</div>
+              <div className="trace-date">
+                {b ? (batchKind(b) === 'Melange' ? 'Blended' : 'Extracted') : 'Produced'} {day(b?.date) || '—'}
+              </div>
             </div>
           )
         }),
@@ -626,6 +634,7 @@ export function Traceability() {
                     <div className="kpi-row" key={q.id}>
                       <span>
                         {itemName(state, q.item || '') || q.id} · {id}
+                        {madeOn(state, id) ? ` · ${madeOn(state, id)}` : ''}
                         <div className="small">
                           {q.id}
                           {q.reviewedAt ? ` · reviewed ${day(q.reviewedAt)}` : ''}
@@ -652,6 +661,7 @@ export function Traceability() {
                         <DocLink doc={r.id} /> · {categoryTitle(state, r.category)}
                         <div className="small">
                           {id}
+                          {madeOn(state, id) ? ` · ${madeOn(state, id)}` : ''}
                           {r.scores ? ` · ${scoreSensory(r.scores, r).decision.toLowerCase()}` : ''}
                           {` · ${fmtDate(r.scores ? r.sampleDate : r.issueDate)}`}
                         </div>
@@ -671,6 +681,15 @@ export function Traceability() {
                     <b className="cell-id">{ids.join(' + ')}</b> · {getItemName(r.item)}{' '}
                     <StatusBadge value={r.status} />
                     <div className="small">{locationLabel(state, r.location)}</div>
+                    {ids.some((id) => stockIdDates(state, id)) ? (
+                      <div className="small">
+                        {ids
+                          .map((id) => [id, stockIdDates(state, id)])
+                          .filter(([, d]) => d)
+                          .map(([id, d]) => (ids.length > 1 ? `${id}: ${d}` : d))
+                          .join('; ')}
+                      </div>
+                    ) : null}
                   </span>
                   <b>
                     {fmtQty(r.qty)} {r.uom}

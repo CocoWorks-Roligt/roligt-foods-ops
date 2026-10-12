@@ -263,7 +263,7 @@ export function candidatesFor(state: AppState, stage: StickerStage): StickerCand
           // A run can fill more than one pack, so the sticker belongs to the pair.
           reference: `${run.id}·${line.sku}`,
           heading: `${name}${size ? ` · ${size}` : ''}`,
-          sub: `${run.id} · lot ${run.batchId} · ${line.packs} packs · exp ${dateOnly(line.expiry)}`,
+          sub: `${run.id} · packed ${fmtDate(run.date)} · lot ${run.batchId} · ${line.packs} packs · exp ${dateOnly(line.expiry)}`,
           when: run.date,
           // One sticker per pack, which is what the run already counted.
           suggestedCopies: line.packs || 1,

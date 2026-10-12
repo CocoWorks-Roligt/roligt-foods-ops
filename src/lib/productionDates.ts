@@ -7,8 +7,9 @@
  * the finished packs are dated by the packing runs that drew the bulk.
  */
 import { batchKind, runBulkItem } from './batches.ts'
+import { dispatchRuns, resolveStockId, runsFilling } from './stockIds.ts'
 import { fmtDate } from './utils.ts'
-import type { AppState } from '../types.ts'
+import type { AppState, Dispatch } from '../types.ts'
 
 export interface ProductionDates {
   /** 'Extracted' or 'Blended' — what the batch's own date records. */
@@ -71,3 +72,81 @@ export function productionDateRows(d: ProductionDates | null): [string, string][
     ['Packing date', fmtDates(d.packed) || 'Not packed yet'],
   ]
 }
+
+/**
+ * One short line for anywhere a batch is named: "Extracted 1 Oct 2026" or
+ * "Blended 4 Oct 2026". Empty when `batchId` is not a production batch — a receipt
+ * lot, a packing-material lot.
+ */
+export function madeOn(state: Pick<AppState, 'batches'>, batchId?: string): string {
+  const b = batchId ? state.batches.find((x) => x.id === batchId) : undefined
+  return b ? `${batchKind(b) === 'Melange' ? 'Blended' : 'Extracted'} ${fmtDate(b.date)}` : ''
+}
+
+/** "Packed 2 Oct 2026 · extracted 1 Oct 2026" — a finished pack's two dates. */
+const packedLine = (state: Pick<AppState, 'batches'>, packed: string[], batchId: string) => {
+  const made = madeOn(state, batchId)
+  const when = [...new Set(packed.map((d) => fmtDate(d)))].join(', ')
+  return [when && `Packed ${when}`, when ? made.charAt(0).toLowerCase() + made.slice(1) : made]
+    .filter(Boolean)
+    .join(' · ')
+}
+
+/** The dates behind a stock ID: a pack's packing and extraction dates, a bulk's making. */
+export function stockIdDates(state: AppState, stockId?: string): string {
+  const ref = stockId ? resolveStockId(state, stockId) : undefined
+  if (!ref) return ''
+  if (ref.kind === 'pack') {
+    const run = state.packingRuns.find((r) => r.id === ref.runId)
+    return packedLine(state, run ? [run.date] : [], ref.batchId)
+  }
+  return ref.kind === 'bulk' || ref.kind === 'batch' ? madeOn(state, ref.batchId) : ''
+}
+
+/**
+ * The dates behind a stock row by its lot. Finished goods sit on their batch's lot,
+ * so the packing runs that filled the shelf give the packing date; anything else made
+ * here reads its batch's date.
+ */
+export function lotDates(
+  state: AppState,
+  lot: string,
+  finished?: { sku: string; expiry?: string; location?: string },
+): string {
+  if (finished) {
+    const runs = runsFilling(state, lot, finished.sku, { expiry: finished.expiry, location: finished.location })
+    return packedLine(state, runs.map((r) => r.date), lot)
+  }
+  return madeOn(state, lot)
+}
+
+/** A dispatch's packing and extraction dates, from the runs it drew. */
+export const dispatchDates = (state: AppState, d: Dispatch) =>
+  packedLine(state, dispatchRuns(state, d).map((r) => r.date), d.batchId)
+
+/**
+ * The ISO date a production batch was extracted or blended on, for an export
+ * column. Empty when `batchId` is not a production batch.
+ */
+export const madeDate = (state: Pick<AppState, 'batches'>, batchId?: string): string =>
+  (batchId && state.batches.find((b) => b.id === batchId)?.date) || ''
+
+/** Distinct dates, oldest first, as one export cell. */
+export const exportDates = (dates: string[], fmt: (d: string) => string = (d) => d) =>
+  [...new Set(dates.filter(Boolean).sort().map(fmt))].join('; ')
+
+/** The ISO dates of the packing runs that filled a finished-goods lot. */
+export const packedRunDates = (
+  state: AppState,
+  lot: string,
+  finished: { sku: string; expiry?: string; location?: string },
+): string[] =>
+  runsFilling(state, lot, finished.sku, { expiry: finished.expiry, location: finished.location }).map((r) => r.date)
+
+/** `packedRunDates` as one export cell. */
+export const lotPackedDates = (
+  state: AppState,
+  lot: string,
+  finished: { sku: string; expiry?: string; location?: string },
+  fmt?: (d: string) => string,
+) => exportDates(packedRunDates(state, lot, finished), fmt)

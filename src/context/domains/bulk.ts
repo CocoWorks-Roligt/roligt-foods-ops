@@ -7,7 +7,7 @@
  */
 import { useCallback, useMemo } from 'react'
 import { isDirectUse, sourceItemOf } from '../../lib/batches'
-import { bulkItemOf } from '../../lib/packs'
+import { blendItemName, bulkItemOf } from '../../lib/packs'
 import { BY_PRODUCT_COST_METHOD, type Problem } from '../../lib/posting'
 import type { BulkProductInput, MelangeInput } from '../../lib/posting'
 import { releaseExemptPending, type ExemptRelease } from '../../lib/qcExempt'
@@ -269,7 +269,7 @@ export function useBulkProducts({ state, setState, nextId, log, showToast }: Cor
         const name = input.name.trim()
         draft.items.push({
           id: outputItem,
-          name: `${name} (bulk)`,
+          name: blendItemName(draft.items, name, outputItem),
           type: 'Semi Finished',
           uom: input.uom,
           lotControlled: true,
@@ -333,7 +333,7 @@ export function useBulkProducts({ state, setState, nextId, log, showToast }: Cor
         m.description = input.description || ''
         const item = draft.items.find((i) => i.id === m.outputItem)
         if (item) {
-          item.name = `${m.name} (bulk)`
+          item.name = blendItemName(draft.items, m.name, item.id)
           item.uom = m.uom
         }
         log(draft, 'Edited blend recipe', id, m.name)

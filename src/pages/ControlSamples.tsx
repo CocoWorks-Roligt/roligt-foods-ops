@@ -22,6 +22,7 @@ import {
 import { StatusBadge } from '../components/StatusBadge'
 import { useApp } from '../context/AppContext'
 import { fmtBulk, itemUom, runBulkItem } from '../lib/batches'
+import { madeOn } from '../lib/productionDates'
 import {
   controlSampleRows,
   retentionDays,
@@ -99,6 +100,7 @@ export function ControlSamples() {
             { label: 'Date', value: fmtDate(viewing.producedOn) },
             { label: 'Name of product', value: viewing.product },
             { label: 'Batch no.', value: <DocLink doc={viewing.run.batchId} /> },
+            { label: 'Batch made', value: madeOn(state, viewing.run.batchId) },
             { label: 'Packing run', value: <DocLink doc={viewing.run.id} /> },
             { label: 'Bottles', value: viewing.sample.count },
             { label: 'Each held', value: eachHeld(viewing) },
@@ -202,6 +204,7 @@ export function ControlSamples() {
                   <td data-label="Name of Product">{r.product}</td>
                   <td data-label="Batch No." className="register-doc">
                     <DocLink doc={r.run.batchId} />
+                    {madeOn(state, r.run.batchId) && <div className="cell-sub">{madeOn(state, r.run.batchId)}</div>}
                     <div className="small">
                       <DocLink doc={r.run.id} />
                     </div>

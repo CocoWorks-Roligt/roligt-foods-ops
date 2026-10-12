@@ -140,6 +140,12 @@ export function Stickers() {
     })
 
   const recent = (state.stickerPrints || []).slice(0, 12)
+  /** A pack print's packing date, from the run in its run·sku reference. */
+  const packedOn = (stage: StickerStage, reference: string) => {
+    if (stage !== 'pack') return ''
+    const run = state.packingRuns.find((r) => r.id === reference.split('·')[0])
+    return run ? `Packed ${fmtDate(run.date)}` : ''
+  }
 
   return (
     <div className="stickers-page">
@@ -409,6 +415,9 @@ export function Stickers() {
                     </td>
                     <td data-label="For">
                       <b>{stickerReferenceLabel(state, p.stage, p.reference)}</b>
+                      {packedOn(p.stage, p.reference) && (
+                        <div className="cell-sub">{packedOn(p.stage, p.reference)}</div>
+                      )}
                     </td>
                     <td data-label="Copies" className="cell-tight">
                       {p.copies}

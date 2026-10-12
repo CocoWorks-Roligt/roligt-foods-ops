@@ -1,4 +1,4 @@
-import type { BomLine, Pack, PackMedium, PackUnit, Product } from '../types'
+import type { BomLine, Item, Pack, PackMedium, PackUnit, Product } from '../types'
 
 /**
  * A pack's size is entered in whatever unit the format is sold in — a bottle in ml,
@@ -52,6 +52,24 @@ export const bulkItemOf = (p: Product) =>
  * formats under their drink (orders, planning) names them the same way.
  */
 export const drinkName = (name: string) => name.replace(/ \(bulk\)$/i, '')
+
+/**
+ * What a blend's own bulk is called: the recipe's name, as it reads on the recipe.
+ * Only when another bulk that goes through QC already carries that name is it
+ * "(blend)" — two QC lines both called Cold Brew Coffee could not be told apart. A
+ * component that skips QC never shows on the QC page, so it is no reason to rename.
+ */
+export function blendItemName(items: Item[], name: string, outputItem: string): string {
+  const plain = name.trim()
+  const clash = items.some(
+    (i) =>
+      i.id !== outputItem &&
+      i.type === 'Semi Finished' &&
+      !i.qcExempt &&
+      i.name.trim().toLowerCase() === plain.toLowerCase(),
+  )
+  return clash ? `${plain} (blend)` : plain
+}
 
 // ── the pack catalog ─────────────────────────────────────────────────────────
 //

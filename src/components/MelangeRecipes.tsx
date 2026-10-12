@@ -320,7 +320,7 @@ export function MelangeRecipes() {
         <div className="note">
           {editId
             ? 'Runs already posted keep the shares they were blended at — a recipe change only guides the next run.'
-            : `Saving creates "${recipe.name.trim() || 'the blend'} (bulk)" as its own bulk product, so blended stock is never mixed up with the bulks it was made from. Blend it on the Production page, then add a pack filled from it.`}
+            : `Saving creates "${recipe.name.trim() || 'the blend'}" as its own bulk product, so blended stock is never mixed up with the bulks it was made from — it reads "(blend)" only if a bulk that goes through QC already has that name. Blend it on the Production page, then add a pack filled from it.`}
         </div>
       </Modal>
     </>

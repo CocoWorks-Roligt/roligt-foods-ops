@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { productionDateRows, productionDates } from './productionDates.ts'
+import { madeOn, productionDateRows, productionDates, stockIdDates } from './productionDates.ts'
+import { migrateState } from './migrate.ts'
+import { fmtDate } from './utils.ts'
 import type { Batch, PackingRun } from '../types.ts'
 
 /**
@@ -69,5 +71,26 @@ describe('productionDates', () => {
       'Extraction date',
       'Packing date',
     ])
+  })
+})
+
+describe('the one-line dates shown beside a batch or a stock ID', () => {
+  const full = migrateState({
+    batches: [batch('BAT-1', '2026-10-01'), batch('BAT-4', '2026-10-05', { kind: 'Melange', blendLines: [] })],
+    packingRuns: [
+      { ...run('PKG-1', 'BAT-1', '2026-10-02', 'WATER'), lines: [{ sku: 'SKU-1', packs: 10, drawn: 2, qty: 10, unitCost: 0, expiry: '2026-11-01' }] },
+    ] as PackingRun[],
+  })
+
+  it('names a batch by what made it, and nothing for a lot that is not a batch', () => {
+    expect(madeOn(full, 'BAT-1')).toBe(`Extracted ${fmtDate('2026-10-01')}`)
+    expect(madeOn(full, 'BAT-4')).toBe(`Blended ${fmtDate('2026-10-05')}`)
+    expect(madeOn(full, 'LOT-2026-0001')).toBe('')
+    expect(madeOn(full, undefined)).toBe('')
+  })
+
+  it('dates a pack by its packing run and the batch it was drawn from', () => {
+    expect(stockIdDates(full, 'PKG-1/1')).toBe(`Packed ${fmtDate('2026-10-02')} · extracted ${fmtDate('2026-10-01')}`)
+    expect(stockIdDates(full, 'nothing')).toBe('')
   })
 })

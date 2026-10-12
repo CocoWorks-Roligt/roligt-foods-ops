@@ -18,6 +18,7 @@ import { Select } from './Select'
 import { useApp } from '../context/AppContext'
 import { npdAreas } from '../lib/npd'
 import { displayExpiry, locationLabel, stockRowKey } from '../lib/stock'
+import { stockIdDates } from '../lib/productionDates'
 import { stockIdOfRow } from '../lib/stockIds'
 import { fmtDate, fmtQty, statusLabel, toLocalInputValue } from '../lib/utils'
 import type { StockRow } from '../types'
@@ -47,6 +48,8 @@ function SendStockForm({ row, onClose, initialTo = 'testing' }: Props & { row: S
   const [recipient, setRecipient] = useState('')
   const [note, setNote] = useState('')
   const expiry = displayExpiry(state, row)
+  const stockId = stockIdOfRow(state, row)
+  const made = stockIdDates(state, stockId)
 
   const save = () => {
     const ok =
@@ -83,7 +86,7 @@ function SendStockForm({ row, onClose, initialTo = 'testing' }: Props & { row: S
   return (
     <Modal
       open
-      title={`Send ${getItemName(row.item)} — ${stockIdOfRow(state, row)}`}
+      title={`Send ${getItemName(row.item)} — ${stockId}`}
       saveLabel={to === 'testing' ? 'Send to testing' : 'Send to NPD'}
       onClose={onClose}
       onSave={save}
@@ -102,6 +105,7 @@ function SendStockForm({ row, onClose, initialTo = 'testing' }: Props & { row: S
             {locationLabel(state, row.location)} · {statusLabel(row.status)}
             {expiry ? ` · best before ${fmtDate(expiry)}` : ''}
           </div>
+          {made ? <div className="small">{made}</div> : null}
         </div>
         <div className="field">
           <label>Quantity ({row.uom})</label>
