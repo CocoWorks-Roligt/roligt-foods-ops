@@ -47,9 +47,9 @@ describe('schemaFor', () => {
     expect(schemaFor(first)).toBe(SCHEMAS[first])
   })
 
-  it('an unsynced base throws, naming what to run', () => {
+  it('an unsynced base throws, naming the base', () => {
     expect(() => schemaFor('b0not0a0synced0base000000000')).toThrow(
-      /no generated schema for base b0not0a0synced0base000000000.*topup\.mjs b0not0a0synced0base000000000/,
+      /no generated schema for base b0not0a0synced0base000000000.*Zoho bases are frozen/,
     )
   })
 

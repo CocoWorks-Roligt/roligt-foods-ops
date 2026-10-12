@@ -1430,7 +1430,7 @@ describe('validateChanges — the pure shape gate before any Zoho call', () => {
 describe('version-column OCC — the cross-instance conditional write (S2-5)', () => {
   // The Version column (added to the 21 editable tables of both bases,
   // 2026-10-07) holds "<AppID>:<n>"; the conditional write is one text equality
-  // on it, update-only — the probe (scripts/zoho/probe-version.mjs) pinned the
+  // on it, update-only — the live probe (2026-10-07) pinned the
   // whole contract, including that upsert-TRUE on a no-match mints a duplicate.
   // These pins drive upsertByKey the way the live API behaves: a cas write
   // lands only while the row's CURRENT token is the expected one.

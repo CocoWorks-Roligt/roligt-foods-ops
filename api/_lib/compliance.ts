@@ -25,7 +25,7 @@ export function docTable(): TableRef {
   const table = T['Compliance Documents']
   if (!table) {
     throw new Error(
-      'The Compliance Documents table is missing from this base\'s schema — run scripts/zoho/topup.mjs for the base, commit the regenerated api/_lib/baseSchema.ts, and redeploy.',
+      'The Compliance Documents table is missing from this base\'s schema — the register lives in D1; switch the deploy to D1.',
     )
   }
   return table

@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS counters (
 
 -- Turns a guarded write's silent no-op (meta.changes = 0) into a constraint
 -- error so the whole commit batch rolls back, when the REST batch is atomic
--- (Design A — pinned by scripts/d1/probe.mjs before the engine trusts it).
+-- (Design A — pinned live on 2026-10-08 before the engine trusted it).
 -- Every write batch empties it first: DELETE FROM _assert_changed;
 -- The constraint is NAMED "_assert_changed" — exactly the string the engines'
 -- /_assert_changed/ pattern searches for — because SQLite words a CHECK

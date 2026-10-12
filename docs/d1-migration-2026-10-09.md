@@ -88,13 +88,14 @@ so the load-test guards and `sync-env.mjs` stay right.
 4. Verify: export prod the same way to `dump-prod-export-<date>.sql` and
    `cmp` the two files — they must be identical.
 5. Already applied on scratch, so not re-run: `schema.sql`, `views.mjs`,
-   `fix-vanilla-direct-use.mjs` (dry-run says "nothing to do"), and the
+   the vanilla correction below (applied 9 Oct, audit "Corrected history";
+   its script has since been removed), and the
    one-off repair of the four orders Zoho half-saved on 9 Oct (ORD-2026-0008
    to 0011: order rows only, no dispatch or stock; the order, challan and
    customer counters stale, so preview reissued ORD-2026-0008). Recorded in
    the audit log as AUD-FIX-20261012054557; the orders were then dispatched
-   again in the app on DC0013–DC0016. `verify.mjs` compares against a Zoho
-   manifest and does not apply.
+   again in the app on DC0013–DC0016. Zoho's `verify.mjs` compared against a
+   Zoho manifest and did not apply; it was removed with the Zoho scripts.
 6. Then steps 4–7 below: `node scripts/vercel/sync-env.mjs production --only D1_ --cutover`,
    merge dev → main and push, smoke, watch.
 7. After: preview logs in through WorkOS Staging, so roles and users made there
@@ -103,6 +104,10 @@ so the load-test guards and `sync-env.mjs` stay right.
    Admin page.
 
 ## T0 — the freeze window (~10 min of work; announce 20)
+
+> Superseded by the section above. Kept as the record of the original plan; the
+> Zoho scripts it runs (`dump-from-zoho.mjs`, `verify.mjs`, `topup.mjs`) were
+> removed on 12 Oct 2026.
 
 Announce "the app is switching its database; expect up to 20 minutes where
 new entries queue on your device".
@@ -142,13 +147,8 @@ new entries queue on your device".
    Then the **vanilla correction** — the production base carries an extraction
    (BAT-2026-0009) of vanilla that arrives already extracted; the script restates
    it as the blend run MEL-2026-0007 drawing RM-PP-0008 directly and removes the
-   bulk SF-0008. Dry-run first, then apply (a re-run says "nothing to do"):
-   ```sh
-   D1_ACCOUNT_ID=d189eb0424c72ded675161f747cf85bd \
-   D1_DATABASE_ID=de8175f2-567d-492f-b2f4-63736fb1d402 \
-   D1_API_TOKEN=<token> \
-     node scripts/d1/fix-vanilla-direct-use.mjs [--apply]
-   ```
+   bulk SF-0008. Applied on scratch on 9 Oct, so it reaches production with
+   the copy; the one-off script (`fix-vanilla-direct-use.mjs`) was removed.
 4. **Flip the env in Vercel** — Production scope this time:
    `D1_ACCOUNT_ID`, `D1_DATABASE_ID` (prod id), `D1_API_TOKEN`.
    **Do not remove `ZOHO_*`** — it stays for the week as the rollback path.

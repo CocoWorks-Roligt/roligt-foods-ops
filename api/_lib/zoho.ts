@@ -303,7 +303,7 @@ export class ZohoClient {
       for (const [k, v] of Object.entries(params)) {
         if (v !== undefined && v !== null) flat[k] = typeof v === 'object' ? JSON.stringify(v) : String(v)
       }
-      // The live probe (scripts/zoho/probe.mjs) pinned the transports: query params 414
+      // The live probe pinned the transports: query params 414
       // somewhere between ~4 KB and ~8 KB of encoded value, a JSON body is a 400, and the
       // same params as an x-www-form-urlencoded body are accepted (8 KB verified). So big
       // non-GET requests travel in the body; reads and small writes stay on the query
@@ -398,7 +398,7 @@ export class ZohoClient {
    * of a hundred.
    *
    * The criteria grammar is `=` and `contains` on TEXT columns, nothing else — pinned
-   * live against the scratch base 2026-09-30 (scripts/zoho/probe-since.mjs —
+   * live against the scratch base 2026-09-30 (the since-probe —
    * result papers since removed, git history): `>=`, `>`, `starts_with`, `like` all answer
    * HTTP 200 wrapping INTERNAL SERVER ERROR, and EVERY operator on a date-typed
    * column is refused, `=` included. So the delta is a `contains` over the Data JSON
@@ -538,7 +538,7 @@ export class ZohoClient {
    * audit's S2-5 asked for. `cas` names the table's Version column and the
    * token ("<AppID>:<n>") the pre-flight observed; the criteria becomes one
    * equality on that token and the write goes update-only. The live probe
-   * (scripts/zoho/probe-version.mjs, 2026-10-07) pinned every leg of this:
+   * (the version probe, 2026-10-07) pinned every leg of this:
    * the criteria grammar is single-condition text equality — every AND shape,
    * parenthesized included, answers 500 — which is why the ROW IDENTITY rides
    * inside the token value instead of a second condition; a colon inside the

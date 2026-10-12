@@ -58,7 +58,7 @@ export type { RowConflict } from './commitGates.js'
  * The version-token plan for one row write — S2-5's cross-instance optimistic
  * concurrency. The Version column (added to the 21 editable tables of both
  * bases, 2026-10-07) holds the composite token "<AppID>:<n>"; the criteria
- * grammar has no AND (every shape answers 500 — probe-version.mjs, 2026-10-07),
+ * grammar has no AND (every shape answers 500 — live probe, 2026-10-07),
  * so row identity rides INSIDE the token value and the conditional write is one
  * text equality on it, update-only (`is_upsert_needed: false`; upsert-true on a
  * no-match mints a duplicate row — pinned live). An empty `records.updated`

@@ -3,9 +3,9 @@ import { assertBaseMatch } from './shared.js'
 import { SCHEMAS } from './baseSchema.js'
 
 describe('assertBaseMatch', () => {
-  it('throws when env names a base no schema was generated for, naming it and what to run', () => {
+  it('throws when env names a base no schema was generated for, naming it', () => {
     expect(() => assertBaseMatch({ ZOHO_BASE_ID: 'b0not0a0synced0base000000000' }, ['scratch0base0id000000000'])).toThrow(
-      /ZOHO_BASE_ID b0not0a0synced0base000000000 has no generated schema \(have: scratch0base0id000000000\).*topup\.mjs b0not0a0synced0base000000000/,
+      /ZOHO_BASE_ID b0not0a0synced0base000000000 has no generated schema \(have: scratch0base0id000000000\).*Zoho bases are frozen/,
     )
   })
 

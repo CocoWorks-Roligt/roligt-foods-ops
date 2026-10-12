@@ -6,7 +6,7 @@
  *
  *   POST https://api.cloudflare.com/client/v4/accounts/<acct>/d1/database/<db>/query
  *   { sql, params }            — one statement
- *   { batch: [{sql, params}] } — a batch (atomicity pinned by scripts/d1/probe.mjs)
+ *   { batch: [{sql, params}] } — a batch (atomicity pinned live, 2026-10-08)
  *
  * Error mapping mirrors ZohoLockedError's contract so the routes' one catch
  * (LockedError) keeps answering 503 + Retry-After: HTTP 429 ⇒ LockedError(60);

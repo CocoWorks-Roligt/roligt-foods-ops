@@ -9,7 +9,7 @@
  * `commitChanges`'s parameters; this instance is for the handlers only.
  *
  * The generated schema (baseSchema.ts) carries every synced base — one SCHEMAS entry
- * per scripts/zoho/topup-state.<base8>.json — and T resolves the active one from
+ * per synced base — and T resolves the active one from
  * ZOHO_BASE_ID at import (DEFAULT_BASE_ID when unset). A base nobody synced still has
  * to fail loudly rather than quietly serve another base's table ids, so the client is
  * only constructed after assertBaseMatch agrees that ZOHO_BASE_ID, when set, names a
@@ -32,8 +32,8 @@ export function assertBaseMatch(
   const envBase = env.ZOHO_BASE_ID
   if (envBase && !known.includes(envBase)) {
     throw new Error(
-      `ZOHO_BASE_ID ${envBase} has no generated schema (have: ${known.join(', ')}) — sync the base first ` +
-        `(node scripts/zoho/topup.mjs ${envBase}), then fix .env`,
+      `ZOHO_BASE_ID ${envBase} has no generated schema (have: ${known.join(', ')}) — the Zoho bases are frozen; ` +
+        `point ZOHO_BASE_ID at one of those in .env`,
     )
   }
 }

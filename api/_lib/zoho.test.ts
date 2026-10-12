@@ -65,7 +65,7 @@ describe('ZohoClient', () => {
 
   it('makes the write conditional when a cas token is given — update-only equality on the version column', async () => {
     // The S2-5 cross-instance OCC, wire-pinned to the probe's findings
-    // (probe-version.mjs, 2026-10-07): the criteria grammar has no AND, so the
+    // (live probe, 2026-10-07): the criteria grammar has no AND, so the
     // row identity rides INSIDE the token value and the conditional write is
     // one text equality on the Version column.
     const calls: { url: string; init?: RequestInit }[] = []
@@ -438,7 +438,7 @@ describe('ZohoClient', () => {
 
   // ---- fetchSince: the delta read behind the snapshot sweep ----
   // `contains` on the Data JSON column keyed by hour buckets — the only criteria form
-  // the live probe found working (scripts/zoho/probe-since.mjs, 2026-09-30). Every
+  // the live probe found working (2026-09-30). Every
   // wire test pins the clock: the bucket range runs to the current hour.
 
   it('fetchSince sends one contains-per-hour-bucket criteria, paged by cursor, deduped by record', async () => {
