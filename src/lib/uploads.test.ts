@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { attachmentPath, signedUrlFor, uploadAttachment } from './uploads.ts'
+import { attachmentPath, generatedReportId, signedUrlFor, uploadAttachment } from './uploads.ts'
 import { setAttachmentStore, type AttachmentStore, type QueuedAttachment } from './attachmentQueue.ts'
 import { setUnauthorizedHandler } from './authEvents.ts'
 import { UnauthorizedError } from './dbApi.ts'
@@ -44,12 +44,22 @@ describe('uploadAttachment', () => {
     expect(mem.rows.get(up.path!)).toMatchObject({ fileName: 'report.pdf', contentType: 'application/pdf' })
   })
 
-  it('marks the file session-only when the device will not keep it', async () => {
+  it('uploads at once when the device will not keep the file', async () => {
     setAttachmentStore(memoryStore(true).store)
+    fetchMock.mockImplementation(async (url: string) =>
+      url === '/api/attachments/upload'
+        ? new Response(JSON.stringify({ url: 'https://r2/x', method: 'PUT', headers: {} }), { status: 200 })
+        : new Response(null, { status: 200 }),
+    )
     const up = await uploadAttachment(pdf(), 'pod', 'DSP-1')
-    expect(up.sessionOnly).toBe(true)
-    // still opens for the rest of the session
+    expect(up.sessionOnly).toBe(false)
+    expect(fetchMock.mock.calls.map(([u]) => u)).toEqual(['/api/attachments/upload', 'https://r2/x'])
     expect(await signedUrlFor(up)).toMatch(/^blob:/)
+  })
+
+  it('refuses the attach when the device will not keep the file and the store is unreachable', async () => {
+    setAttachmentStore(memoryStore(true).store)
+    await expect(uploadAttachment(pdf(), 'qc', 'QC-1.micro')).rejects.toThrow(/could not keep the file/)
   })
 
   it('stores an unlabelled PDF as application/pdf', async () => {
@@ -129,6 +139,14 @@ describe('signedUrlFor', () => {
       throw new TypeError('Failed to fetch')
     })
     await expect(signedUrlFor({ path: 'attachments/qc/n-1-eeeeee-r.pdf' })).rejects.toThrow(/check the connection/)
+  })
+})
+
+describe('generatedReportId', () => {
+  it('reads the report a rendered PDF names, and the link an older attach held', () => {
+    expect(generatedReportId({ url: '', reportId: 'LR-2' })).toBe('LR-2')
+    expect(generatedReportId({ url: '/reports/LR-1' })).toBe('LR-1')
+    expect(generatedReportId({ url: '' })).toBeUndefined()
   })
 })
 

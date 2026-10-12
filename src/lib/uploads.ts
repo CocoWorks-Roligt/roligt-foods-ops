@@ -20,7 +20,7 @@ import {
   mintAttachmentKey,
   type AttachmentArea,
 } from './attachmentRules'
-import { drainAttachmentQueue, enqueueAttachment, getQueuedBlob } from './attachmentQueue'
+import { drainAttachmentQueue, enqueueAttachment, getQueuedBlob, uploadAttachmentNow } from './attachmentQueue'
 import { notifyUnauthorized } from './authEvents'
 import { UnauthorizedError } from './dbApi'
 
@@ -61,15 +61,23 @@ export async function uploadAttachment(file: File, area: AttachmentArea, context
   }
 
   const path = mintAttachmentKey(area, context, file.name)
+  const item = { path, fileName: file.name, contentType: contentTypeOf(file), blob: file }
+  // A device that will not keep the bytes gets one direct upload, now. If that fails
+  // too the attach is refused: a record naming a file that exists nowhere is how every
+  // report attached on the interim store was lost.
+  if (!(await enqueueAttachment(item)) && !(await uploadAttachmentNow(item))) {
+    throw new Error(
+      'This device could not keep the file and the file store could not be reached — attach it again once online.',
+    )
+  }
   blobs.set(path, file)
-  const queued = await enqueueAttachment({ path, fileName: file.name, contentType: contentTypeOf(file), blob: file })
 
   return {
     fileName: file.name,
     url: '',
     path,
     uploadedAt: new Date().toISOString(),
-    sessionOnly: !queued,
+    sessionOnly: false,
   }
 }
 
@@ -87,6 +95,15 @@ export function attachmentPath(a: { path?: string; url?: string }): string | nul
   const at = a.url?.indexOf(marker) ?? -1
   if (at < 0) return null
   return decodeURIComponent(a.url!.slice(at + marker.length))
+}
+
+/**
+ * The generated lab report an attachment stands for. Current ones are a rendered PDF
+ * naming the report; older ones were only a link to it (`/reports/<id>`), with no file.
+ */
+export function generatedReportId(a: { url?: string; reportId?: string }): string | undefined {
+  if (a.reportId) return a.reportId
+  return a.url?.startsWith('/reports/') ? a.url.slice('/reports/'.length) : undefined
 }
 
 const objectUrl = (blob: Blob) => URL.createObjectURL(blob)

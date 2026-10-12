@@ -593,6 +593,9 @@ export interface Attachment {
   uploadedAt: string
   /** True when the uploading device would not keep the bytes — they never left its session. */
   sessionOnly?: boolean
+  /** The lab report this file was rendered from, when it is a generated report rather
+   *  than an upload. The file is the report as it read when it was attached. */
+  reportId?: string
 }
 
 /** The same thing, under the name the QC record has always called it. */

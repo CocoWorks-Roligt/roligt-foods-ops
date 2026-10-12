@@ -13,6 +13,7 @@ import {
   weightedScore,
 } from '../lib/sensory'
 import { fmtDate, fmtQty } from '../lib/utils'
+import { productionDateRows, productionDates } from '../lib/productionDates'
 import type { LabReport } from '../types'
 
 export function ReportView() {
@@ -33,6 +34,8 @@ export function ReportView() {
 
   const def = categoryDef(state, report.category)
   const scored = def?.format === 'scored' || !!report.scores
+  // When the batch tested was made and packed, read from the batch as it stands now.
+  const dates = report.batchId ? productionDateRows(productionDates(state, report.batchId)) : []
 
   return (
     <div className="report-page">
@@ -46,7 +49,7 @@ export function ReportView() {
       </div>
 
       {scored ? (
-        <SensorySheet report={report} title={def?.title || 'Sensory Evaluation'} />
+        <SensorySheet report={report} title={def?.title || 'Sensory Evaluation'} dates={dates} />
       ) : (
         <div className="report-sheet">
           <div className="report-header">
@@ -94,6 +97,12 @@ export function ReportView() {
               <td>Batch/Lot/Other Details</td>
               <td>{report.batchId ? <DocLink doc={report.batchId} /> : report.batchLotDetails || '—'}</td>
             </tr>
+              {dates.map(([label, value]) => (
+                <tr key={label}>
+                  <td>{label}</td>
+                  <td>{value}</td>
+                </tr>
+              ))}
               <tr>
                 <td>Date</td>
                 <td>{fmtDate(report.sampleDate)}</td>
@@ -142,7 +151,7 @@ export function ReportView() {
 }
 
 /** A sensory evaluation, laid out the way the plant's sheet reads. */
-function SensorySheet({ report, title }: { report: LabReport; title: string }) {
+function SensorySheet({ report, title, dates }: { report: LabReport; title: string; dates: [string, string][] }) {
   const scores = report.scores || []
   const summary = scoreSensory(scores, report)
   const pass = report.passScore ?? DEFAULT_PASS_SCORE
@@ -191,6 +200,12 @@ function SensorySheet({ report, title }: { report: LabReport; title: string }) {
             <td>Batch / Trial No.</td>
             <td>{report.batchId ? <DocLink doc={report.batchId} /> : report.batchLotDetails || '—'}</td>
           </tr>
+          {dates.map(([label, value]) => (
+            <tr key={label}>
+              <td>{label}</td>
+              <td>{value}</td>
+            </tr>
+          ))}
           <tr>
             <td>Evaluator</td>
             <td>{report.labTechnician || '—'}</td>

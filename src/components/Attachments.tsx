@@ -10,7 +10,8 @@
  */
 
 import { useEffect, useState } from 'react'
-import { signedUrlFor } from '../lib/uploads'
+import { Link } from 'react-router-dom'
+import { generatedReportId, signedUrlFor } from '../lib/uploads'
 import type { Attachment } from '../types'
 
 /**
@@ -25,6 +26,10 @@ import type { Attachment } from '../types'
 export function AttachmentLink({ file }: { file: Attachment }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  // Generated reports attached before they were filed as PDFs hold only a link to the
+  // report — there is no file to fetch, so the report itself opens.
+  const legacyReport = !file.path ? generatedReportId(file) : undefined
+  if (legacyReport) return <Link to={`/reports/${legacyReport}`}>{file.fileName || legacyReport}</Link>
   return (
     <>
       <button

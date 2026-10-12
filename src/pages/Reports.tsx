@@ -17,6 +17,7 @@ import { useApp, type LabReportInput } from '../context/AppContext'
 import { categoryParameters, isActiveCategory, testCategories } from '../lib/qcCategories'
 import { blankScores, scoreSensory } from '../lib/sensory'
 import { fmtDate, fmtQty, toLocalInputValue } from '../lib/utils'
+import { productionDates } from '../lib/productionDates'
 import type { Config, LabReport, LabReportResult, TestCategoryDef } from '../types'
 
 const today = () => toLocalInputValue().slice(0, 10)
@@ -47,6 +48,11 @@ const blankSensory = (config: Config): SensoryDraft => ({
 
 export function Reports() {
   const { state, generateReport, updateReport, deleteReport, showToast } = useApp()
+  /** When the batch a report names was extracted or blended, under its number. */
+  const madeOn = (batchId?: string) => {
+    const d = batchId ? productionDates(state, batchId) : null
+    return d ? <div className="cell-sub">{d.made} {fmtDate(d.date)}</div> : null
+  }
   const [openCats, setOpenCats] = useState<Record<string, boolean>>({})
   const [open, setOpen] = useState(false)
   const [editId, setEditId] = useState('')
@@ -248,7 +254,9 @@ export function Reports() {
                               </td>
                               <td data-label="Date">{fmtDate(r.sampleDate)}</td>
                               <td data-label="Product">{r.sampleName}</td>
-                              <td data-label="Batch / Trial">{r.batchId ? <DocLink doc={r.batchId} /> : r.batchLotDetails || '—'}</td>
+                              <td data-label="Batch / Trial">{r.batchId ? <DocLink doc={r.batchId} /> : r.batchLotDetails || '—'}
+                                {madeOn(r.batchId)}
+                              </td>
                               <td data-label="Evaluator">{r.labTechnician || '—'}</td>
                               <td data-label="Score">
                                 {summary.score == null ? '—' : `${fmtQty(summary.score)} / 100`}
@@ -300,7 +308,9 @@ export function Reports() {
                             <td data-label="Report issued to">{r.customerName}</td>
                             <td data-label="Issue Date">{fmtDate(r.issueDate)}</td>
                             <td data-label="Sample Name">{r.sampleName}</td>
-                              <td data-label="Batch / Lot">{r.batchId ? <DocLink doc={r.batchId} /> : r.batchLotDetails || '—'}</td>
+                              <td data-label="Batch / Lot">{r.batchId ? <DocLink doc={r.batchId} /> : r.batchLotDetails || '—'}
+                                {madeOn(r.batchId)}
+                              </td>
                             <td className="cell-actions">
                               <ReportActions report={r} onEdit={() => openEdit(r, cat)} onDelete={deleteReport} />
                             </td>

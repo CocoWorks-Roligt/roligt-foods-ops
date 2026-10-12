@@ -136,6 +136,22 @@ export async function enqueueAttachment(item: {
   return ok
 }
 
+/**
+ * Upload once, now, without the outbox — for a device that would not store the bytes
+ * (private browsing, no IndexedDB, quota). True only when R2 has them; there is no
+ * retry, since there is nothing kept to retry from.
+ */
+export async function uploadAttachmentNow(item: {
+  path: string
+  fileName: string
+  contentType: string
+  blob: Blob
+}): Promise<boolean> {
+  const now = Date.now()
+  const outcome = await uploadOne({ ...item, queuedAt: now, attempts: 0, nextAttemptAt: now }).catch(() => null)
+  return outcome?.kind === 'done'
+}
+
 /** The bytes of a file still waiting on this device, if it is one. */
 export async function getQueuedBlob(path: string): Promise<Blob | null> {
   return (await activeStore().get(path))?.blob ?? null

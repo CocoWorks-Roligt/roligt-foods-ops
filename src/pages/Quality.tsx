@@ -29,7 +29,9 @@ import {
   testsShownFor,
 } from '../lib/qcCategories'
 import { decisionStatus, scoreSensory } from '../lib/sensory'
-import { uploadAttachment } from '../lib/uploads'
+import { generatedReportId, uploadAttachment } from '../lib/uploads'
+import { labReportFileName, labReportPdf } from '../lib/labReportPdf'
+import { fmtDates, productionDateRows, productionDates, type ProductionDates } from '../lib/productionDates'
 import { fmtDate, fmtQty, statusLabel } from '../lib/utils'
 import type { Batch, LabReport, QcAttachment, QcRecord, QcTestResult } from '../types'
 
@@ -119,11 +121,7 @@ export function Quality() {
    */
   const reportsFor = (subject: (typeof subjects)[number]) => {
     const attached = subject.record ? qcAttachments(subject.record) : []
-    const attachedIds = new Set(
-      attached
-        .filter((a) => a.file.url?.startsWith('/reports/'))
-        .map((a) => a.file.url!.slice('/reports/'.length)),
-    )
+    const attachedIds = new Set(attached.map((a) => generatedReportId(a.file)).filter(Boolean))
     const batchReports = state.labReports.filter(
       (r) => r.batchId === subject.batch.id && !attachedIds.has(r.id),
     )
@@ -153,6 +151,20 @@ export function Quality() {
     ...new Set([...b.sourceLines.map((s) => s.lot), ...(b.blendLines || []).map((l) => l.lot)]),
   ]
 
+  /** When the product was extracted or blended, and when it was packed — one line each. */
+  const datesLines = (d: ProductionDates | null) =>
+    d ? (
+      <>
+        <div>
+          {d.made} {fmtDate(d.date)}
+        </div>
+        {d.made === 'Blended' && d.extracted.length ? (
+          <div className="cell-sub">Components extracted {fmtDates(d.extracted)}</div>
+        ) : null}
+        <div className="cell-sub">{d.packed.length ? `Packed ${fmtDates(d.packed)}` : 'Not packed yet'}</div>
+      </>
+    ) : null
+
   const openReview = (q: QcRecord) => {
     setActive(q)
     setForm(Object.fromEntries(testsShownFor(state, q).map((c) => [c.key, qcTest(q, c.key)])))
@@ -181,6 +193,10 @@ export function Quality() {
             { label: 'Reviewed at', value: viewing.reviewedAt ? fmtDate(viewing.reviewedAt) : '' },
           ],
         },
+        {
+          title: 'Dates',
+          fields: productionDateRows(productionDates(state, viewing.batchId, viewing.item)).map(([label, value]) => ({ label, value })),
+        },
         ...testsShownFor(state, viewing).map((cat) => {
           const r = qcTest(viewing, cat.key)
           return {
@@ -196,6 +212,34 @@ export function Quality() {
       ]
     : []
 
+  /**
+   * Attaching a generated report files it as a PDF, like an uploaded one: rendered
+   * now, so the record keeps the report as it read when QA relied on it, and sent to
+   * the file store through the same outbox.
+   */
+  const onAttachGenerated = async (key: string, r: LabReport) => {
+    if (!form) return
+    setUploading(key)
+    try {
+      const blob = await labReportPdf(state, r)
+      const file = new File([blob], labReportFileName(r), { type: 'application/pdf' })
+      const uploaded = await uploadAttachment(file, 'qc', `${active?.id || 'report'}.${key}`)
+      const patch: Partial<QcTestResult> = { report: { ...uploaded, reportId: r.id } }
+      // An evaluation carries its own decision, so attaching one sets
+      // the result it stands for. QA can still change it.
+      if (r.scores) {
+        const status = decisionStatus(scoreSensory(r.scores, r).decision)
+        if (status !== 'Pending') patch.status = status
+      }
+      setTest(key, patch)
+      showToast(`${r.id} attached as a PDF — it uploads to the file store automatically when this device is online.`)
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'The report could not be attached.')
+    } finally {
+      setUploading(null)
+    }
+  }
+
   const onUpload = async (key: string, file?: File | null) => {
     if (!file || !form) return
     setUploading(key)
@@ -203,12 +247,8 @@ export function Quality() {
       const uploaded = await uploadAttachment(file, 'qc', `${active?.id || 'report'}.${key}`)
       setTest(key, { report: uploaded })
       // Honest about where the bytes are: the record saves now, the file follows
-      // from this device's outbox — and says so when the device would not keep it.
-      showToast(
-        uploaded.sessionOnly
-          ? `${file.name} attached for this session only — this device could not store it durably.`
-          : `${file.name} attached — it uploads to the file store automatically when this device is online.`,
-      )
+      // from this device's outbox.
+      showToast(`${file.name} attached — it uploads to the file store automatically when this device is online.`)
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Upload failed.')
     } finally {
@@ -311,7 +351,7 @@ export function Quality() {
               columns={[
                 { k: 'product', label: 'Product' },
                 { k: 'batch', label: 'Batch', kind: 'text' },
-                { k: 'date', label: 'Batch date', kind: 'date' },
+                { k: 'date', label: 'Extracted / blended', kind: 'date' },
                 { k: 'record', label: 'QC record', kind: 'text' },
                 { k: 'tests', label: 'Tests passed', kind: 'num' },
                 { k: 'status', label: 'Status' },
@@ -323,6 +363,7 @@ export function Quality() {
                   <tr>
                     <SortHeader label="Product" k="product" sort={sort} onToggle={toggle} />
                     <SortHeader label="Batch" k="batch" sort={sort} onToggle={toggle} />
+                    <SortHeader label="Dates" k="date" sort={sort} onToggle={toggle} />
                     <SortHeader label="QC Record" k="record" sort={sort} onToggle={toggle} />
                     <SortHeader label="Tests" k="tests" first="desc" sort={sort} onToggle={toggle} />
                     <th>Reports</th>
@@ -367,6 +408,7 @@ export function Quality() {
                           </div>
                         ) : null}
                       </td>
+                      <td data-label="Dates">{datesLines(productionDates(state, subject.batch.id, subject.item))}</td>
                       <td data-label="QC Record" className="cell-id">
                         {q ? q.id : <span className="small">—</span>}
                       </td>
@@ -459,6 +501,7 @@ export function Quality() {
                           </>
                         ) : null}
                       </div>
+                      <div className="small">{datesLines(productionDates(state, subject.batch.id, subject.item))}</div>
                       <div className="small">{q ? q.id : 'No QC record raised yet'}</div>
                     </div>
                     <StatusBadge value={subject.disposition} />
@@ -594,11 +637,8 @@ export function Quality() {
                     <article className="report-item" key={a.key}>
                       <div className="report-item-main">
                         <div className="report-item-title">
-                          {a.file.url?.startsWith('/reports/') ? (
-                            <DocLink doc={a.file.url.slice('/reports/'.length)} />
-                          ) : (
-                            <AttachmentLink file={a.file} />
-                          )}
+                          <AttachmentLink file={a.file} />
+                          {a.file.path && a.file.reportId ? <DocLink doc={a.file.reportId} /> : null}
                           <span className="report-item-cat">{categoryTitle(state, a.key)}</span>
                         </div>
                         <div className="small">Uploaded {fmtDate(a.file.uploadedAt)}</div>
@@ -637,6 +677,11 @@ export function Quality() {
       >
         {form && active && decision ? (
           <>
+            <p className="small">
+              {productionDateRows(productionDates(state, active.batchId, active.item))
+                .map(([label, value]) => `${label}: ${value}`)
+                .join(' · ')}
+            </p>
             <div className="qc-review-grid">
               {testsShownFor(state, active).map((cat) => {
                 const result = form[cat.key] || qcTest(active, cat.key)
@@ -718,19 +763,10 @@ export function Quality() {
                           {catReports.length ? (
                             <Select
                               value=""
+                              disabled={uploading === cat.key}
                               onChange={(e) => {
                                 const r = catReports.find((x) => x.id === e.target.value)
-                                if (!r) return
-                                const patch: Partial<QcTestResult> = {
-                                  report: { fileName: r.id, url: `/reports/${r.id}`, uploadedAt: r.issueDate },
-                                }
-                                // An evaluation carries its own decision, so attaching one sets
-                                // the result it stands for. QA can still change it.
-                                if (r.scores) {
-                                  const status = decisionStatus(scoreSensory(r.scores, r).decision)
-                                  if (status !== 'Pending') patch.status = status
-                                }
-                                setTest(cat.key, patch)
+                                if (r) void onAttachGenerated(cat.key, r)
                               }}
                             >
                               <option value="">Attach generated report…</option>

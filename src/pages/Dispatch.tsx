@@ -89,15 +89,17 @@ export function DispatchPage() {
     setUploading(true)
     try {
       const uploaded: Attachment[] = []
-      for (const file of Array.from(files)) {
-        uploaded.push(await uploadAttachment(file, 'pod', deliveryId || 'delivery'))
+      try {
+        for (const file of Array.from(files)) {
+          uploaded.push(await uploadAttachment(file, 'pod', deliveryId || 'delivery'))
+        }
+        showToast(
+          `${uploaded.length} photo(s) attached — they upload to the file store automatically when this device is online.`,
+        )
+      } finally {
+        // the photos that did attach stay attached when a later one is refused
+        if (uploaded.length) setDelivery((d) => ({ ...d, photos: [...d.photos, ...uploaded] }))
       }
-      setDelivery((d) => ({ ...d, photos: [...d.photos, ...uploaded] }))
-      showToast(
-        uploaded.some((u) => u.sessionOnly)
-          ? `${uploaded.length} photo(s) attached for this session only — this device could not store them durably.`
-          : `${uploaded.length} photo(s) attached — they upload to the file store automatically when this device is online.`,
-      )
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Upload failed.')
     } finally {
