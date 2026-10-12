@@ -4,7 +4,7 @@ import { Modal } from '../../components/Modal'
 import { useToast } from '../../context/ToastContext'
 import { adminRoleAction, fetchAdminRoles, type RolesSnapshot } from '../../lib/adminApi'
 import { PAGE_CATALOG, type PageRow } from '../../lib/pages.ts'
-import { PERMISSIONS } from '../../lib/permissions.ts'
+import { ADMIN_ROLE, PERMISSIONS } from '../../lib/permissions.ts'
 
 /**
  * Role composition — the screen that makes page access runtime data.
@@ -165,6 +165,10 @@ export function Roles() {
                             Cancel
                           </button>
                         </div>
+                      ) : role.slug === ADMIN_ROLE ? (
+                        <span className="muted" title="Pages added later reach this role on their own">
+                          Every permission, always
+                        </span>
                       ) : (
                         <button
                           className="btn btn-light"

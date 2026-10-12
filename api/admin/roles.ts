@@ -12,7 +12,7 @@ import {
   setRolePermissions,
 } from '../_lib/workosAdmin.js'
 import { toWebRequest } from '../_lib/vercel.js'
-import { ADMIN_PAGE_SLUGS, PERMISSIONS, permissionLabel } from '../../src/lib/permissions.js'
+import { ADMIN_PAGE_SLUGS, ADMIN_ROLE, PERMISSIONS, permissionLabel } from '../../src/lib/permissions.js'
 
 /**
  * Role administration — the Roles & Permissions page's surface (its tick
@@ -46,7 +46,8 @@ export default async function (req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'GET') {
-      const [roles, permissionSlugs, users] = await Promise.all([listRoles(), listPermissionSlugs(), listOrgUsers()])
+      const [listed, permissionSlugs, users] = await Promise.all([listRoles(), listPermissionSlugs(), listOrgUsers()])
+      let roles = listed
       const catalog = new Set<string>(PERMISSIONS)
       // A catalog slug that does not exist in WorkOS yet cannot be ticked, and
       // the first admin visit after a deploy is exactly when it must become
@@ -58,6 +59,19 @@ export default async function (req: VercelRequest, res: VercelResponse) {
       if (wanted.length) {
         notCreated = await ensurePermissions(wanted.map((slug) => ({ slug, name: permissionLabel(slug) })))
         if (notCreated.length < wanted.length) present = await listPermissionSlugs()
+      }
+      // The admin role means the whole catalog (sessionPermissions); keep its
+      // stored ticks saying so too, for the WorkOS dashboard and this screen.
+      // Best effort, like the permissions above — a GET must never 500 over it.
+      const admin = roles.find((r) => r.slug === ADMIN_ROLE)
+      const whole = present.filter((p) => catalog.has(p))
+      if (admin && whole.some((p) => !admin.permissions.includes(p))) {
+        try {
+          await setRolePermissions(ADMIN_ROLE, whole)
+          roles = await listRoles()
+        } catch {
+          // the session still grants the whole catalog; the ticks catch up next visit
+        }
       }
       const assignments: Record<string, number> = {}
       for (const user of users) {
@@ -113,6 +127,10 @@ export default async function (req: VercelRequest, res: VercelResponse) {
         }
         if (permissions.some((p) => !catalog.has(p))) {
           res.status(400).json({ error: 'Only the app\'s own permissions can be assigned to a role.' })
+          return
+        }
+        if (slug === ADMIN_ROLE) {
+          res.status(400).json({ error: 'The admin role always holds every permission; it cannot be edited.' })
           return
         }
         const roles = await listRoles()

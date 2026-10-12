@@ -70,6 +70,18 @@ describe('authenticate — the WorkOS session cookie', () => {
     expect(auth.setCookies).toEqual(['wos-session=re-sealed; Path=/; HttpOnly'])
   })
 
+  it('an app-admin session holds the whole catalog, ticked in WorkOS or not', async () => {
+    process.env.WORKOS_ORG_ID = 'org_ours'
+    // a page added after the role was last ticked: the stored set lacks it
+    __setAuthenticator(async () => ({ auth: authResult({ roles: ['app-admin'], permissions: ['page.admin-roles'] }), setCookies: [] }))
+    const admin = await authenticate(new Request('https://bff.roligt.local/api/revision', { headers: { cookie: 'wos-session=x' } }))
+    expect(admin.caller.permissions).toEqual([...PERMISSIONS])
+    // any other role is exactly what WorkOS ticked
+    __setAuthenticator(async () => ({ auth: authResult({ roles: ['npd'], permissions: ['page.npd'] }), setCookies: [] }))
+    const npd = await authenticate(new Request('https://bff.roligt.local/api/revision', { headers: { cookie: 'wos-session=x' } }))
+    expect(npd.caller.permissions).toEqual(['page.npd'])
+  })
+
   it('omits setCookies when no refresh happened', async () => {
     process.env.WORKOS_CLIENT_ID = 'client'
     process.env.WORKOS_ORG_ID = 'org_ours'

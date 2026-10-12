@@ -17,7 +17,7 @@
  * src/lib/permissions.ts and commitChanges gates writes on those — this guard
  * is the RLS of the fork.
  */
-import { devPermissions } from '../../src/lib/permissions.js'
+import { devPermissions, sessionPermissions } from '../../src/lib/permissions.js'
 import type { Role } from '../../src/types.js'
 import { withAuth, workosConfigured } from './session.js'
 import { isActiveMember } from './workosAdmin.js'
@@ -128,7 +128,13 @@ export async function authenticate(req: Request): Promise<Authentication> {
         throw new AuthError('Your access to this app was removed or deactivated. Ask an admin to restore it.')
       }
       return {
-        caller: { email, permissions: result.auth.permissions ?? [] },
+        caller: {
+          email,
+          permissions: sessionPermissions(
+            result.auth.roles ?? (result.auth.role ? [result.auth.role] : []),
+            result.auth.permissions ?? [],
+          ),
+        },
         ...(result.setCookies.length ? { setCookies: result.setCookies } : {}),
       }
     }

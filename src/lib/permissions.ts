@@ -59,6 +59,19 @@ export function isAdminPermissions(held: readonly string[]): boolean {
   return PERMISSIONS.every((p) => held.includes(p))
 }
 
+/** The seeded administrator role's slug (scripts/workos/seed-rbac.mjs). */
+export const ADMIN_ROLE = 'app-admin'
+
+/**
+ * What a signed-in caller holds. The admin role means the whole catalog, whatever
+ * WorkOS has ticked on it: a page added to the catalog reaches administrators on
+ * the deploy that adds it, with no seed run — and without it nobody could tick
+ * the new page anywhere, since a role may only be given what its editor holds.
+ */
+export function sessionPermissions(roles: readonly string[], held: readonly string[]): string[] {
+  return roles.includes(ADMIN_ROLE) ? [...PERMISSIONS] : [...held]
+}
+
 /** The dev session's picker roles, spelled in permissions. */
 export function devPermissions(devRole: Role): PermissionKey[] {
   if (devRole === 'Admin') return [...PERMISSIONS] as PermissionKey[]

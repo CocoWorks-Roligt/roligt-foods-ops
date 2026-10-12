@@ -470,13 +470,23 @@ describe('self-protection and last-admin', () => {
     expect(writes).toEqual([])
   })
 
+  it('refuses editing the admin role — it always holds the whole catalog', async () => {
+    mode.permissions = [...PERMISSIONS]
+    mode.roles = [{ slug: 'app-admin', name: 'App Admin', permissions: [...ADMIN] }]
+    const res = fakeRes()
+    await rolesHandler(fakeReq({ action: 'set-permissions', slug: 'app-admin', permissions: [...PERMISSIONS] }), res)
+    expect(res.status).toHaveBeenCalledWith(400)
+    expect(mode.calls).toEqual([])
+    expect(writes).toEqual([])
+  })
+
   it('refuses stripping the admin pages from the last role carrying them', async () => {
     // full-catalog caller so the ceiling stays out of the way — this pin is
     // the last-admin guard's alone
     mode.permissions = [...PERMISSIONS]
-    mode.roles = [{ slug: 'app-admin', name: 'App Admin', permissions: [...ADMIN] }]
+    mode.roles = [{ slug: 'board', name: 'Board', permissions: [...ADMIN] }]
     const res = fakeRes()
-    await rolesHandler(fakeReq({ action: 'set-permissions', slug: 'app-admin', permissions: ['page.roster'] }), res)
+    await rolesHandler(fakeReq({ action: 'set-permissions', slug: 'board', permissions: ['page.roster'] }), res)
     expect(res.status).toHaveBeenCalledWith(400)
     expect(mode.calls).toEqual([])
     expect(writes).toEqual([])
@@ -491,9 +501,9 @@ describe('self-protection and last-admin', () => {
       { slug: 'board', name: 'Board', permissions: [...ADMIN] },
     ]
     const res = fakeRes()
-    await rolesHandler(fakeReq({ action: 'set-permissions', slug: 'app-admin', permissions: ['page.roster'] }), res)
+    await rolesHandler(fakeReq({ action: 'set-permissions', slug: 'board', permissions: ['page.roster'] }), res)
     expect(res.status).toHaveBeenCalledWith(200)
-    expect(mode.calls).toEqual(['set-permissions:app-admin=page.roster'])
+    expect(mode.calls).toEqual(['set-permissions:board=page.roster'])
     expect(writes).toHaveLength(2)
     const wire = writes.map((w) => decodeURIComponent(`${w.url} ${w.body}`).replace(/\+/g, ' ')).join(' ')
     expect(wire).toContain('role permissions set')
@@ -600,7 +610,7 @@ describe('the role ceiling (S3-7) — page.admin-users alone is not full admin',
     // board keeps the admin pages, so the last-admin guard alone would allow
     // this — only the ceiling catches page.roster leaving the caller's set
     const res = fakeRes()
-    await rolesHandler(fakeReq({ action: 'set-permissions', slug: 'app-admin', permissions: ['page.roster'] }), res)
+    await rolesHandler(fakeReq({ action: 'set-permissions', slug: 'board', permissions: ['page.roster'] }), res)
     expect(res.status).toHaveBeenCalledWith(403)
     expect(mode.calls).toEqual([])
     expect(writes).toEqual([])
