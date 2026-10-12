@@ -304,8 +304,8 @@ function LotYieldView({ def }: { def: ReportDef }) {
   const rows = useMemo(() => lotYieldRows(state, w), [state, w])
   const pending = rows.filter((r) => r.pending).length
   const attributed = rows.filter((r) => !r.pending && r.mainQty > 0)
-  // The lot's landed cost is its usable cost × accepted — the identity the
-  // derivation itself prices litres by.
+  // The lot's landed cost is its usable cost × accepted. Litres are priced off
+  // usable cost × issued, so a partly issued lot's ₹/L carries only what was pressed.
   const landed = rows.reduce((a, r) => a + r.usableCost * r.received, 0)
 
   const { sort, toggle, setSort } = useTableSort('date', 'desc')

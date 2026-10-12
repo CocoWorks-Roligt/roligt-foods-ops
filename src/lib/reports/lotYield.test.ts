@@ -20,8 +20,8 @@ describe('lot yield', () => {
     // Spoiled at the press, across both batches.
     expect(lot1.spoiled).toBe(30)
     expect(lot1.netPressed).toBe(870)
-    // The whole landed cost over the litres the lot became.
-    expect(lot1.costPerUnit).toBeCloseTo(29000 / 240, 3)
+    // The cost of the 900 issued (of 910 accepted) over the litres they became.
+    expect(lot1.costPerUnit).toBeCloseTo(((29000 / 910) * 900) / 240, 3)
     expect(lot1.yieldPerUnit).toBeCloseTo(240 / 900, 4)
   })
 
@@ -77,7 +77,32 @@ describe('lot yield', () => {
     expect(lot3.spoiled).toBeCloseTo(4, 6)
     expect(lot4.spoiled).toBeCloseTo(1, 6)
     expect(lot3.yieldPerUnit).toBeCloseTo(72 / 400, 6)
-    expect(lot4.costPerUnit).toBeCloseTo(6000 / 18, 3)
+    // 100 of 195 accepted were issued: only their cost reaches the 18 L.
+    expect(lot4.costPerUnit).toBeCloseTo(((6000 / 195) * 100) / 18, 3)
+  })
+
+  it('leaves unissued stock out of a partly pressed lot’s ₹/L', () => {
+    const s = fixtureState()
+    // 860 accepted at ₹39; 500 issued became 89.6 L. The 360 still in stock must
+    // not load the litres — the lot reads the batch's own ₹19,500 / 89.6 L.
+    s.grns.push({
+      id: 'GRN-LOT-PART', date: '2026-09-18', farmerId: 'VEN-0001', farmerName: 'Lakshmi Farms',
+      lot: 'LOT-PART', total: 860, free: 0, a: 860, b: 0, c: 0, reject: 0, rate: 39, transport: 0,
+      accepted: 860, materialValue: 33540, landed: 33540, grossCost: 39, usableCost: 39,
+      status: 'Posted', purchaseProductId: 'PP-COCO', itemId: 'RM-TCW-COCO', uom: 'Piece',
+      productName: 'Tender Coconut', location: 'RM Store',
+    })
+    s.batches.push({
+      id: 'BAT-2026-0007', kind: 'Extraction', date: '2026-09-20',
+      sourceLines: [{ lot: 'LOT-PART', item: 'RM-TCW-COCO', uom: 'Piece', qty: 500, unitCost: 39 }],
+      outputLines: [{ stockId: 'BAT-2026-0007/1', item: 'SF-TCW-WATER', qty: 89.6, uom: 'Litre', costShare: 100 }],
+      coconuts: 500, inputQty: 500, inputUom: 'Piece', spoiled: 15, outputs: [], outputLitres: 89.6,
+      yieldPerCoconut: 0, yieldPerUnit: 0, rmCost: 19500, pmCost: 0, directCost: 19500, costPerL: 19500 / 89.6,
+      status: 'Awaiting QC', qcId: '',
+    })
+    const part = lotYieldRows(s, SEP).find((r) => r.lot === 'LOT-PART')!
+    expect(part.costPerUnit).toBeCloseTo(19500 / 89.6, 3) // ₹217.63, not ₹374.33
+    expect(part.costPerUnit).toBeCloseTo(part.storedCostPerUnit!, 6)
   })
 
   it('reads a batch written in the deprecated coconut-only shape', () => {

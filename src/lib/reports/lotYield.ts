@@ -55,7 +55,8 @@ export interface LotYieldRow {
   yieldPerUnit: number | null
   /** The receipt's usable cost (₹ per accepted unit). */
   usableCost: number
-  /** Usable cost ÷ attributed main output — ₹ per litre the lot's fruit became. */
+  /** Usable cost of what was issued ÷ attributed main output — ₹ per litre the
+   *  issued fruit became. Stock not yet issued carries no share. */
   costPerUnit: number | null
   /** Stored costPerL of the batches that drew this lot, weighted by attributed
    *  main quantity — the cross-check against the derived figure. */
@@ -169,9 +170,11 @@ function rowFor(state: AppState, g: Grn, a?: LotAcc): LotYieldRow {
     byUom: acc.byUom,
     yieldPerUnit: pending || !acc.issued ? null : acc.mainQty / acc.issued,
     usableCost: g.usableCost,
-    // The lot's whole landed cost (usable cost × accepted pieces, which is the
-    // landed cost exactly) spread over the litres its fruit became.
-    costPerUnit: !pending && acc.mainQty > 0 ? g.landed / acc.mainQty : null,
+    // The cost of what was issued (usable cost × issued) over the litres it became —
+    // the same basis as a batch's costPerL. Charging the whole landed cost here
+    // loaded a partly issued lot's unpressed stock onto the litres pressed so far.
+    // Spoiled pieces stay in: they were issued and paid for.
+    costPerUnit: !pending && acc.mainQty > 0 ? (g.usableCost * acc.issued) / acc.mainQty : null,
     storedCostPerUnit:
       !pending && acc.mainWeighted > 0 ? acc.costWeighted / acc.mainWeighted : null,
     pending,
