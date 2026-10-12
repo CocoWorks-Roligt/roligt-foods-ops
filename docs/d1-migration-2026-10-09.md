@@ -72,6 +72,36 @@ deployed image.
       doesn't depend on branch state).
 - [ ] Mint the API token if not done for the rehearsal.
 
+## T0 as decided 2026-10-12 — production starts from scratch's data
+
+Zoho production has not been written since scratch was loaded from it
+(2026-10-09 15:22 UTC), and scratch has carried the plant since, through the
+preview. So prod D1 is loaded with a copy of scratch, not a fresh Zoho dump —
+steps 1–3 below are replaced by these. Both databases keep their names and ids,
+so the load-test guards and `sync-env.mjs` stay right.
+
+1. Freeze: nobody uses the preview or the live app.
+2. Export scratch (schema, views and data in one file):
+   `npx wrangler d1 export roligt-ops-scratch --remote --output scripts/d1/dump-scratch-export-<date>.sql`
+3. Load prod (still empty):
+   `npx wrangler d1 execute roligt-ops-prod --remote --file scripts/d1/dump-scratch-export-<date>.sql --yes`
+4. Verify: export prod the same way to `dump-prod-export-<date>.sql` and
+   `cmp` the two files — they must be identical.
+5. Already applied on scratch, so not re-run: `schema.sql`, `views.mjs`,
+   `fix-vanilla-direct-use.mjs` (dry-run says "nothing to do"), and the
+   one-off repair of the four orders Zoho half-saved on 9 Oct (ORD-2026-0008
+   to 0011: order rows only, no dispatch or stock; the order, challan and
+   customer counters stale, so preview reissued ORD-2026-0008). Recorded in
+   the audit log as AUD-FIX-20261012054557; the orders were then dispatched
+   again in the app on DC0013–DC0016. `verify.mjs` compares against a Zoho
+   manifest and does not apply.
+6. Then steps 4–7 below: `node scripts/vercel/sync-env.mjs production --only D1_ --cutover`,
+   merge dev → main and push, smoke, watch.
+7. After: preview logs in through WorkOS Staging, so roles and users made there
+   (Production Manager and its user, the app-admin user of 12 Oct, NPD) are
+   recreated in Production — `seed-rbac` with the `*_PROD` keys, then the
+   Admin page.
+
 ## T0 — the freeze window (~10 min of work; announce 20)
 
 Announce "the app is switching its database; expect up to 20 minutes where
