@@ -19,6 +19,19 @@ Updated: 2026-10-13 | Phase: 3 WORKFLOW in progress — W1–W5 done (Pipeline H
 ## Locks
 - none
 
+## W6 design notes (next slice — Receipt stage form, read before building)
+- Behind `pipeline` flag on Procurement, beside the PO tab: the plant's one Receipt form that picks
+  its variant from the ITEM's procurementForm (items master, backfilled B1): RAW → grading fields
+  (embedded today) or "grade later" (gradingMode:'staged' on the GRN, grades via POST /api/grading);
+  READY_EXTRACT → extract into inventory, no grading; DIRECT_USE → straight to blending stock.
+- Reuse the Classic write path: AppContext.createGrn posts the GRN changeset — the pipeline form
+  pre-validates with the same lib/grn helpers and passes additive fields (gradingMode, poId?) riding
+  the doc. THEN, if a PO was chosen, call POST /api/purchase-orders/:id/receive {grnId, expectedVersion}
+  (poApi.ts needs the new client fn) — order matters: GRN first (needs the minted id), link second;
+  a link failure must surface but not lose the receipt.
+- Prefill from previous stage = the chosen PO's lines (item/qty/rate/uom) seed the form.
+- useDraft remembering last vendor/location; ScanInput for the PO number field.
+
 ## Rollback markers
 - Phase 0 touches docs/overhaul/* only. Rollback = remove those files.
 
