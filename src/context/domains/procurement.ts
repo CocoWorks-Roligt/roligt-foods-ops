@@ -8,6 +8,7 @@
 
 import { useCallback, useMemo } from 'react'
 import { itemUom } from '../../lib/batches'
+import { QTY_EPSILON } from '../../lib/utils'
 import { asReceived, grnCostsChanged, priceGrn } from '../../lib/grn'
 import type { GrnInput } from '../../lib/grn'
 import { defaultRawStore, checkArea, postedLocation } from '../../lib/posting'
@@ -54,6 +55,10 @@ export function useProcurement({ state, setState, nextId, nextLot, log, showToas
         const itemId = input.itemId || bought?.itemId || product.itemId || ''
         const uom = input.uom || bought?.uom || itemUom(draft, itemId)
         const location = input.location || defaultRawStore(draft) || ''
+        // A staged load is booked unsorted: no grades, the whole count held for
+        // the grading form to sort (its ledger line waits in Quarantine, and
+        // the grading endpoint's paired lines move it out per grade).
+        const staged = input.gradingMode === 'staged'
         const g: Grn = {
           id,
           date: new Date(input.date).toISOString(),
@@ -70,10 +75,10 @@ export function useProcurement({ state, setState, nextId, nextLot, log, showToas
           lot,
           total: input.total,
           free: input.free,
-          a: input.a,
-          b: input.b,
-          c: input.c,
-          reject: input.reject,
+          a: staged ? 0 : input.a,
+          b: staged ? 0 : input.b,
+          c: staged ? 0 : input.c,
+          reject: staged ? 0 : input.reject,
           rate: input.rate,
           transport: input.transport,
           accepted: math.accepted,
@@ -83,6 +88,8 @@ export function useProcurement({ state, setState, nextId, nextLot, log, showToas
           usableCost: math.usableCost,
           status: 'Posted',
           notes: input.notes,
+          ...(input.gradingMode ? { gradingMode: input.gradingMode } : {}),
+          ...(input.poId ? { poId: input.poId } : {}),
         }
         draft.grns.push(g)
         draft.ledger.push({
@@ -93,7 +100,7 @@ export function useProcurement({ state, setState, nextId, nextLot, log, showToas
           itemType: 'Raw Material',
           lot,
           location,
-          status: 'Available',
+          status: staged ? 'Quarantine' : 'Available',
           qtyIn: math.accepted,
           qtyOut: 0,
           uom,
@@ -107,7 +114,9 @@ export function useProcurement({ state, setState, nextId, nextLot, log, showToas
           draft,
           'Posted receipt',
           id,
-          `Created ${lot}; accepted ${math.accepted} of ${input.total} ${uom.toLowerCase()} of ${g.productName}${input.free ? ` (${input.free} free)` : ''}.`,
+          staged
+            ? `Created ${lot}; ${input.total} ${uom.toLowerCase()} of ${g.productName} received and held for grading.`
+            : `Created ${lot}; accepted ${math.accepted} of ${input.total} ${uom.toLowerCase()} of ${g.productName}${input.free ? ` (${input.free} free)` : ''}.`,
         )
         createdId = id
         announcement.current = `${id} posted.`
@@ -126,7 +135,28 @@ export function useProcurement({ state, setState, nextId, nextLot, log, showToas
         showToast(goneFromDevice('GRN'))
         return null
       }
-      const math = priceGrn(input)
+      // A staged lot's numbers belong to the grading endpoint: it re-derives
+      // the costs and books the grade lines from the load the gate counted, so
+      // grades typed here would fork that record, and a re-count would strand
+      // the held ledger line. Farmer, area, harvest date and notes stay
+      // editable; a mis-counted staged lot is deleted and received again.
+      let priced = input
+      if (existing.gradingMode === 'staged') {
+        if (input.a + input.b + input.c + input.reject > QTY_EPSILON) {
+          showToast(
+            'This lot is waiting to be graded — its grades are recorded from Pipeline → Grading, not on this form.',
+          )
+          return null
+        }
+        if (grnCostsChanged(existing, input)) {
+          showToast(
+            'This lot is staged for grading, so its count and money are frozen until it is graded. If the gate mis-counted it, delete the receipt and receive it again.',
+          )
+          return null
+        }
+        priced = { ...input, gradingMode: 'staged' }
+      }
+      const math = priceGrn(priced)
       if (!math.ok) {
         showToast(math.error)
         return null

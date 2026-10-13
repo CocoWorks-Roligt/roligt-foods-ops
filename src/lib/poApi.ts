@@ -12,6 +12,8 @@ import type {
   PurchaseOrderCreateRequest,
   PurchaseOrderListResponse,
   PurchaseOrderPatchRequest,
+  PurchaseOrderReceiveRequest,
+  PurchaseOrderReceiveResponse,
   PurchaseOrderResponse,
   PurchaseOrderVersionExtension,
 } from './contracts'
@@ -88,4 +90,23 @@ export async function patchPurchaseOrderCall(
     idempotencyKey: key,
   })
   return (await read<PurchaseOrderResponse>(res)).po
+}
+
+/**
+ * Links a booked receipt to its order (W5's endpoint, W6's call): the second
+ * half of the pipeline Receipt form's submit, after createGrn has minted the
+ * GRN. Append-once and idempotent — a retry of a link that already landed is
+ * a success, which is what makes the form's failure-and-retry path safe.
+ */
+export async function receivePurchaseOrderCall(
+  id: string,
+  body: PurchaseOrderReceiveRequest,
+  key = newIdempotencyKey(),
+): Promise<PurchaseOrderReceiveResponse['po']> {
+  const res = await call(`/api/purchase-orders/${encodeURIComponent(id)}/receive`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+    idempotencyKey: key,
+  })
+  return (await read<PurchaseOrderReceiveResponse>(res)).po
 }

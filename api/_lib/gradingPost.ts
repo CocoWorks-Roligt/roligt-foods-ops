@@ -138,6 +138,9 @@ export async function stagedGrading(
     landed: math.landed,
     grossCost: math.grossCost,
     usableCost: math.usableCost,
+    // The day the grades landed — what moves a staged lot out of the Grading
+    // stage's queue (pipelineStages reads it).
+    gradedOn: now.slice(0, 10),
     // gradingMode stays 'staged' (contracts GRADING_MODES): the mode names how
     // the grades ARRIVED, and the grades-on-document is the graded state
     gradingMode: 'staged',

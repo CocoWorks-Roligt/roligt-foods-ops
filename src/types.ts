@@ -387,6 +387,10 @@ export interface Grn {
   gradingMode?: 'embedded' | 'staged'
   /** Day the staged grades were recorded, when they have been. */
   gradedOn?: string
+  /** Purchase order this receipt was booked against, when it was one (pipeline
+   *  Receipt form). The PO's own receivedGrnIds carries the same link on the
+   *  server side; this is the receipt's answer to "which order called it in". */
+  poId?: string
 }
 
 export interface SourceLine {

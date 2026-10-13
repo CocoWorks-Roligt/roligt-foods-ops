@@ -1,4 +1,5 @@
 import { QTY_EPSILON } from './utils.ts'
+import type { GradingMode } from './contracts.ts'
 import type { Grn } from '../types.ts'
 
 export interface GrnInput {
@@ -25,6 +26,14 @@ export interface GrnInput {
   rate: number
   transport: number
   notes?: string
+  /** How this load's grades arrive (the pipeline Receipt form). 'staged' books
+   *  the whole load held for the grading form to sort; absent is the Classic
+   *  receipt, graded at the gate — the two differ only in where the grades
+   *  come from, so every other rule here reads them the same. */
+  gradingMode?: GradingMode
+  /** Purchase order this receipt answers, when it answers one. Rides the doc;
+   *  the GRN↔PO linkage endpoint keeps the PO's own list. */
+  poId?: string
 }
 
 export type GrnMath =
@@ -95,6 +104,23 @@ export function priceGrn(given: GrnInput): GrnMath {
       error: 'Select an approved vendor, or enter the farmer name for a direct purchase.',
     }
   }
+  if (input.gradingMode === 'staged') {
+    // The gate counted the load; the sorting happens later, on the grading
+    // form (POST /api/grading). There are no grades to check yet — the load is
+    // booked whole and held, so the questions left are the ones every receipt
+    // answers, and the provisional arithmetic prices the whole load as
+    // accepted until the grades re-derive it.
+    if (total <= QTY_EPSILON) {
+      return { ok: false, error: 'Received quantity must be greater than zero.' }
+    }
+    if (free < -QTY_EPSILON || free > total + QTY_EPSILON) {
+      return { ok: false, error: `Free quantity must be between 0 and the ${total} received.` }
+    }
+    if (total - free > QTY_EPSILON && rate <= 0) {
+      return { ok: false, error: `Enter the agreed rate per ${unit}.` }
+    }
+    return { ok: true, ...grnMath({ ...input, a: total, b: 0, c: 0 }) }
+  }
   // Compared with a tolerance, not exactly. Coconuts are whole pieces, but produce
   // bought by weight is not: 0.1 + 0.2 is not 0.3 in binary floating point, so an
   // exact test rejected correctly graded receipts the moment the plant weighed
@@ -128,3 +154,11 @@ const GRN_COST_FIELDS = ['total', 'free', 'a', 'b', 'c', 'reject', 'rate', 'tran
 
 export const grnCostsChanged = (g: Grn, input: GrnInput) =>
   GRN_COST_FIELDS.some((k) => Number(g[k] || 0) !== Number(input[k] || 0))
+
+/**
+ * A staged receipt whose grades have not landed yet — the Grading stage's
+ * queue, and the one shape of receipt whose numbers must not be edited from
+ * the Classic form (the grading endpoint re-derives them from the load).
+ */
+export const gradesPending = (g: Pick<Grn, 'gradingMode' | 'gradedOn'>) =>
+  g.gradingMode === 'staged' && !g.gradedOn

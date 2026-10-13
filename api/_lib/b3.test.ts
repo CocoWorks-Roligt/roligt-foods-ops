@@ -603,12 +603,13 @@ describe('POST /api/grading', () => {
     expect(out.status).toBe(200)
     expect(out.body).toMatchObject({ grnId: 'GRN-C1', lot: 'LOT-C1', accepted: 95 })
 
-    const grn = JSON.parse(d1.doc('grns', 'GRN-C1')!.json) as Grn & { gradingMode?: string }
+    const grn = JSON.parse(d1.doc('grns', 'GRN-C1')!.json) as Grn & { gradingMode?: string; gradedOn?: string }
     expect(grn).toMatchObject({ a: 60, b: 30, c: 5, reject: 5, accepted: 95 })
     expect(grn.materialValue).toBeCloseTo(3500, 6) // (100 - 0) × 35
     expect(grn.landed).toBeCloseTo(4000, 6)
     expect(grn.usableCost).toBeCloseTo(4000 / 95, 6)
     expect(grn.gradingMode).toBe('staged') // contracts GRADING_MODES: the mode never changes
+    expect(grn.gradedOn).toMatch(/^\d{4}-\d{2}-\d{2}$/) // W6: the lot leaves the Grading stage's queue
 
     const lines = d1.docs<{ id: string; type: string; status: string; qty_in: number; qty_out: number }>('ledger')
       .filter((l) => l.type === 'Grading')

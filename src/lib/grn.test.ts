@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { asReceived, gradedUnit, priceGrn, type GrnInput } from './grn.ts'
+import { asReceived, gradedUnit, gradesPending, priceGrn, type GrnInput } from './grn.ts'
 
 /**
  * Only produce counted by the piece is graded. A receipt in kilograms or litres asks
@@ -53,5 +53,40 @@ describe('priceGrn', () => {
   it('still asks a piece receipt to grade every piece', () => {
     const math = priceGrn(receipt({ uom: 'Piece', total: 100, a: 60, b: 20, reject: 5, rate: 20 }))
     expect(math.ok).toBe(false)
+  })
+})
+
+describe('priceGrn — staged (grade later)', () => {
+  it('prices the whole load as accepted and holds it for the grading form', () => {
+    const math = priceGrn(receipt({ total: 500, free: 10, rate: 40, transport: 500, gradingMode: 'staged' }))
+    expect(math.ok).toBe(true)
+    if (math.ok) {
+      expect(math.accepted).toBe(500) // the whole count — provisional until the grades land
+      expect(math.material).toBe(490 * 40)
+      expect(math.landed).toBe(490 * 40 + 500)
+      expect(math.usableCost).toBe((490 * 40 + 500) / 500)
+    }
+  })
+
+  it('asks only what the gate can answer — no grades to sort yet', () => {
+    expect(priceGrn(receipt({ total: 0, rate: 40, gradingMode: 'staged' })).ok).toBe(false)
+    expect(priceGrn(receipt({ total: 10, rate: 0, gradingMode: 'staged' })).ok).toBe(false)
+    expect(priceGrn(receipt({ total: 10, free: 20, rate: 5, gradingMode: 'staged' })).ok).toBe(false)
+  })
+
+  it('still demands a product and a traceable source', () => {
+    expect(priceGrn(receipt({ total: 10, rate: 5, purchaseProductId: '', gradingMode: 'staged' })).ok).toBe(false)
+    expect(
+      priceGrn(receipt({ total: 10, rate: 5, farmerId: '', farmer: '  ', gradingMode: 'staged' })).ok,
+    ).toBe(false)
+  })
+})
+
+describe('gradesPending', () => {
+  it('is the staged receipt until its grades land, and nothing else', () => {
+    expect(gradesPending({ gradingMode: 'staged' })).toBe(true)
+    expect(gradesPending({ gradingMode: 'staged', gradedOn: '2026-10-14' })).toBe(false)
+    expect(gradesPending({ gradingMode: 'embedded' })).toBe(false)
+    expect(gradesPending({})).toBe(false)
   })
 })

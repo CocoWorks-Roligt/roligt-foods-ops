@@ -1,5 +1,5 @@
 # PROGRESS — Beverage Ops Platform Overhaul
-Updated: 2026-10-13 | Branch: dev | Base commit: de4c13b
+Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b
 
 | Task | Agent | Status | Files | Next action |
 |---|---|---|---|---|
@@ -25,6 +25,7 @@ Updated: 2026-10-13 | Branch: dev | Base commit: de4c13b
 | P3/W3: PO endpoints (contracts v1.3) | WORKFLOW | done | api/_lib/purchaseOrders.ts(+po.test), api/purchase-orders.ts, api/purchase-orders/[id].ts, contracts.ts, DECISIONS #16, RBAC §c | 1008 tests; W4 stage forms next |
 | P3/W4: PO form + register (contracts v1.4) | WORKFLOW | done | src/lib/poApi.ts, src/pages/PurchaseOrdersTab.tsx, Procurement.tsx tab, contracts.ts, index.css | 1008 tests; W5 Receipt forms next |
 | P3/W5: GRN↔PO linkage endpoint (contracts v1.5) | WORKFLOW | done | api/_lib/purchaseOrders.ts (+receive, po.test), api/purchase-orders/[id]/receive.ts, contracts.ts, RBAC §c | 1014 tests; W6 Receipt stage form next |
+| P3/W6: Receipt stage form (×3 by procurement form + staged grading) | WORKFLOW | done | src/pages/ReceiptTab.tsx, Procurement.tsx (4th tab), src/lib/receiptStage.*(+test), grn.ts(+test), context/domains/procurement.ts(+test), poApi.ts (receivePurchaseOrderCall), types.ts (Grn.poId), api/_lib/gradingPost.ts (gradedOn fix, b3.test) | 1032 tests; W7 Coconut Grading form next |
 
 ## Log
 - 2026-10-13 Phase 0 complete. Baseline green (745 tests, tsc -b, lint, build @ de4c13b). DB target confirmed:
@@ -112,3 +113,24 @@ Updated: 2026-10-13 | Branch: dev | Base commit: de4c13b
   Route api/purchase-orders/[id]/receive.ts reuses the inline-adapter pattern ([id].ts beside it
   answers PATCH; Vercel's static-segment-wins routing keeps them apart). 6 new service tests (16 PO
   total). Gates: tsc -b, 1014 passed, lint 0 errors, build pass.
+- 2026-10-14 WORKFLOW W6. The Receipt stage form — a fourth Procurement tab ("Receive goods",
+  pipeline flag, lazy chunk; contracts stay v1.5 — every wire it uses already existed). One form
+  whose questions follow the ITEM's procurementForm (receiptStage.ts: stamped flag first, then
+  the B1 backfill's own derivation, so form and eventual master cannot disagree): RAW+piece →
+  grade fields or "Grade later" (gradingMode:'staged'); everything else → count/rate/transport
+  with a where-it-goes note (READY_EXTRACT → inventory as-is; DIRECT_USE → blending stock).
+  Staged receipts post through the SAME createGrn: priceGrn gained a staged arm (whole load =
+  accepted, provisional costs; grn.test) and the write path books grades zero, accepted=total,
+  ledger Receipt line status 'Quarantine' — exactly the bucket gradingPost moves per grade.
+  Classic updateGrn refuses typed grades and re-counts on staged docs ("Pipeline → Grading");
+  farmer/area/harvest/notes stay editable (procurement.test). BUG FIX in gradingPost: it never
+  stamped gradedOn, so a graded staged lot would sit in the Grading stage forever — now
+  now.slice(0,10), pinned in b3.test. PO side: ScanInput + select of acknowledged/received
+  orders (scan of a draft/sent order explains po_not_acked instead), per-line
+  ordered/received/still table ("Receive this" seeds product+qty+rate), and the GRN-first
+  link-second order: poId rides the GRN doc, and an effect links any poId-carrying GRN the
+  order's list lacks (createGrn's returned id is unreliable under stubbed/concurrent setState —
+  the poId sweep also self-heals a link that never landed; cas_version reloads and retries).
+  Link failure surfaces a note; the receipt is never lost (append-once linkage). useDraft
+  remembers last vendor + storage area. Gates: tsc -b, 1032 passed (+18), lint 10 (baseline),
+  build pass.

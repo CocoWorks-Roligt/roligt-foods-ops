@@ -127,3 +127,124 @@ describe('createGrn — weighed produce is not graded', () => {
     expect(line?.qtyIn).toBe(12.5)
   })
 })
+
+describe('createGrn — a staged load is booked held for grading (W6)', () => {
+  const STAGED: GrnInput = {
+    ...INPUT,
+    total: 500,
+    free: 10,
+    a: 0,
+    b: 0,
+    c: 0,
+    reject: 0,
+    rate: 40,
+    gradingMode: 'staged',
+    poId: 'PO-0001',
+  }
+
+  it('books the whole count into quarantine, grades empty, the order link riding the doc', () => {
+    const { d, setState } = deps()
+    const { result } = renderHook(() => useProcurement(d))
+    expect(result.current.createGrn(STAGED)).toBe(POSTED)
+    const draft = applied(d, setState)
+    const grn = draft.grns.find((g) => g.id === 'GRN-2026-0001')
+    expect(grn).toMatchObject({
+      gradingMode: 'staged',
+      poId: 'PO-0001',
+      total: 500,
+      a: 0,
+      b: 0,
+      c: 0,
+      reject: 0,
+      accepted: 500,
+      // provisional, whole-load pricing until the grades re-derive it
+      usableCost: (490 * 40) / 500,
+    })
+    const line = draft.ledger.find((l) => l.doc === 'GRN-2026-0001' && l.type === 'Receipt')
+    expect(line).toMatchObject({ status: 'Quarantine', qtyIn: 500 })
+  })
+
+  it('an embedded receipt from the pipeline form carries no mode it did not ask for', () => {
+    const { d, setState } = deps()
+    const { result } = renderHook(() => useProcurement(d))
+    result.current.createGrn({ ...INPUT, poId: 'PO-0002' })
+    const draft = applied(d, setState)
+    const grn = draft.grns.find((g) => g.id === 'GRN-2026-0001')
+    expect(grn?.gradingMode).toBeUndefined()
+    expect(grn?.poId).toBe('PO-0002')
+    const line = draft.ledger.find((l) => l.doc === 'GRN-2026-0001' && l.type === 'Receipt')
+    expect(line?.status).toBe('Available')
+  })
+})
+
+describe('updateGrn — a staged lot belongs to the grading form (W6)', () => {
+  const posted = () => {
+    const first = deps()
+    const { result: created } = renderHook(() => useProcurement(first.d))
+    created.current.createGrn({
+      ...INPUT,
+      total: 500,
+      free: 10,
+      a: 0,
+      b: 0,
+      c: 0,
+      reject: 0,
+      rate: 40,
+      gradingMode: 'staged',
+      poId: 'PO-0001',
+    })
+    return applied(first.d, first.setState)
+  }
+
+  it('refuses grades typed on the Classic form — they are the grading endpoint\'s record', () => {
+    const state = posted()
+    const { d, setState, showToast } = deps(state)
+    const { result } = renderHook(() => useProcurement(d))
+    expect(
+      result.current.updateGrn('GRN-2026-0001', { ...INPUT, total: 500, rate: 40, a: 500, b: 0, c: 0, reject: 0 }),
+    ).toBeNull()
+    expect(showToast).toHaveBeenCalledTimes(1)
+    expect(showToast.mock.calls[0][0]).toMatch(/Pipeline → Grading/)
+    expect(setState).not.toHaveBeenCalled()
+  })
+
+  it('refuses a re-count — the held line would strand', () => {
+    const state = posted()
+    const { d, setState, showToast } = deps(state)
+    const { result } = renderHook(() => useProcurement(d))
+    expect(
+      result.current.updateGrn('GRN-2026-0001', { ...INPUT, total: 600, free: 10, rate: 40, a: 0, b: 0, c: 0, reject: 0 }),
+    ).toBeNull()
+    expect(showToast.mock.calls[0][0]).toMatch(/frozen/)
+    expect(setState).not.toHaveBeenCalled()
+  })
+
+  it('still takes the farmer, area, harvest date and notes', () => {
+    const state = posted()
+    const { d, setState, showToast } = deps(state)
+    const { result } = renderHook(() => useProcurement(d))
+    const ok = result.current.updateGrn('GRN-2026-0001', {
+      ...INPUT,
+      total: 500,
+      free: 10,
+      rate: 40,
+      a: 0,
+      b: 0,
+      c: 0,
+      reject: 0,
+      farmer: 'Ravi',
+      area: 'Mandya',
+      harvestedOn: '2026-10-13',
+      notes: 'Wet load',
+    })
+    expect(ok).toBe('GRN-2026-0001')
+    expect(showToast).toHaveBeenCalledWith('GRN-2026-0001 updated.')
+    const draft = applied(d, setState)
+    const grn = draft.grns.find((g) => g.id === 'GRN-2026-0001')
+    expect(grn).toMatchObject({ farmer: 'Ravi', area: 'Mandya', harvestedOn: '2026-10-13', notes: 'Wet load' })
+    // the held shape survives the edit untouched
+    expect(grn).toMatchObject({ gradingMode: 'staged', a: 0, accepted: 500 })
+    const line = draft.ledger.find((l) => l.doc === 'GRN-2026-0001' && l.type === 'Receipt')
+    expect(line).toMatchObject({ status: 'Quarantine', qtyIn: 500 })
+  })
+})

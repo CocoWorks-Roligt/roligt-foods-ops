@@ -45,6 +45,9 @@ const PurchaseOrdersTab = lazy(() =>
   import('./PurchaseOrdersTab').then((m) => ({ default: m.PurchaseOrdersTab })),
 )
 
+/** The pipeline flag's Receipt stage form — its own chunk for the same reason. */
+const ReceiptTab = lazy(() => import('./ReceiptTab').then((m) => ({ default: m.ReceiptTab })))
+
 /** Line under the source name: the grower when a vendor is named above it, plus the area. */
 function sourceNote(g: Grn) {
   return [g.farmerName ? g.farmer : 'Direct farmer purchase', g.area].filter(Boolean).join(' · ')
@@ -141,16 +144,17 @@ export function Procurement() {
   /**
    * Which sort of receipt is on screen. Held in the URL so the Packing Materials page
    * can link straight to the one it means, and so a reload does not drop back to
-   * produce with a half-typed form behind it. The PO register rides the pipeline
-   * flag (WORKFLOW W4): without it the tab is not offered at all.
+   * produce with a half-typed form behind it. The PO register and the Receipt
+   * stage form ride the pipeline flag (WORKFLOW W4/W6): without it neither tab
+   * is offered at all.
    */
   const tab =
-    params.get('tab') === 'orders' && flags.pipeline
-      ? 'orders'
+    (params.get('tab') === 'orders' || params.get('tab') === 'receive') && flags.pipeline
+      ? (params.get('tab') as 'orders' | 'receive')
       : params.get('tab') === 'packing'
         ? 'packing'
         : 'produce'
-  const setTab = (next: 'produce' | 'packing' | 'orders') =>
+  const setTab = (next: 'produce' | 'packing' | 'orders' | 'receive') =>
     setParams(next === 'produce' ? {} : { tab: next }, { replace: true })
 
   const rows = useMemo(() => filterGrnRows(state.grns, search, status), [search, state.grns, status])
@@ -457,7 +461,7 @@ export function Procurement() {
           </span>
         </div>
         <div className="section-head-actions">
-          {tab === 'orders' ? null : (
+          {tab === 'orders' || tab === 'receive' ? null : (
             <button
               className="btn btn-primary"
               onClick={tab === 'packing' ? openPmNew : openNew}
@@ -484,13 +488,22 @@ export function Procurement() {
           Packing material
         </button>
         {flags.pipeline ? (
-          <button
-            type="button"
-            className={`type-tab ${tab === 'orders' ? 'active' : ''}`}
-            onClick={() => setTab('orders')}
-          >
-            Purchase orders
-          </button>
+          <>
+            <button
+              type="button"
+              className={`type-tab ${tab === 'orders' ? 'active' : ''}`}
+              onClick={() => setTab('orders')}
+            >
+              Purchase orders
+            </button>
+            <button
+              type="button"
+              className={`type-tab ${tab === 'receive' ? 'active' : ''}`}
+              onClick={() => setTab('receive')}
+            >
+              Receive goods
+            </button>
+          </>
         ) : null}
       </div>
       {tab === 'produce' ? (
@@ -635,6 +648,10 @@ export function Procurement() {
       ) : tab === 'orders' ? (
         <Suspense fallback={<div className="note">Loading purchase orders…</div>}>
           <PurchaseOrdersTab />
+        </Suspense>
+      ) : tab === 'receive' ? (
+        <Suspense fallback={<div className="note">Loading the receipt form…</div>}>
+          <ReceiptTab />
         </Suspense>
       ) : (
         <>
