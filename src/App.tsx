@@ -44,6 +44,7 @@ const StockIssues = lazy(() => import('./pages/StockIssues').then((m) => ({ defa
 const Npd = lazy(() => import('./pages/Npd').then((m) => ({ default: m.Npd })))
 const Storage = lazy(() => import('./pages/Storage').then((m) => ({ default: m.Storage })))
 const Stickers = lazy(() => import('./pages/Stickers').then((m) => ({ default: m.Stickers })))
+const Styleguide = lazy(() => import('./pages/Styleguide').then((m) => ({ default: m.Styleguide })))
 const ControlSamples = lazy(() => import('./pages/ControlSamples').then((m) => ({ default: m.ControlSamples })))
 const TestParameters = lazy(() => import('./pages/TestParameters').then((m) => ({ default: m.TestParameters })))
 const Compliance = lazy(() => import('./pages/Compliance').then((m) => ({ default: m.Compliance })))
@@ -133,6 +134,11 @@ function AuthGate() {
             <Route path="audit" element={<RequirePage viewId="audit"><Audit /></RequirePage>} />
             <Route path="admin/users" element={<RequirePage viewId="admin-users"><UsersAdmin /></RequirePage>} />
             <Route path="admin/roles" element={<RequirePage viewId="admin-roles"><RolesAdmin /></RequirePage>} />
+            {/* The design system, rendered live — not a catalog page (no slug,
+                no nav item): builders reach it by URL. Scoped callers are
+                bounced by Layout's off-path redirect, which is fine — it is
+                sample data all the way down. */}
+            <Route path="styleguide" element={<Styleguide />} />
             <Route path="melanges" element={<Navigate to="/production?stage=melange" replace />} />
             <Route path="masters" element={<Navigate to="/vendors" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />

@@ -14,8 +14,12 @@ Updated: 2026-10-13 | Branch: dev | Base commit: de4c13b
 | P2/B3: endpoints (close/dispatch/grading/genealogy/search/idempotency) | BACKEND | done @ efb1e07 | api/*, src/lib/genealogy.ts, handoffs/b3.md | 935 tests green (429 had killed the subagent mid-run; verified+committed by LEAD) |
 | P2/LEAD: review fixes — contracts v1.1, domain.ts dedupe, release arm, reconciliation test, mass-balance audit | LEAD | done @ df995da, fdc62be | contracts.ts, api/_lib/domain.ts + 11 src/lib files, rulesGate*, scripts/overhaul/mass-balance-audit.ts | see DECISIONS 2026-10-13 review section |
 | P2/B4: /api/kpis skeleton + /api/events SSE | BACKEND | done | src/lib/kpis/*, api/_lib/kpis.ts, api/_lib/events.ts, api/kpis/[module].ts, api/events.ts, handoffs/b4.md | 955 tests green; folds: qc + orders-dispatch; rest registered for P5 |
-| P2: SHELL (design system, AppShell, /styleguide) | SHELL | pending | src/components, DESIGN_SYSTEM.md | next (build against contracts v1.2) |
-| P2: QA LIGHT | QA | pending | — | after SHELL |
+| P2: SHELL tokens + status palette + chart theme | SHELL | done @ 5a73273 | index.css (light+dark tokens), theme.ts, statusPalette.ts, StatusBadge/StatusIcons, chartTheme.ts, DESIGN_SYSTEM.md | 967 tests |
+| P2: SHELL shell primitives + charts | SHELL | done @ 5a73273 | shell/: Skeleton, ConfirmDialog, FreshnessChip, KpiCard, FilterBar, DataTable, ChartCard + echartsChunk (echarts 6, the ONE chart lib) | validated palettes both modes |
+| P2: SHELL live shell (flags→client, badges, process nav, palette) | SHELL | done @ 7b4e3bb | api/snapshot.ts flags ride-along, rulesGate.readFlagRecords, AppContext flags, useRevisionFeed (one ES/tab), useKpis, navBadges.ts, shell/CommandPalette.tsx, Layout.tsx shell_nav branch | 973 tests; Classic byte-identical when flag off |
+| P2: SHELL workflow forms | SHELL | done @ a331a32 | useDraft.ts, shell/SectionedForm+Stepper, TransformationForm (live computeMassBalance), SignaturePad (hand-rolled), ScanInput | 981 tests |
+| P2: SHELL /styleguide + QA LIGHT | SHELL | done | pages/Styleguide.tsx, App.tsx route; gates tsc -b / vitest / lint 10 / build | QA LIGHT re-run below |
+| P2: QA LIGHT | QA | done (SHELL self-run) | — | gates green at each slice; see log |
 
 ## Log
 - 2026-10-13 Phase 0 complete. Baseline green (745 tests, tsc -b, lint, build @ de4c13b). DB target confirmed:
@@ -37,3 +41,27 @@ Updated: 2026-10-13 | Branch: dev | Base commit: de4c13b
   SSE hello/revision/bye). /api/events SSE streams the D1 revision token (4-min life < 300 s cap;
   poll fallback /api/revision). KPI.md module key corrected to shipment-tracking. Gates: tsc -b,
   955 passed, lint 10 (baseline), build pass. B contracts complete — SHELL next (builds against v1.2).
+- 2026-10-13 SHELL done, three slices (5a73273, 7b4e3bb, a331a32 + styleguide). (1) Tokens:
+  light + full dark theme (value-only overrides, color-scheme, print sheets stay paper-white);
+  status palette color+glyph+word with exact-key table over substring families (readStatus);
+  chartTheme with dataviz-validated palettes both modes (brand teal #0d9488 slot 1; sequential
+  OKLCH-even teal ramps; light-mode categorical contrast WARNs covered by the relief rule —
+  ChartCard ships table view + labels); DESIGN_SYSTEM.md written. (2) Primitives: Skeleton,
+  ConfirmDialog, FreshnessChip, KpiCard (delta glyph+sign, invertDelta), FilterBar (date presets),
+  DataTable (sticky header, sort, density, column chooser, per-device prefs), ChartCard (six kinds,
+  chart↔table, CSV, freshness) on tree-shaken echarts 6 lazy chunk (DECISIONS dependency log).
+  (3) Live shell: flags ride /api/snapshot (Zoho answers none = all-OFF = Classic) and fold
+  through the same isomorphic readFlags in AppContext; useRevisionFeed is ONE EventSource per tab
+  (module singleton — browser cap near six), /api/revision poll fallback; useKpis owns
+  /api/kpis/:module + freshness + revision refetch; navBadges folds AppState→counts on existing
+  page vocabularies (QC Pending, orders Open, batch roll-ups, PM reorder, sample retention —
+  Packing/Dispatch/Home deferred until their phases); Layout renders the process-order sidebar
+  with badges + Ctrl/Cmd+K CommandPalette (GET /api/search) when shell_nav is on, Live Reports
+  shown as "Dashboards" (GLOSSARY); Classic untouched when off. Forms: useDraft localStorage
+  autosave, SectionedForm/Stepper, TransformationForm folding the same isomorphic
+  computeMassBalance as the close gate, hand-rolled SignaturePad (pointer+canvas), ScanInput
+  (keyboard-wedge half; camera deferred to SHIPMENT PWA). /styleguide route (no catalog entry)
+  renders tokens/palette/components live. Gates at each slice: tsc -b, 981 tests (baseline 955
+  +26), lint 10 (baseline), build pass. NOTE for LEAD: hand-staging a flag row does not bump
+  app_revision — the snapshot ride-along carries it on the next poll/SSE tick anyway, but a
+  staged flag will not force one; toggle visibility may lag up to one poll (20 s).
