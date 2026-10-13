@@ -37,3 +37,13 @@ Verdicts from audit slice 2 (2026-10-13). RULE: ASSUMED/PARTIAL items are built 
 ## Blocked
 - batch_v2 enablement — blocked on the DECISIONS #2 mass-balance resolution (3/14 pass; extractions cannot close under enforcement).
 - can.* action slugs not yet issued by any role seed (release arm runs on the page.quality proxy).
+
+## B4 decisions (2026-10-13, BACKEND)
+- ASSUMED → configurable: `kpiStaleAfterSec` in meta app_config (default 300 s) drives Freshness.stale_after/stale on /api/kpis; SSE params (poll 5 s, heartbeat 15 s, stream life 4 min < the 300 s function cap) are code constants, not config — surface in DECISIONS if the plant wants them tunable.
+- Module key on the wire is `shipment-tracking` (contracts KPI_MODULES); KPI.md's header line said `shipments` — KPI.md corrected to the contract key.
+- KPI gate = hold ANY of the module's page slugs (RBAC.md §c "module's page slug OR page.dashboards" — page.dashboards does not exist yet; revisit in P5 if dashboards get their own page). Delivery agents: 403 on all modules.
+- Read withholding honored per-collection: a collection the caller's snapshot withholds is folded without (e.g. qc with page.quality only → no batch dates → windowed counts read 0), mirroring /api/search.
+- Fulfilment % (orders-dispatch skeleton) = window-dispatched qty ÷ window-ordered qty (KPI.md formula); per-order-line fulfilment refinement lands with the module's full build (P5).
+- Meta cache rows `kpi:<module>` never bump app_revision (cache, not document) — first cached module: shipment-tracking (empty fold until SHIPMENT P4); heavy-fold users arrive in P5.
+- qc fold delegates to qualityReport (widened to Pick<AppState,'qcs'|'batches'|'items'>) — dashboards/reports cannot diverge; orders-dispatch fold is own-math (dispatchRows' per-cell grouping is heavier than the module needs).
+- SSE delivery-agent scoping to own shipments deferred to SHIPMENT (P4) — the revision token itself leaks nothing (RBAC'd reads happen on refetch).

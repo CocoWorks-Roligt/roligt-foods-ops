@@ -17,7 +17,7 @@ import { localDay } from '../utils.ts'
 
 /** The month a QC record belongs to: the month its review happened, falling back
  *  to the month the batch was run — a pending record has reviewed nothing yet. */
-function qcMonth(state: AppState, q: QcRecord): string {
+function qcMonth(state: Pick<AppState, 'qcs' | 'batches' | 'items'>, q: QcRecord): string {
   const reviewed = localDay(q.reviewedAt)
   if (reviewed) return monthOf(reviewed)
   return monthOf(state.batches.find((b) => b.id === q.batchId)?.date)
@@ -65,7 +65,10 @@ function rate(slice: QualitySlice): QualitySlice {
 
 /** The QC records in the window, with each one's batch month resolved — the
  *  window is read on the batch's date so a record is where its batch is. */
-function recordsIn(state: AppState, w: ReportWindow): QcRecord[] {
+function recordsIn(
+  state: Pick<AppState, 'qcs' | 'batches' | 'items'>,
+  w: ReportWindow,
+): QcRecord[] {
   return state.qcs.filter((q) =>
     inWindow(state.batches.find((b) => b.id === q.batchId)?.date, w),
   )
@@ -80,7 +83,10 @@ export interface QualityReport {
   partlyReleased: { batchId: string; outputs: { item: string; name: string; disposition: string }[] }[]
 }
 
-export function qualityReport(state: AppState, w: ReportWindow): QualityReport {
+export function qualityReport(
+  state: Pick<AppState, 'qcs' | 'batches' | 'items'>,
+  w: ReportWindow,
+): QualityReport {
   const records = recordsIn(state, w)
 
   const months = new Map<string, QualitySlice>()

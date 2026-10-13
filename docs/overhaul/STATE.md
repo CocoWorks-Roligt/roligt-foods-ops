@@ -1,8 +1,8 @@
 # STATE — Beverage Ops Platform Overhaul
-Updated: 2026-10-13 | Phase: 2 (BACKEND B3 done; next B4 kpis/SSE) | Branch: dev | Base: de4c13b
+Updated: 2026-10-13 | Phase: 2 (BACKEND B1–B4 done; next SHELL) | Branch: dev | Base: de4c13b
 
 ## Contracts
-- v1.1 (2026-10-13, LEAD): src/lib/contracts.ts — frozen v1 plus additive deltas (challan, recipeId,
+- v1.2 (2026-10-13, B4): +RevisionEvent (SSE); v1.1 (2026-10-13, LEAD): src/lib/contracts.ts — frozen v1 plus additive deltas (challan, recipeId,
   avgUnitWeight naming); changelog in the file header + ARCHITECTURE.md §8. SHELL builds against v1.1.
 
 ## DB target — CONFIRMED 2026-10-13 (audit slice 3)

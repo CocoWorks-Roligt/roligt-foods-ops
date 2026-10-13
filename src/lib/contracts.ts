@@ -7,6 +7,10 @@
  * neither changes it — a change after freeze needs LEAD approval and a minor
  * version bump, recorded in ARCHITECTURE.md.
  *
+ * v1.2 (2026-10-13, LEAD-approved additive delta — B4):
+ * - RevisionEvent — the GET /api/events SSE stream's one message (event names
+ *   hello / revision / bye; heartbeats are comments; poll fallback stays
+ *   GET /api/revision). The KPI wire shape itself was already frozen above.
  * v1.1 (2026-10-13, LEAD-approved post-freeze deltas — additive only):
  * - MelangeExtension + recipeId?: string (B1 backfill stamps melanges so
  *   versioned edits keep their lineage).
@@ -1097,6 +1101,19 @@ export interface KpiModuleResponse extends Freshness {
   module: KpiModule
   cards: KpiCard[]
   charts: KpiChart[]
+}
+
+// ── GET /api/events (SSE — the live feed, ARCHITECTURE §5) ──────────────────
+
+/** The one message the stream carries, on three event names: `hello` on
+ *  connect (the token as of now), `revision` when the token changed — the
+ *  client's cue to refetch whatever it holds (snapshot, kpis) — and `bye`
+ *  when the server ends the stream (EventSource reconnects; hello re-syncs).
+ *  Heartbeats are SSE comments, not events. The poll fallback is the existing
+ *  GET /api/revision. */
+export interface RevisionEvent {
+  revision: string
+  at: string
 }
 
 // ── GET /api/exports/:report ────────────────────────────────────────────────

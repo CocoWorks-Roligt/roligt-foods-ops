@@ -1,5 +1,5 @@
 # KPI.md — per-module metric catalog (ARCHITECT, 2026-10-13)
-SHARED AGGREGATION: every metric below is served by `GET /api/kpis/:module` (module keys: procurement, grading-extraction, intermediates-blending, packing, qc, control-samples, inventory, packaging-materials, orders-dispatch, shipments). Server folds documents in `src/lib/kpis/`, memoized by revision (ARCHITECTURE §6); heavy folds cached in meta with computed_at. EVERY payload carries `last_updated` + `stale_after`; UI shows STALE past configured age. Dashboards, live reports, and CSV/XLSX/PDF exports all read this one layer. EXISTS = folds from today's collections; NEW = needs ARCHITECTURE §2 delta (cited).
+SHARED AGGREGATION: every metric below is served by `GET /api/kpis/:module` (module keys: procurement, grading-extraction, intermediates-blending, packing, qc, control-samples, inventory, packaging-materials, orders-dispatch, shipment-tracking — the contracts' KPI_MODULES keys). Server folds documents in `src/lib/kpis/`, memoized by revision (ARCHITECTURE §6); heavy folds cached in meta with computed_at. EVERY payload carries `last_updated` + `stale_after`; UI shows STALE past configured age. Dashboards, live reports, and CSV/XLSX/PDF exports all read this one layer. EXISTS = folds from today's collections; NEW = needs ARCHITECTURE §2 delta (cited).
 
 ## Procurement
 | metric | formula | source / status | refresh | chart |
@@ -106,3 +106,5 @@ SHARED AGGREGATION: every metric below is served by `GET /api/kpis/:module` (mod
 
 OPEN ITEMS for ARCHITECT follow-up (schema additions this catalog needs beyond published §2): `purchase_orders` collection; packing_runs +shiftId; controlSamples +storageBin; storage_locations +capacity.
 DECIDED 2026-10-13 (LEAD): the four `purchase_orders`-dependent Procurement KPIs (funnel, supplier on-time, lead time, deliveries calendar) are KEPT and blocked on the `purchase_orders` entity + a PO form — the PO form is added to WORKFLOW's stage forms (Receipt stage). No PO form ships, no PO numbers.
+
+B4 AS-BUILT (2026-10-13): layer live — src/lib/kpis/ folds + api/_lib/kpis.ts (revision memo, meta cache, page withholding) + /api/kpis/[module] + /api/events SSE. Reference folds shipped: qc, orders-dispatch. Remaining modules registered, fold lands per module in P5 (BACKEND first).

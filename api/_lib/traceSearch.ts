@@ -79,7 +79,7 @@ function seedResolves(seed: GenealogySeed, docs: GenealogyDocs): boolean {
   return seedNodes(seed, docs).length > 0
 }
 
-async function readCollection<T>(d1: D1Client, collection: string): Promise<T[]> {
+export async function readCollection<T>(d1: Pick<D1Client, 'query'>, collection: string): Promise<T[]> {
   const rows = await d1.query<{ json: unknown }>(`SELECT json FROM documents WHERE collection = ?`, [collection])
   const out: T[] = []
   for (const r of rows) {
