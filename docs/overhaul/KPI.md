@@ -105,3 +105,4 @@ SHARED AGGREGATION: every metric below is served by `GET /api/kpis/:module` (mod
 | BIB/carton returns | return lines by packaging type | NEW — returns (§2) | live | bar |
 
 OPEN ITEMS for ARCHITECT follow-up (schema additions this catalog needs beyond published §2): `purchase_orders` collection; packing_runs +shiftId; controlSamples +storageBin; storage_locations +capacity.
+DECIDED 2026-10-13 (LEAD): the four `purchase_orders`-dependent Procurement KPIs (funnel, supplier on-time, lead time, deliveries calendar) are KEPT and blocked on the `purchase_orders` entity + a PO form — the PO form is added to WORKFLOW's stage forms (Receipt stage). No PO form ships, no PO numbers.

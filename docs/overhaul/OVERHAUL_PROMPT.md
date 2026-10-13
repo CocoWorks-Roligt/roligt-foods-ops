@@ -132,6 +132,21 @@ Rules:
    re-running this prompt file.
 10. Update PROGRESS.md after every task.
 
+COST MODEL: cost = requests x context size. Fewer, larger, well-planned steps beat many
+small ones.
+- ONE PHASE = ONE SESSION. At phase end: update PROGRESS.md/STATE.md, write the handoff,
+  then STOP and tell the user to /clear and start the next phase.
+- Hard stop at ~80k context: finish the current slice, save state, tell the user to clear.
+- Do NOT spawn parallel subagents. Max ONE subagent at a time, only for read-heavy work
+  (audit, large greps). Write-heavy work stays in the main session.
+- Batch work: each slice should touch several files per request and use multi-file edits.
+  Do not commit or update PROGRESS.md after every tiny task, only per slice/phase.
+- Run commands with quiet output (tail -n 30, --silent, summary reporters). Never print full
+  test logs, migrations output, or diffs.
+- Read each file once; keep notes in PROGRESS.md instead of re-reading.
+- Load only the current phase's agent section (kept in docs/overhaul/agents/<NAME>.md),
+  not the whole prompt.
+
 # 6. ENGINEERING STANDARDS (BACKEND AND PLATFORM INVARIANTS)
 - ENVIRONMENT SAFETY: never connect to the production database or production secrets. Work
   only against a staging DB or a restored copy. Never print or commit secrets. Confirm the

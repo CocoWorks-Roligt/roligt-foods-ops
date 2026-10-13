@@ -1,5 +1,5 @@
 # RBAC.md — roles, actions, endpoint matrix (ARCHITECT, 2026-10-13)
-Model: permissions are page slugs `page.<id>` (28 today, src/lib/pages.ts) + NEW action slugs `can.<action>` (ARCHITECTURE §2). WorkOS roles are composed of slugs at runtime; a caller holding any slug is scoped to exactly those pages; NO slugs = Operator (open tier, behavior unchanged). New catalog slugs ship with their pages: `page.shipments` (board), `page.my-deliveries` (delivery PWA), `page.dashboards` (module dashboards hub). Admin auto-inherits new slugs (`sessionPermissions`). Seed via `scripts/workos/seed-rbac.mjs` (`npx tsx --env-file=.env …`).
+Model: permissions are page slugs `page.<id>` (28 today, src/lib/pages.ts) + NEW action slugs `can.<action>` (ARCHITECTURE §2). WorkOS roles are composed of slugs at runtime; a caller holding any slug is scoped to exactly those pages; NO slugs = Operator (open tier, behavior unchanged) — INTERNAL users only. External users (delivery agents) are default-deny: an agent account with no explicit role sees nothing (REQUIRED before the PWA ships; see DECISIONS 2026-10-13). New catalog slugs ship with their pages: `page.shipments` (board), `page.my-deliveries` (delivery PWA), `page.dashboards` (module dashboards hub). Admin auto-inherits new slugs (`sessionPermissions`). Seed via `scripts/workos/seed-rbac.mjs` (`npx tsx --env-file=.env …`).
 
 ## (a) Roles
 | role (WorkOS slug) | pages | landing | notes |
@@ -13,12 +13,12 @@ Model: permissions are page slugs `page.<id>` (28 today, src/lib/pages.ts) + NEW
 | qc_analyst | page.quality, page.control-samples, page.test-parameters, page.reports, page.dashboards | /quality | release gate owner |
 | store_dispatch | page.orders, page.dispatch, page.inventory, page.packing-materials, page.stock-issues, page.storage, page.shipments, page.dashboards | /dispatch | dispatch, shipments, challan correction |
 | delivery_agent | page.my-deliveries ONLY | /my-deliveries | external; heavy scoping §(d) |
-| manager | every Operations+Records page (incl. page.shipments, page.dashboards, page.traceability, page.audit); no Masters/Settings/Admin | / | read-leaning; page tick carries writes — grant Masters explicitly if wanted |
+| manager | every Operations+Records page (incl. page.shipments, page.dashboards, page.traceability, page.audit); no Masters/Settings/Admin | / | page ticks carry WRITES, not reads only — a manager holding page.quality can write QC records (and release, see proxy note in (b)); grant Masters explicitly if wanted |
 
 ## (b) Action permissions `can.<action>`
 | action | roles |
 |---|---|
-| can.release_lot | qc_analyst, app-admin |
+| can.release_lot | qc_analyst, app-admin — ENFORCED (qc_gate_v2 release arm, rulesGate gateQcReleases; proxy: page.quality until action slugs ship) |
 | can.fail_lot | qc_analyst, app-admin |
 | can.rework_lot | qc_analyst, app-admin |
 | can.close_run | production_operator, packing, app-admin (guard: spoilage≥1 + mass-balance ok) |
@@ -48,7 +48,7 @@ Model: permissions are page slugs `page.<id>` (28 today, src/lib/pages.ts) + NEW
 | GET /api/compliance/remind | Bearer CRON_SECRET | cron only |
 | GET /api/kpis/:module | module's page slug OR page.dashboards | delivery_agent: none; revision-keyed, last_updated+stale |
 | GET /api/exports/:report | report's page slug | stream small / job+notify large; presigned expiring download; audited |
-| GET /api/search | any signed-in except delivery_agent | agent scope: own shipment/challan ids only |
+| GET /api/search | any signed-in except delivery_agent | agents get 403 (as built, B3); their own shipments/challans arrive via /api/shipments + /api/challans, not search |
 | GET /api/events (SSE) | any signed-in | revision-keyed; delivery_agent stream scoped to own shipments |
 | GET /api/genealogy | any signed-in except delivery_agent | BFS fold, both directions |
 | POST /api/grading | page.procurement | staged mode (grns.grading_mode); Idempotency-Key |
@@ -68,8 +68,10 @@ Model: permissions are page slugs `page.<id>` (28 today, src/lib/pages.ts) + NEW
 ## (d) delivery_agent scoping (server-enforced)
 - Shipments list/get: WHERE agentUserId = self — DB filter on every query, never a UI filter. Unassigned id → 404 (no existence leak).
 - Own challans only (challans.agentId = self); create only via submit; correct_challan denied.
-- Snapshot withholding: ledger, items, products, grns, batches, orders, qcs, dispatches withheld entirely; shipment payload strips unit costs, other customers, other agents.
-- No access to: KPIs, search (beyond own ids), genealogy, inventory, masters, audit log.
+- Snapshot projection: MUST be an ALLOWLIST (shipments slice only) before page.my-deliveries goes live. As built today the projection is a withhold list over page-carrying collections — page-less keys (items, products, melanges, vendors, …) reach ANY signed-in caller, so the §(d) withholding below is the TARGET, not current behaviour (verified 2026-10-13, DECISIONS).
+- Target withholding: ledger, items, products, grns, batches, orders, qcs, dispatches withheld entirely; shipment payload strips unit costs, other customers, other agents.
+- No access to: KPIs, search (403 as built), genealogy, inventory, masters, audit log.
+- Default-deny: an external account with no explicit delivery_agent role sees NOTHING (not the Operator open tier) — required before the PWA ships.
 - Offline queue replay keeps scoping: events/submit re-validated against assignment at drain time.
 
 ## Exports & file URLs (all roles)

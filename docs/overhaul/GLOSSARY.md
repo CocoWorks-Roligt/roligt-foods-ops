@@ -23,7 +23,7 @@ Rule: user-facing words use "blend(s)" everywhere (smoothies/shakes too); "melan
 ## Status palette (single source; color + icon + text, never color-only)
 Pending · In Progress · On Hold · Passed · Failed · Rework · Released · Dispatched · Out for Delivery · Delivered · Returned.
 Mapping from stored keys (labels only, no data renames):
-- Available→Pending/In Progress (context), Quarantine & Pending→"On Hold (awaiting QC)" (today one label "Awaiting QC" covers three keys — split labels by context), Rejected→Failed, Released→Released, Retest→Rework (new), In Transit→Out for Delivery, Dispatched→Dispatched, Delivered→Delivered, Returned→Returned, Open→Pending, Cancelled→Failed? no — keep "Cancelled" as its own neutral status (do not force into palette).
+- Available→Pending/In Progress (context), Quarantine & Pending→"On Hold (awaiting QC)" (today one label "Awaiting QC" covers three keys — split labels by context), Rejected→Failed, Released→Released, Retest→Rework (new), In Transit→Out for Delivery, Dispatched→Dispatched, Delivered→Delivered, Returned→Returned, Open→Pending. Cancelled stays Cancelled — its own neutral status, not forced into the palette.
 
 ## Confusing labels flagged (fix in SHELL/WORKFLOW)
 - Nav "Production" hosts both Extraction and Blend stages; bottom-nav says "Produce" — unify wording.

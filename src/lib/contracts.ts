@@ -7,6 +7,15 @@
  * neither changes it — a change after freeze needs LEAD approval and a minor
  * version bump, recorded in ARCHITECTURE.md.
  *
+ * v1.1 (2026-10-13, LEAD-approved post-freeze deltas — additive only):
+ * - MelangeExtension + recipeId?: string (B1 backfill stamps melanges so
+ *   versioned edits keep their lineage).
+ * - DispatchConfirmResponse + challan?: string (B3 returns the reserved DC
+ *   number; contracts predated returning it).
+ * - Naming record: ItemExtension.avgUnitWeight is the as-built name for the
+ *   per-material count→kg conversion (B1 task text said otherwise); code and
+ *   this file agree, no type change.
+ *
  * Additions to existing entities are declared as `…Extension` partials meant to
  * be overlaid on the src/types.ts shape (`Item & ItemExtension`), never as edits
  * to it, so the Classic app keeps compiling against the old types until its
@@ -686,6 +695,9 @@ export interface ProductExtension {
 
 /** melanges + versioning: an edit creates a new version row; old ones stay. */
 export interface MelangeExtension {
+  /** Self-reference stamped by the B1 backfill: the melange id this recipe
+   *  lineage descends from (v1.1). */
+  recipeId?: string
   version?: number
   status?: RecipeStatus
 }
@@ -844,6 +856,8 @@ export interface DispatchConfirmResponse {
   /** Cartons decremented in the same transaction as the pouches. */
   cartonsIssued: { cartonItemId: string; count: number }[]
   loadedAt: string
+  /** The challan number reserved for this dispatch (v1.1). */
+  challan?: string
 }
 
 // ── POST /api/shipments (+ /:id/events, /:id/submit) ────────────────────────

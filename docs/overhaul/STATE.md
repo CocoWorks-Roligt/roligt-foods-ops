@@ -1,8 +1,9 @@
 # STATE — Beverage Ops Platform Overhaul
-Updated: 2026-10-13 | Phase: 2 (BACKEND B1 backfills) | Branch: dev | Base: de4c13b
+Updated: 2026-10-13 | Phase: 2 (BACKEND B3 done; next B4 kpis/SSE) | Branch: dev | Base: de4c13b
 
 ## Contracts
-- FROZEN 2026-10-13: src/lib/contracts.ts (post-Phase-1). Changes require LEAD approval + version bump.
+- v1.1 (2026-10-13, LEAD): src/lib/contracts.ts — frozen v1 plus additive deltas (challan, recipeId,
+  avgUnitWeight naming); changelog in the file header + ARCHITECTURE.md §8. SHELL builds against v1.1.
 
 ## DB target — CONFIRMED 2026-10-13 (audit slice 3)
 - Unit/integration: local better-sqlite3 in-memory against real `scripts/d1/schema.sql` (what `npm test` does).
@@ -22,5 +23,13 @@ Updated: 2026-10-13 | Phase: 2 (BACKEND B1 backfills) | Branch: dev | Base: de4c
 
 ## Invariants watch
 - tsc gate is `tsc -b` (root tsconfig is solution-style; `tsc --noEmit` checks nothing).
-- api-imported src/lib files need .ts import extensions.
+- api-imported src/lib files need .ts import extensions (the numbering/grn/stockIds closure now has them — keep it that way).
 - User-facing word is "blend(s)", never "melange" (code/data names may keep it).
+- Flags are a D1-engine concern only: gated endpoints 503 when D1 env is unset (postRoutes), and the
+  Zoho commit arm never reads the flags collection. Never enable qc_gate_v2/batch_v2 on any deployment
+  that can still reach Zoho (engine deletion planned 2026-10-19); flag toggles are LEAD-only until then.
+- batch_v2 stays OFF everywhere until the mass-balance decision lands (DECISIONS #2: 3/14 historical
+  batches pass at 2% — extraction cannot close under enforcement today).
+- If the split (multi-file) prompt version is adopted: do NOT copy its STATE/PROGRESS/DECISIONS
+  templates over the live files, and rename its DOMAIN.md (business rules) before adding — the live
+  DOMAIN.md is the current-state map and they collide.
