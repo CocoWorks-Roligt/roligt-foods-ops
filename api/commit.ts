@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { LockedError } from './_lib/store.js'
 import { authenticate, AuthError } from './_lib/auth.js'
 import { commitChanges, invalidateSnapshotCache, Conflict, Forbidden, Malformed, validateChanges } from './_lib/engine.js'
+import { RulesRejected } from './_lib/rulesGate.js'
 import { admitCommit } from './_lib/commitThrottle.js'
 import { store } from './_lib/shared.js'
 import { toWebRequest } from './_lib/vercel.js'
@@ -77,6 +78,13 @@ export default async function (req: VercelRequest, res: VercelResponse) {
       // Refused whole, before any write: the rows the caller based their work
       // on have moved. The client adopts the winning versions by these names.
       res.status(409).json({ error: e.message, conflicts: e.conflicts })
+      return
+    }
+    if (e instanceof RulesRejected) {
+      // A flag-gated rule refused the commit (the audit row is already filed
+      // by the engine); the ApiError shape carries the stable code the UI
+      // branches on (contracts §5 — a GuardKey, or 'lot_not_released').
+      res.status(422).json({ error: e.message, code: e.code })
       return
     }
     if (e instanceof LockedError) {

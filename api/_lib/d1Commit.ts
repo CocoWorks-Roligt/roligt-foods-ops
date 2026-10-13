@@ -61,6 +61,16 @@ import {
   provenanceDetails,
   type RowConflict,
 } from './commitGates.js'
+import {
+  RulesRejected,
+  flagsOfDocs,
+  gateRules,
+  rulesAuditRow,
+  rulesWantsEvidence,
+  type RulesEvidence,
+} from './rulesGate.js'
+import type { SpoilageRecord } from '../../src/lib/contracts.js'
+import type { MassBalanceItems } from '../../src/lib/rules/massBalance.js'
 
 /** The batch's per-statement rows, loosely typed — each SELECT fills its own columns. */
 interface PreflightRow {
@@ -118,7 +128,11 @@ export async function commitChangesD1(d1: D1Client, caller: Caller, changes: Sta
   //    evidence and the period arithmetic's), the counters, and every touched
   //    row whose observed version becomes the write's guard. The Zoho engine
   //    spreads these reads across the gate order; the verdicts below still
-  //    fire in ITS order, so a refusal is identical down to the throw.
+  //    fire in ITS order, so a refusal is identical down to the throw. The
+  //    rules gate's evidence rides the same batch, and only when the payload
+  //    gives it something to judge (rulesWantsEvidence) — a flags-off base
+  //    reads not one extra row.
+  const rulesWants = rulesWantsEvidence(changes)
   const rowStmts: { table: string }[] = []
   const stmts = [
     { sql: 'SELECT setting, value FROM meta' },
@@ -134,6 +148,18 @@ export async function commitChangesD1(d1: D1Client, caller: Caller, changes: Sta
         },
       ]
     }),
+    ...(rulesWants.flags ? [{ sql: "SELECT json FROM documents WHERE collection = 'flags'" }] : []),
+    ...(rulesWants.closeBatchIds.length
+      ? [{ sql: "SELECT json FROM documents WHERE collection = 'spoilage_records'" }]
+      : []),
+    ...(rulesWants.itemIds.length
+      ? [
+          {
+            sql: `SELECT id, json FROM documents WHERE collection = 'items' AND id IN (${rulesWants.itemIds.map(() => '?').join(',')})`,
+            params: rulesWants.itemIds,
+          },
+        ]
+      : []),
   ]
   const preflight = await d1.batch<PreflightRow>(stmts)
 
@@ -162,6 +188,46 @@ export async function commitChangesD1(d1: D1Client, caller: Caller, changes: Sta
     }
   }
 
+  // 2b. the rules gate's evidence, off the same batch's trailing statements
+  //     (absent entirely when the payload wants none of it). Unparsable rows
+  //     are skipped, not fatal: a hand-staged flag or item row reads as its
+  //     default, and a spoilage record that cannot parse does not exist.
+  let rulesCursor = 2 + rowStmts.length
+  const flagsJsons: string[] = []
+  if (rulesWants.flags) {
+    for (const r of preflight[rulesCursor].results) {
+      if (typeof r.json === 'string') flagsJsons.push(r.json)
+    }
+    rulesCursor++
+  }
+  const spoilageRecords: SpoilageRecord[] = []
+  if (rulesWants.closeBatchIds.length) {
+    for (const r of preflight[rulesCursor].results) {
+      try {
+        const doc = JSON.parse(String(r.json)) as SpoilageRecord
+        if (doc && typeof doc.batchId === 'string') spoilageRecords.push(doc)
+      } catch {
+        // not a record — the close guard answers as though it were absent
+      }
+    }
+    rulesCursor++
+  }
+  const ruleItems: MassBalanceItems = {}
+  if (rulesWants.itemIds.length) {
+    for (const r of preflight[rulesCursor].results) {
+      try {
+        const doc = JSON.parse(String(r.json)) as Record<string, unknown>
+        ruleItems[String(r.id ?? doc?.id ?? '')] = {
+          ...(typeof doc?.uom === 'string' ? { uom: doc.uom } : {}),
+          ...(Number(doc?.avgUnitWeight) > 0 ? { avgUnitWeight: Number(doc.avgUnitWeight) } : {}),
+          ...(Number(doc?.densityKgPerL) > 0 ? { densityKgPerL: Number(doc.densityKgPerL) } : {}),
+        }
+      } catch {
+        // an unparsable master converts through the plant-wide defaults
+      }
+    }
+  }
+
   // 3. the gates whose evidence just landed — the Zoho engine's exact order.
   const ownsConfigChange = gateConfigKeys(changes, storedConfig, rides.held)
   gateAuditRide(rides, ownsConfigChange)
@@ -182,6 +248,42 @@ export async function commitChangesD1(d1: D1Client, caller: Caller, changes: Sta
     }
   })
   if (conflicts.length) throw new Conflict(conflicts)
+
+  // 4b. the rules gate — flag-gated server enforcement of the isomorphic
+  //     rules (ARCHITECTURE §5), AFTER the conflict preflight so a stale base
+  //     answers 409 before it answers a rule refusal. A refusal files its
+  //     audit row (action 'rules.rejected') and bumps the revision in its own
+  //     atomic batch — the refused commit's own rows never land — then throws
+  //     for the route to answer as an ApiError.
+  if (rulesWants.flags || rulesWants.closeBatchIds.length) {
+    const storedBatches: Record<string, Record<string, unknown> | undefined> = {}
+    for (const [id, stored] of existingByTable.get('batches') ?? new Map<string, StoredRow>()) {
+      try {
+        storedBatches[id] = JSON.parse(stored.json) as Record<string, unknown>
+      } catch {
+        storedBatches[id] = undefined // unparsable: no from-status, judged as new
+      }
+    }
+    let appConfig: Record<string, unknown> | null = null
+    try {
+      appConfig = JSON.parse(storedConfig.get('app_config') ?? '') as Record<string, unknown>
+    } catch {
+      appConfig = null
+    }
+    const evidence: RulesEvidence = {
+      flags: flagsOfDocs(flagsJsons),
+      storedBatches,
+      spoilage: spoilageRecords,
+      items: ruleItems,
+      appConfig,
+    }
+    try {
+      gateRules(changes, evidence)
+    } catch (e) {
+      if (e instanceof RulesRejected) await writeRulesRejectionD1(d1, caller, e)
+      throw e
+    }
+  }
 
   // 5. the write batch. `wrote` carries the Zoho engine's idempotence
   //    contract: a commit whose every write was already exactly what it
@@ -300,4 +402,25 @@ export async function commitChangesD1(d1: D1Client, caller: Caller, changes: Sta
   if (!token) throw new Error('The revision bump returned no token — the commit was refused whole.')
   noteD1Revision(token)
   return { token, wrote: true }
+}
+
+/**
+ * The trail row a rules refusal files (action 'rules.rejected', details
+ * naming the entity and the guard) — ONE atomic batch with the revision bump,
+ * in the writeAdminAuditD1 shape. The refused commit's own rows never land;
+ * this row is the only write a refusal makes, so the plant can see every
+ * enforcement that fired, by whom, against what.
+ */
+async function writeRulesRejectionD1(d1: D1Client, caller: Caller, rejection: RulesRejected): Promise<void> {
+  const row = rulesAuditRow(caller.email, rejection, new Date().toISOString())
+  const out = await d1.batch<{ value?: unknown }>([
+    {
+      sql: `INSERT INTO documents(collection, id, json, version, updated_at) VALUES ('audits', ?, ?, 1, ?)
+        ON CONFLICT(collection, id) DO NOTHING`,
+      params: [row.id, JSON.stringify(row), row.at],
+    },
+    bumpStatement(),
+  ])
+  const token = out[1].results[0]?.value
+  if (typeof token === 'string' && token) noteD1Revision(token)
 }
