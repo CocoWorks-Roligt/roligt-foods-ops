@@ -1,5 +1,5 @@
-import { QTY_EPSILON } from './utils'
-import type { Grn } from '../types'
+import { QTY_EPSILON } from './utils.ts'
+import type { Grn } from '../types.ts'
 
 export interface GrnInput {
   date: string
@@ -68,6 +68,15 @@ export function asReceived<T extends Pick<GrnInput, 'uom' | 'total' | 'free' | '
  * Coconuts are counted in pieces and beetroot in kilograms, but the arithmetic is the
  * same either way, so the unit only ever shows up in the wording.
  */
+/** The arithmetic under a validated receipt — shared with the BFF's grading
+ *  endpoint so server and client cost a load identically. */
+export function grnMath(input: Pick<GrnInput, 'total' | 'free' | 'a' | 'b' | 'c' | 'rate' | 'transport'>) {
+  const accepted = input.a + input.b + input.c
+  const material = (input.total - input.free) * input.rate
+  const landed = material + input.transport
+  return { accepted, material, landed, grossCost: landed / input.total, usableCost: landed / accepted }
+}
+
 export function priceGrn(given: GrnInput): GrnMath {
   const input = asReceived(given)
   const { total, free, a, b, c, reject, rate } = input
@@ -111,16 +120,7 @@ export function priceGrn(given: GrnInput): GrnMath {
   if (total - free > QTY_EPSILON && rate <= 0) {
     return { ok: false, error: `Enter the agreed rate per ${unit}.` }
   }
-  const material = (total - free) * rate
-  const landed = material + input.transport
-  return {
-    ok: true,
-    accepted,
-    material,
-    landed,
-    grossCost: landed / total,
-    usableCost: landed / accepted,
-  }
+  return { ok: true, ...grnMath(input) }
 }
 
 /** Fields that move the money, and so are frozen once the lot reaches production. */

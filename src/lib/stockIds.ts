@@ -19,9 +19,9 @@
  * still running older code cannot mint a number somebody else also minted.
  */
 
-import { batchOutputs, runBulkItem } from './batches'
-import { localDay } from './utils'
-import type { AppState, Batch, Dispatch, LedgerEntry, PackingRun } from '../types'
+import { batchOutputs, runBulkItem } from './batches.ts'
+import { localDay } from './utils.ts'
+import type { AppState, Batch, Dispatch, LedgerEntry, PackingRun } from '../types.ts'
 
 export const stockIdFor = (doc: string, n: number) => `${doc}/${n}`
 

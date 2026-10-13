@@ -122,7 +122,6 @@ export async function stagedGrading(
     a: req.a,
     b: req.b,
     c: req.c,
-    reject: req.reject,
     rate: grn.rate,
     transport: grn.transport,
   })

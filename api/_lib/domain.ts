@@ -15,6 +15,8 @@ import type { Caller } from './auth.js'
 import { bumpStatement } from './d1Commit.js'
 import { isAdminPermissions } from '../../src/lib/permissions.js'
 import { ledgerToRow } from '../../src/lib/tables.js'
+import { formatDocNo, ruleFor } from '../../src/lib/numbering.js'
+import type { Config } from '../../src/types.js'
 import type { LedgerEntry } from '../../src/types.js'
 
 /**
@@ -135,29 +137,23 @@ export function revisionBump(): Stmt[] {
   return [{ sql: bump.sql, params: bump.params }]
 }
 
-// ── the numbering/grn helpers, api-side ─────────────────────────────────────
+// ── the numbering/grn helpers — delegated to src/lib ────────────────────────
 //
-// src/lib/{numbering,grn,stockIds}.ts are not api-compilable (their internal
-// imports are extensionless; the rules module's own note explains the seam), so
-// the endpoints carry the same arithmetic inline — small, self-contained, and
-// documented in the B3 handoff so a divergence would be found, not inherited.
-
-/** The built-in shapes the dispatch and challan series carry (numbering.ts). */
-const SERIES_DEFAULTS: Record<string, { prefix: string; pattern: string; pad: number }> = {
-  dispatch: { prefix: 'DSP', pattern: '{P}-{YYYY}-{N}', pad: 4 },
-  challan: { prefix: 'DC', pattern: '{P}{N}/{YYYY}', pad: 4 },
-}
+// src/lib/{numbering,grn,stockIds}.ts are api-compilable now (their internal
+// imports carry .ts extensions), so the endpoints share the app's one
+// implementation rather than carrying a copy (B3 handoff deviation 3, closed).
 
 /** The stored rule shape off meta.app_config.numbering (numbering.ts ruleFor). */
 export interface StoredNumbering {
+  key?: string
   prefix?: string
   pattern?: string
   pad?: number
 }
 
 /**
- * A series' document number — the saved rule over the built-in shape, formatted
- * with numbering.ts's token grammar ({P},{N},{YYYY},{YY},{YYYYMMDD},{MM},{DD}).
+ * A series' document number — numbering.ts's ruleFor + formatDocNo over the
+ * saved rule, so the server mints exactly the code the app would.
  */
 export function formatSeries(
   saved: readonly StoredNumbering[] | undefined,
@@ -165,55 +161,13 @@ export function formatSeries(
   n: number,
   when = new Date(),
 ): string {
-  const base = SERIES_DEFAULTS[series] ?? { prefix: series.toUpperCase(), pattern: '{P}-{N}', pad: 4 }
-  const rule = saved?.find((r) => (r as { key?: unknown }).key === series)
-  const prefix = String(rule?.prefix ?? '').trim() || base.prefix
-  const pattern = String(rule?.pattern ?? '').trim() || base.pattern
-  const pad = Number(rule?.pad) > 0 ? Math.min(9, Math.round(Number(rule?.pad))) : base.pad
-  const y = when.getUTCFullYear()
-  const tokens: Record<string, string> = {
-    P: prefix,
-    PREFIX: prefix,
-    N: String(Math.max(1, Math.round(n))).padStart(pad, '0'),
-    NUM: String(Math.max(1, Math.round(n))).padStart(pad, '0'),
-    YYYY: String(y),
-    YY: String(y).slice(-2),
-    YYYYMMDD: `${y}${String(when.getUTCMonth() + 1).padStart(2, '0')}${String(when.getUTCDate()).padStart(2, '0')}`,
-    MM: String(when.getUTCMonth() + 1).padStart(2, '0'),
-    DD: String(when.getUTCDate()).padStart(2, '0'),
-  }
-  return pattern.replace(/\{([A-Za-z]+)\}/g, (_, t: string) => tokens[t.toUpperCase()] ?? t)
+  const config = saved ? ({ numbering: [...saved] } as unknown as Config) : undefined
+  return formatDocNo(ruleFor(config, series), n, when)
 }
 
-/** A batch output's stock id — stockIds.ts stockIdFor. */
-export const stockIdFor = (doc: string, n: number): string => `${doc}/${n}`
-
-/** Produce counted by the piece (the graded intake) — grn.ts gradedUnit. */
-export const isGradedUnit = (uom?: string): boolean => (uom || 'Piece').trim().toLowerCase() === 'piece'
-
-/** grn.ts priceGrn's grade arithmetic, minus the form validations the endpoint
- *  re-checks itself — the staged receipt already answered those at the gate. */
-export function gradeMath(input: {
-  total: number
-  free: number
-  a: number
-  b: number
-  c: number
-  reject: number
-  rate: number
-  transport: number
-}): { accepted: number; material: number; landed: number; grossCost: number; usableCost: number } {
-  const accepted = input.a + input.b + input.c
-  const material = (input.total - input.free) * input.rate
-  const landed = material + input.transport
-  return {
-    accepted,
-    material,
-    landed,
-    grossCost: landed / input.total,
-    usableCost: landed / accepted,
-  }
-}
+export { stockIdFor } from '../../src/lib/stockIds.js'
+export { gradedUnit as isGradedUnit } from '../../src/lib/grn.js'
+export { grnMath as gradeMath } from '../../src/lib/grn.js'
 
 // ── read helpers ─────────────────────────────────────────────────────────────
 

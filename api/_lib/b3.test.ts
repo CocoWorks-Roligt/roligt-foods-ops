@@ -728,7 +728,7 @@ describe('POST /api/dispatch/confirm', () => {
   it('a BOXED line with cartons but no carton item is refused', async () => {
     const d1 = new FakeD1()
     dispatchBase(d1)
-    const { cartonItemId, ...line } = boxedLine()
+    const { cartonItemId: _cartonItemId, ...line } = boxedLine()
     await expectRefusal(confirm(d1, dispatcher, dispatchReq([line]), 'k1'), 422, 'carton_unspecified')
   })
 

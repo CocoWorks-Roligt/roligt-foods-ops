@@ -1,4 +1,4 @@
-import type { BomLine, Item, Pack, PackMedium, PackUnit, Product } from '../types'
+import type { BomLine, Item, Pack, PackMedium, PackUnit, Product } from '../types.ts'
 
 /**
  * A pack's size is entered in whatever unit the format is sold in — a bottle in ml,

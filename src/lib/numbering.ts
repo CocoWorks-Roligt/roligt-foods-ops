@@ -21,10 +21,10 @@
  * sharing an id would break every reference the ledger keeps.
  */
 
-import { batchKind } from './batches'
-import { PERIOD_TOKENS, periodKeyForPattern, seriesPatternOf } from './seriesPatterns'
-import type { Problem } from './posting'
-import type { AppState, Config, Counters, NumberingRule } from '../types'
+import { batchKind } from './batches.ts'
+import { PERIOD_TOKENS, periodKeyForPattern, seriesPatternOf } from './seriesPatterns.ts'
+import type { Problem } from './posting.ts'
+import type { AppState, Config, Counters, NumberingRule } from '../types.ts'
 
 /** A counter that mints a document code. `audit` is a tally, not a series. */
 export type SeriesKey = Exclude<keyof Counters, 'audit' | 'farmer'>

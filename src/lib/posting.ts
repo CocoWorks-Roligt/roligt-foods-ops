@@ -7,12 +7,12 @@
  * is what owns cloning, so nothing below ever has to think about immutability.
  */
 
-import { COCONUT_ITEM, batchOutputs, fmtBulk, isDirectUse, itemUom, sourceItemOf } from './batches'
-import { bulkItemOf, mediumForUom } from './packs'
-import { withStockIds } from './stockIds'
-import { isRow, itemName, product, rowKey, stockRows, areaRefusal, defaultArea, inHoldArea } from './stock'
-import { fitsWithin, localDay, nowISO, toDateKey, QTY_EPSILON, sameQty, uid } from './utils'
-import { addDays, retentionDays } from './controlSamples'
+import { COCONUT_ITEM, batchOutputs, fmtBulk, isDirectUse, itemUom, sourceItemOf } from './batches.ts'
+import { bulkItemOf, mediumForUom } from './packs.ts'
+import { withStockIds } from './stockIds.ts'
+import { isRow, itemName, product, rowKey, stockRows, areaRefusal, defaultArea, inHoldArea } from './stock.ts'
+import { fitsWithin, localDay, nowISO, toDateKey, QTY_EPSILON, sameQty, uid } from './utils.ts'
+import { addDays, retentionDays } from './controlSamples.ts'
 import type {
   AppState,
   Batch,
@@ -29,7 +29,7 @@ import type {
   SourceLine,
   StockRow,
   StorageLocation,
-} from '../types'
+} from '../types.ts'
 
 /** One issue line as the form hands it over. What it costs is read off stock when
  *  the batch is posted, so a form can never book a price that is no longer true. */
