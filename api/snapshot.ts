@@ -4,8 +4,11 @@ import { authenticate, AuthError } from './_lib/auth.js'
 import { admitSnapshot } from './_lib/snapshotThrottle.js'
 import { projectSnapshot } from './_lib/snapshot.js'
 import { readSnapshotCached } from './_lib/engine.js'
+import { D1Client } from './_lib/d1.js'
+import { d1Enabled } from './_lib/store.js'
 import { store } from './_lib/shared.js'
 import { toWebRequest } from './_lib/vercel.js'
+import { readFlagRecords } from './_lib/rulesGate.js'
 
 export default async function (req: VercelRequest, res: VercelResponse) {
   try {
@@ -30,7 +33,12 @@ export default async function (req: VercelRequest, res: VercelResponse) {
     // are dropped and named in `withheld`, which the client honors by leaving
     // its own mirror copies of those tables untouched (sync.ts restoreWithheld).
     const { state, revision, withheld } = projectSnapshot(snap, caller.permissions)
-    res.status(200).json({ state, revision, permissions: caller.permissions, withheld })
+    // Feature flags ride the snapshot read-only (SHELL): the client's shell_nav
+    // decision and rule pre-checks read the same rows the server enforces
+    // from. A handful of rows, only on the D1 engine — the Zoho path answers
+    // none, which is all-OFF, i.e. exactly the Classic app.
+    const flagRecords = d1Enabled() && store instanceof D1Client ? await readFlagRecords(store) : []
+    res.status(200).json({ state, revision, permissions: caller.permissions, withheld, flags: flagRecords })
   } catch (e) {
     if (e instanceof AuthError) {
       res.status(401).json({ error: e.message })

@@ -25,6 +25,7 @@ import { usePlanning, type PlanInput } from './domains/planning'
 import { useStaffRoster, type ShiftInput, type StaffInput } from './domains/roster'
 import { useStorageLocations } from './domains/storage'
 import { fetchDb, fetchRevision, saveDb, ThrottledError, UnauthorizedError } from '../lib/dbApi'
+import { ALL_FLAGS_OFF, readFlags, type FlagMap } from '../lib/rules/flags.ts'
 import { readLocal, writeLocal, type LocalCopy } from '../lib/localDb'
 import { adoptServerRows, installOver, offlineBootBase, restoreWithheld } from '../lib/sync'
 import { canAny, type PermissionKey } from '../lib/permissions.ts'
@@ -105,6 +106,12 @@ interface AppContextValue {
   state: AppState
   /** Re-exported so screens do not have to reach for a second context to say something. */
   showToast: (message: string) => void
+  /**
+   * The plant's feature flags, folded from the snapshot's read-only rows
+   * through the same isomorphic readFlags the server enforces from. All-OFF
+   * until the D1 engine carries flags — i.e. the Classic app everywhere.
+   */
+  flags: FlagMap
   rows: StockRow[]
   /**
    * Lots whose balance went negative (the audit's S2-8) — two offline devices
@@ -272,6 +279,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }
   const [state, setState] = useState<AppState>(boot.current.state)
+  /** Flags fold from every snapshot install; ALL_FLAGS_OFF until one arrives. */
+  const [flags, setFlags] = useState<FlagMap>(ALL_FLAGS_OFF)
   const [ready, setReady] = useState(false)
   const saveErrorShown = useRef(false)
 
@@ -452,6 +461,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         // The BFF speaks the caller's permissions with every snapshot — adopting
         // them here means a role change lands on the next poll, no reload needed.
         setSessionPermissions(remote.permissions)
+        if (remote.flags) setFlags(readFlags(remote.flags))
 
         // What the database holds is the plant, empty or not — reading it back
         // never invents masters, so a plant somebody cleared stays cleared. A
@@ -568,6 +578,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (revNum(remote.revision) < revNum(revision.current)) return
         revision.current = remote.revision
         setSessionPermissions(remote.permissions)
+        if (remote.flags) setFlags(readFlags(remote.flags))
         if (!remote.state) return
         // Same withheld rule as the reconcile: the tables this caller may not
         // read come back from the last synced view, so a partial snapshot never
@@ -668,6 +679,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 if (!live || !remote.state) return
                 revision.current = remote.revision
                 setSessionPermissions(remote.permissions)
+                if (remote.flags) setFlags(readFlags(remote.flags))
                 const serverState = migrateState(remote.state)
                 if (synced.current) {
                   // The base takes the SERVER's counters verbatim while the live
@@ -844,6 +856,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     () => ({
       state,
       showToast,
+      flags,
       rows,
       overdrawn,
       getItemName,
@@ -882,6 +895,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       state,
       storage,
       vendorTypeName,
+      flags,
     ],
   )
 

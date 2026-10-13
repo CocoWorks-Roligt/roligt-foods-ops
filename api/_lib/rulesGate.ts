@@ -314,3 +314,26 @@ export function flagsOfDocs(jsons: readonly string[]): FlagMap {
   }
   return readFlags(rows)
 }
+
+/** The flags documents themselves (snapshot's read-only ride-along for the
+ *  client, SHELL): parsed rows, not the typed map, so the client folds them
+ *  through the same isomorphic readFlags the server enforces from. The client
+ *  is taken structurally — D1Client satisfies it; nothing here needs the
+ *  engine's wider surface. */
+export async function readFlagRecords(
+  d1: { query<T>(sql: string, params?: unknown[]): Promise<T[]> },
+): Promise<{ key: string; enabled: boolean }[]> {
+  const rows = await d1.query<{ json: unknown }>(
+    `SELECT json FROM documents WHERE collection = 'flags'`,
+  )
+  const out: { key: string; enabled: boolean }[] = []
+  for (const r of rows) {
+    try {
+      const doc = JSON.parse(String(r.json ?? '')) as { key?: unknown; enabled?: unknown }
+      if (typeof doc?.key === 'string') out.push({ key: doc.key, enabled: doc.enabled === true })
+    } catch {
+      // a hand-staged row is not a flag
+    }
+  }
+  return out
+}

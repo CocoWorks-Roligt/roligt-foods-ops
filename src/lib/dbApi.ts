@@ -93,6 +93,12 @@ export interface DbSnapshot {
    * three-way merge.
    */
   withheld?: string[]
+  /**
+   * Feature-flag rows riding the snapshot read-only (SHELL): the client folds
+   * them through the same isomorphic readFlags the server enforces from, so
+   * shell_nav & co. can never disagree between the two. Absent = all-OFF.
+   */
+  flags?: { key: string; enabled: boolean }[]
 }
 
 /** One snapshot on the wire at a time, per tab — see fetchDb. */

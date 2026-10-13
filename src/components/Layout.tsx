@@ -1,7 +1,8 @@
-import { Fragment, Suspense, useCallback, useEffect, useRef, useState, type ComponentType } from 'react'
+import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useApp, useSaveStatus } from '../context/AppContext'
 import { useAuth } from '../context/AuthContext'
+import { navBadges, type NavBadges } from '../lib/navBadges.ts'
 import { allowedPages, pageScope, PAGE_CATALOG, type PageRow } from '../lib/pages.ts'
 import { useSessionPermissions } from '../lib/sessionPermissions'
 import { PAGES } from '../lib/utils'
@@ -22,6 +23,7 @@ import {
 import { InstallButton, OfflineBar } from './PwaPrompts'
 import { ThemeToggle } from './ThemeToggle'
 import { Toast } from './Toast'
+import { CommandPalette } from './shell/CommandPalette'
 
 /**
  * Icons for the thumb bar — the SPA-side companion to the page catalog (pages.ts
@@ -40,6 +42,16 @@ const PAGE_ICONS: Partial<Record<ViewId, ComponentType<{ className?: string }>>>
 
 const pageIcon = (id: ViewId) => PAGE_ICONS[id] ?? PageIcon
 
+/** The magnifier for the command palette's opener, in NavIcons' stroke style. */
+function SearchIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
+    </svg>
+  )
+}
+
 /** The four screens an operator lives in, surfaced in thumb reach on phones. */
 const navRow = (id: ViewId) => PAGE_CATALOG.find((p) => p.id === id)!
 const BOTTOM_NAV: (PageRow & { Icon: ComponentType<{ className?: string }> })[] = [
@@ -47,6 +59,48 @@ const BOTTOM_NAV: (PageRow & { Icon: ComponentType<{ className?: string }> })[] 
   { ...navRow('procurement'), Icon: pageIcon('procurement'), label: 'Procure' },
   { ...navRow('production'), Icon: pageIcon('production'), label: 'Produce' },
   { ...navRow('quality'), Icon: pageIcon('quality'), label: 'Quality' },
+]
+
+/**
+ * The sidebar in process order (ARCHITECTURE §1), shown when `shell_nav` is
+ * on — the same catalog rows, the same permission gating, re-cut into the
+ * order the work happens in: what arrived, what was made, what was checked,
+ * what is left, what shipped. Pages the overhaul has not built yet (Grading,
+ * Shipment Tracking) are absent rather than stubbed; items whose
+ * waiting-state has no vocabulary yet carry no badge (navBadges).
+ * Masters, Settings and Administration sections below are unchanged.
+ */
+const PROCESS_SECTIONS: { title?: string; items: { id: ViewId; label?: string }[] }[] = [
+  { items: [{ id: 'dashboard' }, { id: 'procurement' }] },
+  {
+    items: [
+      { id: 'production' },
+      { id: 'packing' },
+      { id: 'quality' },
+      { id: 'control-samples' },
+    ],
+  },
+  {
+    title: 'Stock',
+    items: [{ id: 'inventory' }, { id: 'packing-materials' }, { id: 'stock-issues' }, { id: 'storage' }],
+  },
+  { items: [{ id: 'orders' }, { id: 'dispatch' }] },
+  { items: [{ id: 'npd' }, { id: 'stickers' }] },
+  {
+    title: 'Planning',
+    items: [{ id: 'roster' }, { id: 'production-planning' }],
+  },
+  {
+    // "Dashboards" is the overhaul's name for Live Reports (GLOSSARY) — the
+    // label changes, the route and permission stay the catalog's.
+    title: 'Records',
+    items: [
+      { id: 'traceability' },
+      { id: 'reports' },
+      { id: 'live-reports', label: 'Dashboards' },
+      { id: 'audit' },
+    ],
+  },
 ]
 
 /**
@@ -127,9 +181,11 @@ function isActive(pathname: string, path: string) {
 export function Layout() {
   const navigate = useNavigate()
   const location = useLocation()
+  const { flags, state } = useApp()
   const { session, signOut, isAdmin } = useAuth()
   const permissions = useSessionPermissions()
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const drawerCloseRef = useRef<HTMLButtonElement>(null)
 
   // /reports/live is its own page one level under Lab Reports; resolving by the
@@ -168,6 +224,23 @@ export function Layout() {
   }, [drawerOpen])
 
   const go = (path: string) => navigate(path)
+
+  // Ctrl/Cmd+K opens global search (a shell_nav feature — Classic never arms it).
+  useEffect(() => {
+    if (!flags.shell_nav) return
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setPaletteOpen((v) => !v)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [flags.shell_nav])
+
+  // The sidebar's live counts, folded from the plant this tab holds — they move
+  // with every snapshot install, which is what makes them live.
+  const badges = useMemo<NavBadges>(() => navBadges(state), [state])
 
   // Page scoping, decided once by the catalog (src/lib/pages.ts): the default
   // caller gets the whole open day's work; a caller holding any page permission
@@ -218,6 +291,44 @@ export function Layout() {
     </div>
   )
 
+  /** The process-order sidebar (shell_nav): catalog rows re-cut into the order
+   *  the work happens in, each with its live badge where one exists. Permission
+   *  gating is the same allowedPages fold the Classic nav reads — a scoped
+   *  caller sees exactly their pages, in process order. */
+  const renderProcessNav = () => {
+    const allowedIds = new Set(allowed.map((p) => p.id))
+    return (
+      <div className="nav">
+        {PROCESS_SECTIONS.map((section, si) => {
+          const items = section.items.filter((i) => allowedIds.has(i.id))
+          if (!items.length) return null
+          return (
+            <Fragment key={si}>
+              {section.title ? <div className="nav-group">{section.title}</div> : null}
+              {items.map(({ id, label }) => {
+                const row = navRow(id)
+                const active = isActive(location.pathname, row.path)
+                const badge = badges[id]
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    className={active ? 'active' : ''}
+                    aria-current={active ? 'page' : undefined}
+                    onClick={() => go(row.path)}
+                  >
+                    {label ?? row.label}
+                    {badge ? <span className="nav-badge">{badge}</span> : null}
+                  </button>
+                )
+              })}
+            </Fragment>
+          )
+        })}
+      </div>
+    )
+  }
+
   // The thumb bar mirrors what the caller lives in: an operator's four screens,
   // or a scoped caller's own pages (never more than the catalog's four).
   const bottomItems: (PageRow & { Icon: ComponentType<{ className?: string }> })[] = scope
@@ -243,6 +354,16 @@ export function Layout() {
           <h2>{title}</h2>
           <p>{subtitle}</p>
         </div>
+        {flags.shell_nav ? (
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label="Search (Ctrl K)"
+            onClick={() => setPaletteOpen(true)}
+          >
+            <SearchIcon />
+          </button>
+        ) : null}
         <ThemeToggle className="icon-btn" />
         <InstallButton className="btn btn-chip" />
       </header>
@@ -276,7 +397,7 @@ export function Layout() {
         </div>
 
         <div className="nav-title">Operations</div>
-        {renderNav(openItems)}
+        {flags.shell_nav ? renderProcessNav() : renderNav(openItems)}
 
         {mastersItems.length > 0 ? (
           <>
@@ -315,6 +436,17 @@ export function Layout() {
             <p>{subtitle}</p>
           </div>
           <div className="topbar-actions">
+            {flags.shell_nav ? (
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label="Search (Ctrl K)"
+                aria-expanded={paletteOpen}
+                onClick={() => setPaletteOpen(true)}
+              >
+                <SearchIcon />
+              </button>
+            ) : null}
             <InstallButton />
             <ThemeToggle />
             <div className="pill">
@@ -380,6 +512,9 @@ export function Layout() {
       </nav>
 
       <Toast />
+      {flags.shell_nav ? (
+        <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      ) : null}
     </div>
   )
 }
