@@ -3,11 +3,12 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-route
 import { DocViewerProvider } from './components/DocViewer'
 import { Layout } from './components/Layout'
 import { UpdatePrompt } from './components/PwaPrompts'
-import { AppProvider } from './context/AppContext'
+import { AppProvider, useApp } from './context/AppContext'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { PwaProvider } from './context/PwaContext'
 import { ToastProvider } from './context/ToastContext'
 import { canViewPage, firstAllowedPath } from './lib/pages.ts'
+import { roleLandingPath } from './lib/pipeline.ts'
 import { trackPageView } from './lib/apptics'
 import { useSessionPermissions } from './lib/sessionPermissions'
 import type { ViewId } from './types'
@@ -30,6 +31,7 @@ const Inventory = lazy(() => import('./pages/Inventory').then((m) => ({ default:
 const Orders = lazy(() => import('./pages/Orders').then((m) => ({ default: m.Orders })))
 const Packing = lazy(() => import('./pages/Packing').then((m) => ({ default: m.Packing })))
 const PackingMaterials = lazy(() => import('./pages/PackingMaterials').then((m) => ({ default: m.PackingMaterials })))
+const Pipeline = lazy(() => import('./pages/Pipeline').then((m) => ({ default: m.Pipeline })))
 const Procurement = lazy(() => import('./pages/Procurement').then((m) => ({ default: m.Procurement })))
 const ProductionPlanning = lazy(() => import('./pages/ProductionPlanning').then((m) => ({ default: m.ProductionPlanning })))
 const Roster = lazy(() => import('./pages/Roster').then((m) => ({ default: m.Roster })))
@@ -69,6 +71,37 @@ function RequirePage({ viewId, children }: { viewId: ViewId; children: ReactNode
 }
 
 /**
+ * Pipeline Home (WORKFLOW, `pipeline` flag). Flag off: the URL is Classic's —
+ * bounce to '/'. Flag on: the same page rule as every route, then the board.
+ * The flag is staged on the flags collection by the LEAD only (STATE.md).
+ */
+function PipelineRoute() {
+  const { flags } = useApp()
+  const permissions = useSessionPermissions()
+  if (!flags.pipeline) return <Navigate to="/" replace />
+  if (!canViewPage(permissions, 'pipeline')) {
+    return <Navigate to={firstAllowedPath(permissions) ?? '/'} replace />
+  }
+  return <Pipeline />
+}
+
+/**
+ * The landing route. Classic keeps the dashboard. With the pipeline flag on,
+ * '/' redirects to the caller's stage (RBAC §a) — a caller holding exactly one
+ * stage slug lands on that page, the open tier and multi-stage roles (manager,
+ * admin) land on the board itself. A caller who somehow cannot open the board
+ * keeps the dashboard rather than bouncing between the two redirects.
+ */
+function HomeRoute() {
+  const { flags } = useApp()
+  const permissions = useSessionPermissions()
+  if (flags.pipeline && canViewPage(permissions, 'pipeline')) {
+    return <Navigate to={roleLandingPath(permissions)} replace />
+  }
+  return <Dashboard />
+}
+
+/**
  * Apptics trial: one screen event per route change. Rendered inside
  * BrowserRouter; a no-op in production (src/lib/apptics.ts).
  */
@@ -103,7 +136,8 @@ function AuthGate() {
             {/* Every route runs through the page rule — the day's work too: a
                 scoped caller's stale link bounces here, before the page mounts
                 and fetches, rather than after Layout unmounts it. */}
-            <Route index element={<RequirePage viewId="dashboard"><Dashboard /></RequirePage>} />
+            <Route index element={<RequirePage viewId="dashboard"><HomeRoute /></RequirePage>} />
+            <Route path="pipeline" element={<PipelineRoute />} />
             <Route path="procurement" element={<RequirePage viewId="procurement"><Procurement /></RequirePage>} />
             <Route path="roster" element={<RequirePage viewId="roster"><Roster /></RequirePage>} />
             <Route path="production-planning" element={<RequirePage viewId="production-planning"><ProductionPlanning /></RequirePage>} />

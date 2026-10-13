@@ -10,6 +10,7 @@ export type Role = 'Operator' | 'QualityTester' | 'Npd' | 'Admin'
 
 export type ViewId =
   | 'dashboard'
+  | 'pipeline'
   | 'storage'
   | 'orders'
   | 'procurement'
@@ -73,6 +74,11 @@ export interface Config {
   controlSampleDays?: number
   /** Days before a compliance document's expiry the single reminder email fires. */
   complianceLeadDays?: number
+  /**
+   * Pipeline Home's bottleneck mark: a stage flags when its oldest open work has
+   * sat longer than this many days (DECISIONS #16, ASSUMED 2 until the plant says).
+   */
+  pipelineStuckDays?: number
 }
 
 /**
@@ -372,6 +378,15 @@ export interface Grn {
   location?: string
   /** Purchase product name as it read when the receipt was posted. */
   productName?: string
+  /**
+   * How this lot's coconut grades were captured. Embedded (the default, and
+   * every receipt before the overhaul): graded at the door while posting.
+   * Staged: the lot lands ungraded and a grading form fills the grades in
+   * later (pipeline flag, POST /api/grading).
+   */
+  gradingMode?: 'embedded' | 'staged'
+  /** Day the staged grades were recorded, when they have been. */
+  gradedOn?: string
 }
 
 export interface SourceLine {

@@ -300,7 +300,11 @@ export function Layout() {
     return (
       <div className="nav">
         {PROCESS_SECTIONS.map((section, si) => {
-          const items = section.items.filter((i) => allowedIds.has(i.id))
+          // Pipeline Home leads the Home section while its flag is on — the
+          // board is the process nav's own landing (ARCHITECTURE §1).
+          const items = (
+            si === 0 && flags.pipeline ? [{ id: 'pipeline' as ViewId }, ...section.items] : section.items
+          ).filter((i) => allowedIds.has(i.id))
           if (!items.length) return null
           return (
             <Fragment key={si}>

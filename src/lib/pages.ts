@@ -39,6 +39,10 @@ export interface PageRow {
 export const PAGE_CATALOG: readonly PageRow[] = [
   // The day's work — open to every signed-in caller, tickable for scoped roles.
   { id: 'dashboard', path: '/', label: 'Dashboard', slug: 'page.dashboard', tier: 'open' },
+  // Pipeline Home (WORKFLOW): the process as one board. Same open tier as the
+  // dashboard — it is the flagged landing, not a privilege; the pipeline flag
+  // decides whether it is reachable and whether '/' redirects to a role landing.
+  { id: 'pipeline', path: '/pipeline', label: 'Pipeline', slug: 'page.pipeline', tier: 'open' },
   { id: 'procurement', path: '/procurement', label: 'Procurement', slug: 'page.procurement', tier: 'open' },
   // Planning sits between what arrived and what gets made: the roster says who is
   // here, the plan says what the week will produce. The staff register is the

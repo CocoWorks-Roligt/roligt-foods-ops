@@ -43,6 +43,10 @@ export const statusLabel = (value: string) => STATUS_LABELS[value] || value
 
 export const PAGES: Record<string, [string, string]> = {
   dashboard: ['Plant Dashboard', 'Single source of truth from farmer lot to customer delivery.'],
+  pipeline: [
+    'Pipeline',
+    'The process as one board — what waits at every stage, and what is stuck, held or overdue.',
+  ],
   procurement: [
     'Procurement',
     'Everything received at the gate. Farm produce is graded and landed into its own traceable lot; packing material is booked in against the supplier and the rate every packing run will cost itself at.',
