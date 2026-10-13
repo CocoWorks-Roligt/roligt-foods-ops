@@ -11,6 +11,7 @@
  * - PATCH moves a status the purchaseOrder machine allows (src/lib/rules, the
  *   same table the client pre-checks with); `closed` additionally waits for
  *   its fully_received guard — at least one receipt linked to the PO.
+ * - POST :id/receive links a booked GRN (W5) — the Receipt form's call.
  * - GET lists, newest first, for the Procurement page's PO form.
  *
  * Not flag-gated: a collection nothing Classic reads is inert by construction.
@@ -42,6 +43,8 @@ import {
   type PurchaseOrderCreateRequest,
   type PurchaseOrderListResponse,
   type PurchaseOrderPatchRequest,
+  type PurchaseOrderReceiveRequest,
+  type PurchaseOrderReceiveResponse,
   type PurchaseOrderResponse,
   type PurchaseOrderVersionExtension,
 } from '../../src/lib/contracts.js'
@@ -49,6 +52,9 @@ import type { Vendor } from '../../src/types.js'
 
 export const ROUTE = 'POST /api/purchase-orders'
 export const PATCH_ROUTE = 'PATCH /api/purchase-orders/:id'
+
+/** POST /api/purchase-orders/:id/receive — the Receipt form's linkage call (W5). */
+export const RECEIVE_ROUTE = 'POST /api/purchase-orders/:id/receive'
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
 
@@ -196,6 +202,108 @@ export async function patchPurchaseOrder(
     throw e
   }
   return { status: 200, body: response }
+}
+
+/**
+ * POST :id/receive — the Receipt form books a GRN against its PO. Links the
+ * GRN (append-once: a repeat is a no-op success, not an error) and lands an
+ * acknowledged PO in received — the machine's own arrow; further part-receipts
+ * keep it there. A sent/draft PO refuses until it is acknowledged, because the
+ * plant's word for "the truck came" has to exist before receipts hang off it.
+ */
+export async function receiveAgainstPurchaseOrder(
+  d1: D1Client,
+  caller: Caller,
+  id: string,
+  body: unknown,
+  key: string,
+): Promise<{ status: number; body: PurchaseOrderReceiveResponse; replay?: boolean }> {
+  if (!holdsPage(caller.permissions, 'page.procurement')) {
+    throw new DomainError(403, 'Purchase orders are the Procurement page\'s own.', 'role_allowed')
+  }
+  const req = validateReceive(body)
+
+  const replayKey = `${RECEIVE_ROUTE}:${id}`
+  const replayed = await findReceipt(d1, replayKey, key)
+  if (replayed) {
+    const verdict = replayOf<PurchaseOrderReceiveResponse>(replayed, bodyHashOf(key, replayKey, body))
+    return { ...verdict, replay: true }
+  }
+
+  const rows = await d1.query<{ json: unknown; version: unknown }>(
+    `SELECT json, version FROM documents WHERE collection = 'purchase_orders' AND id = ?`,
+    [id],
+  )
+  const stored = rows[0]
+  if (!stored) throw new DomainError(404, `No purchase order ${id}.`, 'po_not_found')
+  const observed = Number(stored.version) || 0
+  if (req.expectedVersion !== observed) {
+    throw new DomainError(409, 'This purchase order changed after you read it — reload and try again.', 'cas_version')
+  }
+  const po = parseDoc<PurchaseOrder>(stored.json)
+  if (!po) throw new DomainError(409, 'This purchase order cannot be read — it changed. Reload and try again.', 'cas_version')
+
+  if (po.status !== 'acknowledged' && po.status !== 'received') {
+    throw new DomainError(
+      422,
+      `This order is ${po.status} — get it acknowledged before booking receipts against it.`,
+      'po_not_acked',
+    )
+  }
+  const grn = await d1.query<{ json: unknown }>(
+    `SELECT json FROM documents WHERE collection = 'grns' AND id = ?`,
+    [req.grnId],
+  )
+  if (!grn[0]) throw new DomainError(422, `No receipt ${req.grnId}.`, 'grn_not_found')
+
+  // A GRN already linked is a repeat, not an error — the linkage is a set.
+  if (po.receivedGrnIds.includes(req.grnId)) {
+    const response: PurchaseOrderReceiveResponse = { po: { ...po, version: observed } }
+    const writes: Stmt[] = [receiptStmt(replayKey, key, body, 200, response, nowIso())]
+    await writeBatch(d1, writes)
+    return { status: 200, body: response }
+  }
+
+  const now = nowIso()
+  const status = po.status === 'acknowledged' ? 'received' : po.status
+  const next: PurchaseOrder = { ...po, status, receivedGrnIds: [...po.receivedGrnIds, req.grnId] }
+  const response: PurchaseOrderReceiveResponse = { po: { ...next, version: observed + 1 } }
+
+  const writes: Stmt[] = [
+    ...upsertDoc('purchase_orders', po.id, next, observed, now),
+    auditStmt({
+      id: auditId('po.received', po.id, now),
+      at: now,
+      actor: caller.email,
+      action: 'po.received',
+      doc: po.id,
+      details: JSON.stringify({ grnId: req.grnId, from: po.status, to: status }),
+    }),
+    receiptStmt(replayKey, key, body, 200, response, now),
+    sweepStmt(now),
+  ]
+  try {
+    await writeBatch(d1, writes)
+  } catch (e) {
+    if (isCasTrip(e)) {
+      throw new DomainError(409, 'This purchase order changed after you read it — reload and try again.', 'cas_version')
+    }
+    throw e
+  }
+  return { status: 200, body: response }
+}
+
+const nowIso = () => new Date().toISOString()
+
+function validateReceive(body: unknown): PurchaseOrderReceiveRequest {
+  const doc = (body ?? {}) as Record<string, unknown>
+  const details: Record<string, string> = {}
+  if (typeof doc.grnId !== 'string' || !doc.grnId.trim()) details.grnId = 'Which receipt is this?'
+  if (typeof doc.expectedVersion !== 'number' || !Number.isFinite(doc.expectedVersion) || doc.expectedVersion < 0) {
+    details.expectedVersion = 'The version you read is required.'
+  }
+  if (Object.keys(details).length) throw new DomainError(422, 'The receipt link is not valid.', 'invalid_po', details)
+  return doc as unknown as PurchaseOrderReceiveRequest
 }
 
 /** GET — the list, newest first (newest = highest number the series has minted). */

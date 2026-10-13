@@ -24,6 +24,7 @@ Updated: 2026-10-13 | Branch: dev | Base commit: de4c13b
 | P3/W2: Batch/Lot Detail (flag pipeline) | WORKFLOW | done @ 45b3e5e | src/lib/batchDetail.*(+test), src/pages/BatchDetail.tsx, App.tsx, Layout.tsx, index.css | 998 tests |
 | P3/W3: PO endpoints (contracts v1.3) | WORKFLOW | done | api/_lib/purchaseOrders.ts(+po.test), api/purchase-orders.ts, api/purchase-orders/[id].ts, contracts.ts, DECISIONS #16, RBAC §c | 1008 tests; W4 stage forms next |
 | P3/W4: PO form + register (contracts v1.4) | WORKFLOW | done | src/lib/poApi.ts, src/pages/PurchaseOrdersTab.tsx, Procurement.tsx tab, contracts.ts, index.css | 1008 tests; W5 Receipt forms next |
+| P3/W5: GRN↔PO linkage endpoint (contracts v1.5) | WORKFLOW | done | api/_lib/purchaseOrders.ts (+receive, po.test), api/purchase-orders/[id]/receive.ts, contracts.ts, RBAC §c | 1014 tests; W6 Receipt stage form next |
 
 ## Log
 - 2026-10-13 Phase 0 complete. Baseline green (745 tests, tsc -b, lint, build @ de4c13b). DB target confirmed:
@@ -103,3 +104,11 @@ Updated: 2026-10-13 | Branch: dev | Base commit: de4c13b
   repeater (items datalist), useDraft remembering the last supplier + expected-on day (data-entry
   reduction), client-side field checks mirroring the server's own questions. Gates: tsc -b, 1008
   passed, lint 10 (baseline), build pass.
+- 2026-10-13 WORKFLOW W5. POST /api/purchase-orders/:id/receive (contracts v1.5): the Receipt form's
+  linkage call. Links a booked GRN to its PO append-once (a repeat is a no-op success — the linkage
+  is a set), lands an acknowledged PO in received (the machine's own arrow), keeps it there on
+  part-receipts; sent/draft refuse with po_not_acked ("get it acknowledged before booking receipts"),
+  unknown GRN grn_not_found, CAS 409, Idempotency-Key replay, audit po.received {grnId, from, to}.
+  Route api/purchase-orders/[id]/receive.ts reuses the inline-adapter pattern ([id].ts beside it
+  answers PATCH; Vercel's static-segment-wins routing keeps them apart). 6 new service tests (16 PO
+  total). Gates: tsc -b, 1014 passed, lint 0 errors, build pass.

@@ -1,9 +1,10 @@
 # STATE — Beverage Ops Platform Overhaul
-Updated: 2026-10-13 | Phase: 3 WORKFLOW in progress — W1 Pipeline Home, W2 Batch/Lot Detail, W3 PO endpoints, W4 PO form+register done; W5 Receipt forms (×3 by procurement_form + staged grading + GRN↔PO linkage) next | Branch: dev | Base: de4c13b
+Updated: 2026-10-13 | Phase: 3 WORKFLOW in progress — W1–W5 done (Pipeline Home, Batch Detail, PO endpoints, PO form, GRN↔PO linkage); W6 Receipt stage form (×3 by procurement_form + staged grading) next | Branch: dev | Base: de4c13b
 
 ## Contracts
-- v1.4 (2026-10-13, W4): +PurchaseOrderVersionExtension (PO responses carry documents.version);
-  v1.3 (2026-10-13, W3): +purchase-order wire shapes; v1.2 (2026-10-13, B4): +RevisionEvent (SSE); v1.1 (2026-10-13, LEAD): src/lib/contracts.ts — frozen v1 plus additive deltas (challan, recipeId, avgUnitWeight naming → file header + ARCHITECTURE.md §8). WORKFLOW builds against v1.4.
+- v1.5 (2026-10-13, W5): +POST /api/purchase-orders/:id/receive (GRN↔PO linkage);
+  v1.4 (2026-10-13, W4): +PurchaseOrderVersionExtension (PO responses carry documents.version);
+  v1.3 (2026-10-13, W3): +purchase-order wire shapes; v1.2 (2026-10-13, B4): +RevisionEvent (SSE); v1.1 (2026-10-13, LEAD): src/lib/contracts.ts — frozen v1 plus additive deltas (challan, recipeId, avgUnitWeight naming → file header + ARCHITECTURE.md §8). WORKFLOW builds against v1.5.
 
 ## DB target — CONFIRMED 2026-10-13 (audit slice 3)
 - Unit/integration: local better-sqlite3 in-memory against real `scripts/d1/schema.sql` (what `npm test` does).

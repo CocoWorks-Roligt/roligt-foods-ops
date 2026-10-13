@@ -7,6 +7,11 @@
  * neither changes it — a change after freeze needs LEAD approval and a minor
  * version bump, recorded in ARCHITECTURE.md.
  *
+ * v1.5 (2026-10-13, LEAD-approved additive delta — WORKFLOW W5):
+ * - POST /api/purchase-orders/:id/receive — the Receipt form books a GRN
+ *   against its PO: PurchaseOrderReceiveRequest / PurchaseOrderReceiveResponse.
+ *   Links the GRN (receivedGrnIds, append-once) and lands an acknowledged PO in
+ *   received (the machine's own arrow); sent/draft POs refuse until acknowledged.
  * v1.4 (2026-10-13, LEAD-approved additive delta — WORKFLOW W4):
  * - PurchaseOrderVersionExtension — every PO the endpoints RETURN carries its
  *   documents.version, so the PO form's status moves can CAS-protect themselves
@@ -1013,6 +1018,16 @@ export interface PurchaseOrderVersionExtension {
 }
 
 export interface PurchaseOrderResponse {
+  po: PurchaseOrder & PurchaseOrderVersionExtension
+}
+
+/** POST /api/purchase-orders/:id/receive — link a booked GRN to its PO (W5). */
+export interface PurchaseOrderReceiveRequest {
+  grnId: string
+  expectedVersion: number
+}
+
+export interface PurchaseOrderReceiveResponse {
   po: PurchaseOrder & PurchaseOrderVersionExtension
 }
 

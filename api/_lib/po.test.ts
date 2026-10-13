@@ -5,7 +5,7 @@ import type { D1Client } from './d1.js'
 import { D1ApiError } from './d1.js'
 import type { Caller } from './auth.js'
 import { PERMISSIONS } from '../../src/lib/permissions.js'
-import { createPurchaseOrder, listPurchaseOrders, patchPurchaseOrder } from './purchaseOrders.js'
+import { createPurchaseOrder, listPurchaseOrders, patchPurchaseOrder, receiveAgainstPurchaseOrder } from './purchaseOrders.js'
 import { DomainError } from './domain.js'
 
 type Stmt = { sql: string; params?: unknown[] }
@@ -59,6 +59,8 @@ const create = (d1: FakeD1, caller: Caller, body: unknown, key: string) =>
   createPurchaseOrder(client(d1), caller, body, key)
 const patch = (d1: FakeD1, caller: Caller, id: string, body: unknown, key: string) =>
   patchPurchaseOrder(client(d1), caller, id, body, key)
+const receive = (d1: FakeD1, caller: Caller, id: string, body: unknown, key: string) =>
+  receiveAgainstPurchaseOrder(client(d1), caller, id, body, key)
 const list = (d1: FakeD1, caller: Caller) => listPurchaseOrders(client(d1), caller)
 
 const procurement: Caller = { email: 'buy@roligt.local', permissions: ['page.procurement'] }
@@ -182,6 +184,92 @@ describe('patchPurchaseOrder', () => {
     await expect(patch(d1, procurement, id, { status: 'sent', expectedVersion: 0 }, 'p8')).rejects.toMatchObject({
       status: 409,
       code: 'cas_version',
+    })
+  })
+})
+
+describe('receiveAgainstPurchaseOrder', () => {
+  const seedGrn = (d1: FakeD1, id: string) =>
+    d1.db
+      .prepare('INSERT INTO documents(collection, id, json, version, updated_at) VALUES (?, ?, ?, ?, ?)')
+      .run('grns', id, JSON.stringify({ id, accepted: 1800 }), 1, '2026-01-01T00:00:00Z')
+
+  /** A PO walked to acknowledged, the state receipts hang off. */
+  const ackedPo = async (d1: FakeD1): Promise<string> => {
+    seedVendor(d1)
+    const out = await create(d1, procurement, body, 'r0')
+    const id = out.body.po.id
+    await patch(d1, procurement, id, { status: 'sent', expectedVersion: 1 }, 'r1')
+    await patch(d1, procurement, id, { status: 'acknowledged', expectedVersion: 2 }, 'r2')
+    return id
+  }
+
+  it('links the GRN and lands an acknowledged order in received', async () => {
+    const d1 = new FakeD1()
+    seedGrn(d1, 'GRN-2026-0001')
+    const id = await ackedPo(d1)
+    const out = await receive(d1, procurement, id, { grnId: 'GRN-2026-0001', expectedVersion: 3 }, 'r3')
+    expect(out.body.po.status).toBe('received')
+    expect(out.body.po.receivedGrnIds).toEqual(['GRN-2026-0001'])
+    expect(out.body.po.version).toBe(4)
+    const audits = (
+      d1.db.prepare("SELECT json FROM documents WHERE collection = 'audits' AND json_extract(json, '$.action') = 'po.received'").all() as { json: string }[]
+    )
+    expect(audits).toHaveLength(1)
+  })
+
+  it('keeps a received order received for part-receipts, and repeats are no-ops', async () => {
+    const d1 = new FakeD1()
+    seedGrn(d1, 'GRN-2026-0001')
+    seedGrn(d1, 'GRN-2026-0002')
+    const id = await ackedPo(d1)
+    await receive(d1, procurement, id, { grnId: 'GRN-2026-0001', expectedVersion: 3 }, 'r4')
+    const second = await receive(d1, procurement, id, { grnId: 'GRN-2026-0002', expectedVersion: 4 }, 'r5')
+    expect(second.body.po.status).toBe('received')
+    expect(second.body.po.receivedGrnIds).toEqual(['GRN-2026-0001', 'GRN-2026-0002'])
+    const again = await receive(d1, procurement, id, { grnId: 'GRN-2026-0002', expectedVersion: 5 }, 'r6')
+    expect(again.body.po.receivedGrnIds).toEqual(['GRN-2026-0001', 'GRN-2026-0002'])
+    expect(again.body.po.version).toBe(5)
+  })
+
+  it('refuses a receipt against an order nobody has acknowledged', async () => {
+    const d1 = new FakeD1()
+    seedGrn(d1, 'GRN-2026-0001')
+    seedVendor(d1)
+    const out = await create(d1, procurement, body, 'r7')
+    await expect(receive(d1, procurement, out.body.po.id, { grnId: 'GRN-2026-0001', expectedVersion: 1 }, 'r8')).rejects.toMatchObject(
+      { code: 'po_not_acked' },
+    )
+  })
+
+  it('refuses a receipt the plant does not hold, and a stale version', async () => {
+    const d1 = new FakeD1()
+    seedGrn(d1, 'GRN-2026-0001')
+    const id = await ackedPo(d1)
+    await expect(receive(d1, procurement, id, { grnId: 'GRN-404', expectedVersion: 3 }, 'r9')).rejects.toMatchObject({
+      code: 'grn_not_found',
+    })
+    await expect(receive(d1, procurement, id, { grnId: 'GRN-2026-0001', expectedVersion: 0 }, 'r10')).rejects.toMatchObject({
+      status: 409,
+    })
+  })
+
+  it('replays the stored answer without linking twice', async () => {
+    const d1 = new FakeD1()
+    seedGrn(d1, 'GRN-2026-0001')
+    const id = await ackedPo(d1)
+    const first = await receive(d1, procurement, id, { grnId: 'GRN-2026-0001', expectedVersion: 3 }, 'r11')
+    const again = await receive(d1, procurement, id, { grnId: 'GRN-2026-0001', expectedVersion: 3 }, 'r11')
+    expect(again.replay).toBe(true)
+    expect(again.body.po.receivedGrnIds).toEqual(first.body.po.receivedGrnIds)
+  })
+
+  it('is the Procurement page\'s own — Quality gets 403', async () => {
+    const d1 = new FakeD1()
+    seedGrn(d1, 'GRN-2026-0001')
+    const id = await ackedPo(d1)
+    await expect(receive(d1, qcOnly, id, { grnId: 'GRN-2026-0001', expectedVersion: 3 }, 'r12')).rejects.toMatchObject({
+      status: 403,
     })
   })
 })

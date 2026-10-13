@@ -55,6 +55,7 @@ Model: permissions are page slugs `page.<id>` (28 today, src/lib/pages.ts) + NEW
 | POST /api/purchase-orders | page.procurement | Idempotency-Key; vendor+lines validated; audit po.created (WORKFLOW W3) |
 | GET /api/purchase-orders | page.procurement | newest first, for the Receipt stage's PO form |
 | PATCH /api/purchase-orders/:id | page.procurement | Idempotency-Key; purchaseOrder machine + fully_received guard; audit po.status |
+| POST /api/purchase-orders/:id/receive | page.procurement | Idempotency-Key; links a booked GRN, acknowledged→received; audit po.received (WORKFLOW W5) |
 | POST /api/transformations/close | can.close_run + owning page (production\|packing) | Idempotency-Key; spoilage + mass-balance guards; audit |
 | POST /api/dispatch/confirm | can.confirm_dispatch | atomic pouch+carton decrement, FEFO, reservations; Idempotency-Key |
 | GET /api/shipments | page.shipments OR delivery_agent | server filter agentUserId=self for agents |
