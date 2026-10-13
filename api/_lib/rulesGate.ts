@@ -152,8 +152,9 @@ function gateLotDraws(changes: StateChanges, flags: FlagMap): void {
 
 /** The batch's lines as mass balance reads them: sources + blends in, outputs
  *  out — a legacy coconut batch without outputLines answers through its
- *  waterLitres/malaiKg. A line with no unit of its own reads the item's. */
-function batchLines(doc: Record<string, unknown>, items: MassBalanceItems): {
+ *  waterLitres/malaiKg. A line with no unit of its own reads the item's.
+ *  (B3's close endpoint folds the same lines — exported so the two cannot drift.) */
+export function batchLines(doc: Record<string, unknown>, items: MassBalanceItems): {
   inputs: MassBalanceLine[]
   outputs: MassBalanceLine[]
 } {
