@@ -21,7 +21,10 @@ Verdicts from audit slice 2 (2026-10-13). RULE: ASSUMED/PARTIAL items are built 
 | 15 | Partial dispatch | MISSING (blocked by design today) | overhaul adds partial + packaging decision per line |
 
 ## Dependency log (one line each; UI deps pre-approved, guardrails: ONE component lib + ONE chart lib, permissive license, no framework migration)
-- (Phase 2 SHELL will append: component library, chart library, signature-capture, etc.)
+- (SHELL 2026-10-13) echarts ^6 (Apache-2.0) — the ONE chart library; only it covers all six wire kinds (line/bar/stacked/treemap/heatmap/control); tree-shaken via src/components/shell/echartsChunk.ts, lazy chunk.
+- (SHELL 2026-10-13) NO component library added — the existing hand-rolled set (Modal/Select/dropdown positioning/Toast) IS the one component system; a headless lib would duplicate patterns the codebase already owns and owns well.
+- (SHELL 2026-10-13) SignaturePad hand-rolled (pointer events + canvas) — `signature-pad` is unpublished from npm (404), `react-signature-canvas` is alpha on old React peers; ~100 lines beats a bet on a small personal lib.
+- (SHELL 2026-10-13) QR/barcode input is scanner-gun-typed text input (ScanInput); camera decode deferred to SHIPMENT PWA where the delivery workflow needs it.
 
 ## LEAD review 2026-10-13 (decisions + open items from the B1–B3 review)
 - Contracts v1.1 recorded (challan on DispatchConfirmResponse; melanges.recipeId; avgUnitWeight is the as-built name). SHELL consumes v1.1.
