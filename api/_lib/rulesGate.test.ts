@@ -184,6 +184,7 @@ describe('gateRules (pure)', () => {
     spoilage: [],
     items: {},
     appConfig: JSON.parse(APP_CONFIG),
+    permissions: [],
     ...over,
   })
 
@@ -221,6 +222,51 @@ describe('gateRules (pure)', () => {
         evidenceOf({ flags }),
       ),
     ).not.toThrow()
+  })
+
+  const qcRelease = (disposition: string): StateChanges => ({
+    empty: false,
+    tables: [{ table: 'qcs', upsert: [{ id: 'QC-1', batch: 'B-1', disposition }], remove: [] }],
+    counters: {},
+  })
+
+  it('qc_gate_v2 release arm: a Released disposition without the entitlement is refused (release_forbidden)', () => {
+    const flags = { ...ALL_FLAGS_OFF, qc_gate_v2: true }
+    expect(() => gateRules(qcRelease('Released'), evidenceOf({ flags, permissions: ['page.production'] }))).toThrow(
+      RulesRejected,
+    )
+    try {
+      gateRules(qcRelease('Released'), evidenceOf({ flags, permissions: ['page.production'] }))
+    } catch (e) {
+      const r = e as RulesRejected
+      expect(r.code).toBe('release_forbidden')
+      expect(r.guard).toBe('role_allowed')
+      expect(r.docId).toBe('QC-1')
+    }
+    // the wrapped { id, data } row shape reads the same
+    expect(() =>
+      gateRules(
+        {
+          empty: false,
+          tables: [{ table: 'qcs', upsert: [{ id: 'QC-1', data: { id: 'QC-1', disposition: 'Released' } }], remove: [] }],
+          counters: {},
+        },
+        evidenceOf({ flags, permissions: ['page.production'] }),
+      ),
+    ).toThrow(RulesRejected)
+  })
+
+  it('qc_gate_v2 release arm: QC page, admin and can.release_lot may release; other dispositions and flag-off never refuse', () => {
+    const flags = { ...ALL_FLAGS_OFF, qc_gate_v2: true }
+    expect(() => gateRules(qcRelease('Released'), evidenceOf({ flags, permissions: ['page.quality'] }))).not.toThrow()
+    expect(() => gateRules(qcRelease('Released'), evidenceOf({ flags, permissions: ['can.release_lot'] }))).not.toThrow()
+    expect(() =>
+      gateRules(qcRelease('Released'), evidenceOf({ flags, permissions: PERMISSIONS })),
+    ).not.toThrow()
+    expect(() =>
+      gateRules(qcRelease('Retest'), evidenceOf({ flags, permissions: ['page.production'] })),
+    ).not.toThrow()
+    expect(() => gateRules(qcRelease('Released'), evidenceOf({ permissions: ['page.production'] }))).not.toThrow()
   })
 })
 

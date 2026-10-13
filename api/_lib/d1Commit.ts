@@ -276,6 +276,7 @@ export async function commitChangesD1(d1: D1Client, caller: Caller, changes: Sta
       spoilage: spoilageRecords,
       items: ruleItems,
       appConfig,
+      permissions: caller.permissions,
     }
     try {
       gateRules(changes, evidence)

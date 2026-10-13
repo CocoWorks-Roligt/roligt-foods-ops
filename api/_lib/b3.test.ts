@@ -402,6 +402,57 @@ describe('POST /api/transformations/close', () => {
     expect(Number(d1.revision().split(':')[0])).toBeGreaterThan(0)
   })
 
+  it('spoilage ↔ ledger reconciliation: matching-unit records draw exactly; record-only lines stay visible, not silent', async () => {
+    const d1 = new FakeD1()
+    // 200 nuts in (100 kg base) → 84 L water + 10 kg malai (94 kg) + 5 L spill +
+    // 3 Piece record-only (1.5 kg) = 100.5 kg out — 0.5% variance, inside 2%.
+    closeBase(
+      d1,
+      { outputLines: [{ item: WATER, qty: 84, uom: 'Litre', costShare: 0.9 }, { item: MALAI, qty: 10, uom: 'Kg', costShare: 0.1 }] },
+      undefined,
+      { water: 84, malai: 10 },
+    )
+    seed(d1, [{ collection: 'spoilage_reasons', id: 'SR-3', json: { code: 'cracked', stage: 'extraction', active: true } }])
+
+    const out = await close(
+      d1,
+      prodLead,
+      closeReq({
+        spoilage: [
+          { stage: 'extraction', qty: 5, uom: 'Litre', reasonCode: 'spill' },
+          { stage: 'extraction', qty: 3, uom: 'Piece', reasonCode: 'cracked' },
+        ],
+      }),
+      'k1',
+    )
+    expect(out.status).toBe(200)
+
+    // both records are filed — the record-only line is not dropped
+    const records = d1.docs<{ qty: number; uom: string }>('spoilage_records')
+    expect(records).toHaveLength(2)
+
+    // the ledger draws only for the record whose unit matches an output row
+    const draws = d1.docs<{ qty_out: number; uom: string }>('ledger').filter((l) => (l as { type?: string }).type === 'Spoilage')
+    expect(draws).toHaveLength(1)
+    expect(draws[0]).toMatchObject({ qty_out: 5, uom: 'Litre' })
+
+    // the reconciliation fold: per output uom, records and ledger draws agree exactly
+    const outputUoms = new Set(['Litre', 'Kg'])
+    for (const uom of outputUoms) {
+      const recorded = records.filter((r) => r.uom === uom).reduce((n, r) => n + r.qty, 0)
+      const drawn = draws.filter((l) => l.uom === uom).reduce((n, l) => n + l.qty_out, 0)
+      expect(drawn).toBe(recorded)
+    }
+    // …and the drift is exactly the record-only lines, quantified
+    const recordOnly = records.filter((r) => !outputUoms.has(r.uom)).reduce((n, r) => n + r.qty, 0)
+    expect(recordOnly).toBe(3)
+
+    // the record-only loss still counts in the balance: 94 out + 6.5 kg spoilage
+    // vs 100 kg in reads as -0.5% (over-explained by half a kilo), not -1.5%
+    expect(out.body.massBalance.withinTolerance).toBe(true)
+    expect(Math.abs(out.body.massBalance.variancePct - -0.5)).toBeLessThan(0.01)
+  })
+
   it('an explicit zero spoilage line is legal and books nothing', async () => {
     const d1 = new FakeD1()
     // outputs that already balance: 90 L + 10 kg out of 100 kg in, zero spilled

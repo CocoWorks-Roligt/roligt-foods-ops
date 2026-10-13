@@ -27,6 +27,7 @@ import {
   type SpoilageRecord,
 } from '../../src/lib/contracts.js'
 import { type FlagMap, readFlags } from '../../src/lib/rules/flags.js'
+import { isAdminPermissions } from '../../src/lib/permissions.js'
 import {
   MassBalanceError,
   type MassBalanceItems,
@@ -77,6 +78,8 @@ export interface RulesEvidence {
   items: MassBalanceItems
   /** The stored app_config object (meta row), parsed — null when unparsable. */
   appConfig: Record<string, unknown> | null
+  /** The caller's held permission slugs — the release arm reads them. */
+  permissions: readonly string[]
 }
 
 /** What the gate needs from the store for THIS changeset, computed from the
@@ -241,6 +244,40 @@ function gateBatchCloses(changes: StateChanges, evidence: RulesEvidence): void {
 export function gateRules(changes: StateChanges, evidence: RulesEvidence): void {
   gateLotDraws(changes, evidence.flags)
   gateBatchCloses(changes, evidence)
+  gateQcReleases(changes, evidence)
+}
+
+/** Who may write a Released disposition (RBAC.md can.release_lot): an admin,
+ *  a holder of the QC page, or an explicit can.release_lot slug once role
+ *  seeding starts issuing the action slugs. page.quality is the proxy until
+ *  then — so a Manager ticking the QC page carries the release write with it
+ *  (a known limitation, DECISIONS.md). */
+export function mayReleaseLot(held: readonly string[]): boolean {
+  return isAdminPermissions(held) || held.includes('page.quality') || held.includes('can.release_lot')
+}
+
+/** The qc_gate_v2 release arm: a changeset may not set a QC disposition to
+ *  Released unless the caller holds the release entitlement. Classic keeps
+ *  today's behaviour, where any caller the qcs table gate admitted may write
+ *  any disposition. */
+function gateQcReleases(changes: StateChanges, evidence: RulesEvidence): void {
+  if (!evidence.flags.qc_gate_v2) return
+  for (const change of changes.tables) {
+    if (change.table !== 'qcs') continue
+    for (const row of change.upsert) {
+      // doc tables arrive flat or wrapped ({ id, data }) — read either shape
+      const doc = ((row as { data?: unknown }).data ?? row) as Record<string, unknown>
+      if (str(doc.disposition) !== 'Released') continue
+      if (mayReleaseLot(evidence.permissions)) continue
+      throw new RulesRejected({
+        code: 'release_forbidden',
+        guard: 'role_allowed',
+        entity: 'lot',
+        docId: str(row.id),
+        message: `${GUARD_EXPLANATIONS.role_allowed} Only QC may release a lot (RBAC.md can.release_lot).`,
+      })
+    }
+  }
 }
 
 /** The audits row a refusal files — action 'rules.rejected', details naming
