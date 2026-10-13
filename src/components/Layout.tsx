@@ -197,7 +197,10 @@ export function Layout() {
     ? 'live-reports'
     : segments[0] === 'admin' && (segments[1] === 'users' || segments[1] === 'roles')
       ? `admin-${segments[1]}`
-      : segments[0] || 'dashboard') as ViewId
+      : // Batch Detail is Production's own detail screen (pipeline flag).
+        segments[0] === 'batch'
+        ? 'production'
+        : segments[0] || 'dashboard') as ViewId
   const [title, subtitle] = PAGES[view] || PAGES.dashboard
   const email = session?.user?.email || 'Admin'
 
@@ -269,7 +272,13 @@ export function Layout() {
     )
   }
   if (scope) {
-    const onAllowed = allowed.some((p) => location.pathname === p.path || location.pathname.startsWith(`${p.path}/`))
+    const onAllowed =
+      allowed.some((p) => location.pathname === p.path || location.pathname.startsWith(`${p.path}/`)) ||
+      // Batch Detail carries no page of its own: a caller who can reach the
+      // batch through Production or the Pipeline board may open it directly.
+      (flags.pipeline &&
+        location.pathname.startsWith('/batch/') &&
+        allowed.some((p) => p.id === 'production' || p.id === 'pipeline'))
     if (!onAllowed) return <Navigate to={allowed[0]!.path} replace />
   }
 

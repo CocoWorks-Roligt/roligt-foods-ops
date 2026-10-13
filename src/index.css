@@ -5230,3 +5230,94 @@ table tbody tr.subrow > td {
     grid-auto-columns: minmax(132px, 72vw);
   }
 }
+
+/* —— Batch Detail (WORKFLOW) — the one next action, the timeline, the walk. —— */
+.batch-next {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 12px;
+  background: var(--well);
+  border: 1px solid var(--hair-soft);
+  border-radius: var(--radius);
+}
+.batch-next-btn {
+  min-height: 48px;
+  font-size: 15px;
+  justify-content: center;
+}
+.batch-next-none {
+  margin: 0;
+  color: var(--ink-soft);
+}
+.batch-refused {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.batch-refused-label {
+  color: var(--ink-mute);
+}
+.batch-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px;
+}
+.batch-columns h4 {
+  margin: 0 0 8px;
+}
+.batch-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.batch-timeline li {
+  display: flex;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--hair-soft);
+}
+.batch-timeline li:last-child {
+  border-bottom: none;
+}
+.batch-when {
+  flex: 0 0 96px;
+  color: var(--ink-mute);
+  font-size: 12.5px;
+  padding-top: 2px;
+}
+.batch-gene-title {
+  margin: 10px 0 6px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-mute);
+}
+.batch-gene {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.batch-gene-kind {
+  display: inline-block;
+  padding: 1px 8px;
+  border: 1px solid var(--hair);
+  border-radius: 999px;
+  font-size: 11.5px;
+  color: var(--ink-mute);
+  margin-right: 6px;
+}
+@media (max-width: 900px) {
+  .batch-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

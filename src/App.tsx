@@ -25,6 +25,7 @@ import { Login } from './pages/Login'
  * Traceability already uses for the trace graph.
  */
 const Audit = lazy(() => import('./pages/Audit').then((m) => ({ default: m.Audit })))
+const BatchDetail = lazy(() => import('./pages/BatchDetail').then((m) => ({ default: m.BatchDetail })))
 const Customers = lazy(() => import('./pages/Customers').then((m) => ({ default: m.Customers })))
 const DispatchPage = lazy(() => import('./pages/Dispatch').then((m) => ({ default: m.DispatchPage })))
 const Inventory = lazy(() => import('./pages/Inventory').then((m) => ({ default: m.Inventory })))
@@ -86,6 +87,18 @@ function PipelineRoute() {
 }
 
 /**
+ * Batch/Lot Detail, the board's drill-through (same flag). Like /styleguide it
+ * is a builder's URL rather than a catalog page; unlike it, the batch a scoped
+ * caller may open is one their own pages can already reach — Layout's off-path
+ * rule lets a production/pipeline caller stay.
+ */
+function BatchRoute() {
+  const { flags } = useApp()
+  if (!flags.pipeline) return <Navigate to="/" replace />
+  return <BatchDetail />
+}
+
+/**
  * The landing route. Classic keeps the dashboard. With the pipeline flag on,
  * '/' redirects to the caller's stage (RBAC §a) — a caller holding exactly one
  * stage slug lands on that page, the open tier and multi-stage roles (manager,
@@ -138,6 +151,7 @@ function AuthGate() {
                 and fetches, rather than after Layout unmounts it. */}
             <Route index element={<RequirePage viewId="dashboard"><HomeRoute /></RequirePage>} />
             <Route path="pipeline" element={<PipelineRoute />} />
+            <Route path="batch/:id" element={<BatchRoute />} />
             <Route path="procurement" element={<RequirePage viewId="procurement"><Procurement /></RequirePage>} />
             <Route path="roster" element={<RequirePage viewId="roster"><Roster /></RequirePage>} />
             <Route path="production-planning" element={<RequirePage viewId="production-planning"><ProductionPlanning /></RequirePage>} />

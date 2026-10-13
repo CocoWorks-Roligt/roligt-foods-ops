@@ -295,7 +295,7 @@ export function pipelineStages(state: AppState, today = toDateKey()): PipelineSt
 function stageRows(runs: { id: string; date: string; status: string }[]): PipelineRow[] {
   return [...runs]
     .sort((a, b) => a.date.localeCompare(b.date))
-    .map((b) => ({ id: b.id, label: b.id, status: b.status, date: b.date, href: '/production' }))
+    .map((b) => ({ id: b.id, label: b.id, status: b.status, date: b.date, href: `/batch/${b.id}` }))
 }
 
 /**
