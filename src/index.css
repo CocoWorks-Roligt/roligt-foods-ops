@@ -4848,3 +4848,233 @@ table tbody tr.subrow > td {
   font-size: 11.5px;
   color: var(--ink-mute);
 }
+
+/* ── Shell: workflow forms (SectionedForm, Stepper, TransformationForm,
+      SignaturePad, ScanInput) ─────────────────────────────────────────── */
+
+.sectioned-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.form-section {
+  border: 1px solid var(--hair);
+  border-radius: 12px;
+  background: var(--panel);
+  overflow: hidden;
+}
+.form-section-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: var(--neutral-wash);
+  color: var(--ink);
+  padding: 12px 14px;
+  min-height: 44px;
+  cursor: pointer;
+  font: inherit;
+}
+.form-section-no {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--grove-active);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.form-section-title {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-weight: 600;
+}
+.form-section-title small {
+  color: var(--ink-mute);
+  font-weight: 400;
+  font-size: 12.5px;
+}
+.form-section-caret {
+  margin-left: auto;
+  color: var(--ink-mute);
+}
+.form-section-body {
+  padding: 14px;
+}
+.form-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.stepper {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+}
+.stepper .step {
+  display: flex;
+  align-items: center;
+}
+.stepper .step:not(:last-child)::after {
+  content: '';
+  width: 24px;
+  height: 1px;
+  background: var(--hair);
+  margin: 0 6px;
+}
+.stepper button {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+}
+.step-dot {
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: 1px solid var(--hair-strong);
+  color: var(--ink-mute);
+  font-size: 12.5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.step.done .step-dot {
+  background: var(--leaf);
+  border-color: var(--leaf);
+  color: #fff;
+}
+.step.current .step-dot {
+  border-color: var(--grove-active);
+  color: var(--ink);
+  box-shadow: 0 0 0 2px var(--focus-ring, rgba(14, 129, 117, 0.25));
+}
+.step.current .step-label {
+  font-weight: 650;
+}
+
+.transform-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.mass-balance {
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 13.5px;
+  border: 1px solid var(--hair);
+  background: var(--neutral-wash);
+  color: var(--ink);
+}
+.mass-balance.good {
+  border-color: color-mix(in oklab, var(--leaf-deep) 45%, var(--hair));
+  background: color-mix(in oklab, var(--leaf-deep) 8%, var(--panel));
+}
+.mass-balance.bad {
+  border-color: color-mix(in oklab, var(--danger, #b3261e) 45%, var(--hair));
+  background: color-mix(in oklab, var(--danger, #b3261e) 8%, var(--panel));
+}
+.transform-section {
+  border: 1px solid var(--hair);
+  border-radius: 12px;
+  padding: 12px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.transform-section legend {
+  font-weight: 650;
+  padding: 0 6px;
+}
+.transform-hint {
+  color: var(--ink-mute);
+  margin: -4px 0 0;
+}
+.transform-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.transform-row {
+  display: grid;
+  grid-template-columns: 1fr 110px 90px auto;
+  gap: 8px;
+  align-items: center;
+}
+.transform-row input {
+  width: 100%;
+}
+.transform-empty {
+  color: var(--ink-mute);
+  margin: 0;
+}
+@media (max-width: 640px) {
+  .transform-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.signature-pad {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.signature-pad canvas {
+  border: 1px dashed var(--hair-strong);
+  border-radius: 10px;
+  background: #fff;
+  cursor: crosshair;
+  display: block;
+}
+.signature-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.signature-hint {
+  color: var(--ink-mute);
+}
+
+.scan-input {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--hair-strong);
+  border-radius: 10px;
+  padding: 0 12px;
+  background: var(--panel);
+  color: var(--ink-mute);
+}
+.scan-input:focus-within {
+  border-color: var(--grove-active);
+  color: var(--ink);
+}
+.scan-input input {
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  padding: 11px 0;
+  width: 100%;
+  outline: none;
+}
