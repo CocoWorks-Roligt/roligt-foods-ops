@@ -19,6 +19,7 @@ Verdicts from audit slice 2 (2026-10-13). RULE: ASSUMED/PARTIAL items are built 
 | 13 | procurement_form tri-state | PARTIAL | Item.directUse bool ≈ DIRECT_USE; extend to RAW/READY_EXTRACT/DIRECT_USE + shelf life, storage condition, min/max |
 | 14 | Pouch→carton config | MISSING | ASSUMED defaults per BIB size (1L/2.5L/5L → carton type + pouches/carton) entered as editable reference data at rollout |
 | 15 | Partial dispatch | MISSING (blocked by design today) | overhaul adds partial + packaging decision per line |
+| 16 | Pipeline "stuck" threshold | MISSING | ASSUMED a stage row is stuck after 2 days waiting (config `app_config.pipelineStuckDays`, default 2 — src/lib/pipeline.ts); bottleneck notes on Pipeline Home flag stuck/hold/expiry/overdue |
 
 ## Dependency log (one line each; UI deps pre-approved, guardrails: ONE component lib + ONE chart lib, permissive license, no framework migration)
 - (SHELL 2026-10-13) echarts ^6 (Apache-2.0) — the ONE chart library; only it covers all six wire kinds (line/bar/stacked/treemap/heatmap/control); tree-shaken via src/components/shell/echartsChunk.ts, lazy chunk.

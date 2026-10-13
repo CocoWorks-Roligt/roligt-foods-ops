@@ -1,9 +1,9 @@
 # STATE — Beverage Ops Platform Overhaul
-Updated: 2026-10-13 | Phase: 2 complete (BACKEND B1–B4, SHELL, QA LIGHT) — Phase 3 WORKFLOW next (fresh session per OVERHAUL_PROMPT) | Branch: dev | Base: de4c13b
+Updated: 2026-10-13 | Phase: 3 WORKFLOW in progress — W1 Pipeline Home, W2 Batch/Lot Detail, W3 PO endpoints done; W4 stage forms (Receipt×3 + PO form UI) next | Branch: dev | Base: de4c13b
 
 ## Contracts
-- v1.2 (2026-10-13, B4): +RevisionEvent (SSE); v1.1 (2026-10-13, LEAD): src/lib/contracts.ts — frozen v1 plus additive deltas (challan, recipeId,
-  avgUnitWeight naming); changelog in the file header + ARCHITECTURE.md §8. SHELL built against v1.2.
+- v1.3 (2026-10-13, W3): +purchase-order wire shapes; v1.2 (2026-10-13, B4): +RevisionEvent (SSE); v1.1 (2026-10-13, LEAD): src/lib/contracts.ts — frozen v1 plus additive deltas (challan, recipeId,
+  avgUnitWeight naming); changelog in the file header + ARCHITECTURE.md §8. WORKFLOW builds against v1.3.
 
 ## DB target — CONFIRMED 2026-10-13 (audit slice 3)
 - Unit/integration: local better-sqlite3 in-memory against real `scripts/d1/schema.sql` (what `npm test` does).

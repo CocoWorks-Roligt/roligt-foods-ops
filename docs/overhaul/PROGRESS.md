@@ -20,6 +20,9 @@ Updated: 2026-10-13 | Branch: dev | Base commit: de4c13b
 | P2: SHELL workflow forms | SHELL | done @ a331a32 | useDraft.ts, shell/SectionedForm+Stepper, TransformationForm (live computeMassBalance), SignaturePad (hand-rolled), ScanInput | 981 tests |
 | P2: SHELL /styleguide + QA LIGHT | SHELL | done | pages/Styleguide.tsx, App.tsx route; gates tsc -b / vitest / lint 10 / build | QA LIGHT re-run below |
 | P2: QA LIGHT | QA | done (SHELL self-run) | — | gates green at each slice; see log |
+| P3/W1: Pipeline Home (flag pipeline) | WORKFLOW | done @ 6b844b1 | src/lib/pipeline.*(+test), src/pages/Pipeline.tsx, App.tsx, Layout.tsx, pages.ts, types.ts, index.css | 992 tests |
+| P3/W2: Batch/Lot Detail (flag pipeline) | WORKFLOW | done @ 45b3e5e | src/lib/batchDetail.*(+test), src/pages/BatchDetail.tsx, App.tsx, Layout.tsx, index.css | 998 tests |
+| P3/W3: PO endpoints (contracts v1.3) | WORKFLOW | done | api/_lib/purchaseOrders.ts(+po.test), api/purchase-orders.ts, api/purchase-orders/[id].ts, contracts.ts, DECISIONS #16, RBAC §c | 1008 tests; W4 stage forms next |
 
 ## Log
 - 2026-10-13 Phase 0 complete. Baseline green (745 tests, tsc -b, lint, build @ de4c13b). DB target confirmed:
@@ -65,3 +68,25 @@ Updated: 2026-10-13 | Branch: dev | Base commit: de4c13b
   +26), lint 10 (baseline), build pass. NOTE for LEAD: hand-staging a flag row does not bump
   app_revision — the snapshot ride-along carries it on the next poll/SSE tick anyway, but a
   staged flag will not force one; toggle visibility may lag up to one poll (20 s).
+- 2026-10-13 WORKFLOW W1+W2 (6b844b1, 45b3e5e). W1 Pipeline Home behind the `pipeline` flag: pure
+  fold pipelineStages(state,today) over the same AppState navBadges reads (numbers match by
+  construction — no new backend), 10 stages in process order with stuck/hold/expiry/overdue bottleneck
+  notes (DECISIONS #16: pipelineStuckDays ASSUMED 2, configurable), stage tiles drill into filtered
+  DataTables whose rows link to /batch/:id; '/' redirects by role when pipeline is on (roleLandingPath,
+  guarded against loops); Layout prepends Pipeline to the process nav. W2 Batch/Lot Detail: batchDetail
+  folds an honest timeline from existing timestamps, forward/backward genealogy (GENEALOGY_DEFAULT_DEPTH
+  + truncation note), and ONE primary next action gated by page holds — the QC gate reads STOCK ROW
+  status via bulkVerdict (canConsumeLot per lot), not the batch.status roll-up; refused actions render
+  with their why (GUARD_EXPLANATIONS). Classic batches keep flow actions (QC verdict/pack/blend/dispatch);
+  the v2 run machine waits for batch_v2 forms. Gates each slice: tsc -b, 992→998 tests, lint 10, build.
+- 2026-10-13 WORKFLOW W3. Purchase orders — the plant's first upstream document (AUDIT: "No POs"),
+  needed before the Receipt stage form (KPI.md: no PO form, no funnel/on-time/lead-time numbers).
+  contracts v1.3 (additive): PO create/patch/response/list wire shapes. api/_lib/purchaseOrders.ts owns
+  the verdicts: POST mints from the `po` counter (seeded B1), validates vendor+lines against held
+  masters (unknown vendor refused, not stored broken), starts draft unless caller says sent; PATCH runs
+  the shared purchaseOrder machine + fully_received guard (proxy: ≥1 linked GRN until W4 lands the
+  GRN↔PO linkage); GET newest-first for the PO form. All three page.procurement-only, Idempotency-Key
+  POST/PATCH with replay, one atomic writeBatch each (PO+counter+audit+receipt / upsert+audit+receipt).
+  PATCH route reuses the POST contract inline (postAdapter is POST-only). Not flag-gated: a collection
+  nothing Classic reads is inert by construction. 10 service tests over the b3 FakeD1 harness. Gates:
+  tsc -b, 1008 passed, lint 10 (baseline), build pass.

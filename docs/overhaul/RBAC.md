@@ -52,6 +52,9 @@ Model: permissions are page slugs `page.<id>` (28 today, src/lib/pages.ts) + NEW
 | GET /api/events (SSE) | any signed-in | revision-keyed; delivery_agent stream scoped to own shipments |
 | GET /api/genealogy | any signed-in except delivery_agent | BFS fold, both directions |
 | POST /api/grading | page.procurement | staged mode (grns.grading_mode); Idempotency-Key |
+| POST /api/purchase-orders | page.procurement | Idempotency-Key; vendor+lines validated; audit po.created (WORKFLOW W3) |
+| GET /api/purchase-orders | page.procurement | newest first, for the Receipt stage's PO form |
+| PATCH /api/purchase-orders/:id | page.procurement | Idempotency-Key; purchaseOrder machine + fully_received guard; audit po.status |
 | POST /api/transformations/close | can.close_run + owning page (production\|packing) | Idempotency-Key; spoilage + mass-balance guards; audit |
 | POST /api/dispatch/confirm | can.confirm_dispatch | atomic pouch+carton decrement, FEFO, reservations; Idempotency-Key |
 | GET /api/shipments | page.shipments OR delivery_agent | server filter agentUserId=self for agents |

@@ -7,6 +7,11 @@
  * neither changes it — a change after freeze needs LEAD approval and a minor
  * version bump, recorded in ARCHITECTURE.md.
  *
+ * v1.3 (2026-10-13, LEAD-approved additive delta — WORKFLOW W3):
+ * - Purchase order wire shapes: PurchaseOrderCreateRequest / PurchaseOrderPatchRequest
+ *   / PurchaseOrderResponse / PurchaseOrderListResponse for POST /api/purchase-orders,
+ *   PATCH /api/purchase-orders/:id and GET /api/purchase-orders. The PurchaseOrder
+ *   document itself was already frozen above (statuses lowercase, `po` counter).
  * v1.2 (2026-10-13, LEAD-approved additive delta — B4):
  * - RevisionEvent — the GET /api/events SSE stream's one message (event names
  *   hello / revision / bye; heartbeats are comments; poll fallback stays
@@ -972,6 +977,34 @@ export interface StagedGradingResponse {
   grnId: string
   lot: string
   accepted: number
+}
+
+/**
+ * POST /api/purchase-orders (WORKFLOW W3, the Receipt stage's PO form —
+ * KPI.md's decision: no PO form, no funnel/on-time/lead-time numbers). A new
+ * PO starts as a draft unless the caller says it is already sent.
+ */
+export interface PurchaseOrderCreateRequest {
+  vendorId: string
+  lines: PurchaseOrderLine[]
+  expectedOn?: string
+  /** 'draft' (the default) or 'sent' when the caller raises it already sent. */
+  status?: 'draft' | 'sent'
+}
+
+/** PATCH /api/purchase-orders/:id — a status move the machine allows. */
+export interface PurchaseOrderPatchRequest {
+  status: PurchaseOrderStatus
+  expectedVersion: number
+}
+
+export interface PurchaseOrderResponse {
+  po: PurchaseOrder
+}
+
+/** GET /api/purchase-orders — newest first. */
+export interface PurchaseOrderListResponse {
+  pos: PurchaseOrder[]
 }
 
 // ── GET /api/genealogy ──────────────────────────────────────────────────────
