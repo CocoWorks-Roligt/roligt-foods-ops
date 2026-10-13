@@ -17,7 +17,6 @@
  */
 import type { D1Client } from './d1.js'
 import type { Caller } from './auth.js'
-import { readCollection } from './traceSearch.js'
 import {
   DomainError,
   appConfigOf,
@@ -44,6 +43,7 @@ import {
   type PurchaseOrderListResponse,
   type PurchaseOrderPatchRequest,
   type PurchaseOrderResponse,
+  type PurchaseOrderVersionExtension,
 } from '../../src/lib/contracts.js'
 import type { Vendor } from '../../src/types.js'
 
@@ -96,7 +96,7 @@ export async function createPurchaseOrder(
     ...(req.expectedOn ? { expectedOn: req.expectedOn } : {}),
     receivedGrnIds: [],
   }
-  const response: PurchaseOrderResponse = { po }
+  const response: PurchaseOrderResponse = { po: { ...po, version: 1 } }
 
   const writes: Stmt[] = [
     insertOnce('purchase_orders', po.id, po, now),
@@ -170,7 +170,9 @@ export async function patchPurchaseOrder(
 
   const now = new Date().toISOString()
   const next: PurchaseOrder = { ...po, status: req.status }
-  const response: PurchaseOrderResponse = { po: next }
+  // upsertDoc writes observed+1 — the response carries the new version so the
+  // form's next move starts from what this one produced.
+  const response: PurchaseOrderResponse = { po: { ...next, version: observed + 1 } }
 
   const writes: Stmt[] = [
     ...upsertDoc('purchase_orders', po.id, next, observed, now),
@@ -201,10 +203,19 @@ export async function listPurchaseOrders(d1: D1Client, caller: Caller): Promise<
   if (!holdsPage(caller.permissions, 'page.procurement')) {
     throw new DomainError(403, 'Purchase orders are the Procurement page\'s own.', 'role_allowed')
   }
-  const pos = await readCollection<PurchaseOrder>(d1, 'purchase_orders')
+  // Documents' version rides every row (v1.4): the form CAS-protects its moves.
+  const rows = await d1.query<{ json: unknown; version: unknown }>(
+    `SELECT json, version FROM documents WHERE collection = 'purchase_orders'`,
+  )
   return {
-    pos: pos
-      .filter((po) => isPurchaseOrderStatus(po.status))
+    pos: rows
+      .map((r) => {
+        const po = parseDoc<PurchaseOrder>(r.json)
+        return po && isPurchaseOrderStatus(po.status)
+          ? { ...po, version: Number(r.version) || 0 }
+          : undefined
+      })
+      .filter((po): po is PurchaseOrder & PurchaseOrderVersionExtension => !!po)
       .sort((a, b) => b.number.localeCompare(a.number)),
   }
 }

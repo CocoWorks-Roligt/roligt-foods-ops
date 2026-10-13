@@ -80,6 +80,7 @@ shell_nav (P2) → pipeline+batch_v2+qc_gate_v2 (P3) → shipments+dispatch_v2 (
 
 ## 8. Frozen contracts
 `src/lib/contracts.ts` — ALL new entities, statuses, transitions, request/response types for endpoints above, consumed unchanged by BACKEND and SHELL. Changes after freeze require LEAD approval + minor version bump. KPI definitions → KPI.md; permissions → RBAC.md.
+- v1.4 (2026-10-13, W4): +PurchaseOrderVersionExtension — every PO the endpoints RETURN carries its documents.version (the PO form's CAS token for PATCH's expectedVersion); stored PO documents stay version-less.
 - v1.3 (2026-10-13, W3): +purchase-order wire shapes — PurchaseOrderCreateRequest / PurchaseOrderPatchRequest / PurchaseOrderResponse / PurchaseOrderListResponse for POST /api/purchase-orders, PATCH /api/purchase-orders/:id, GET /api/purchase-orders.
 - v1.2 (2026-10-13, B4): +RevisionEvent — the GET /api/events SSE message (hello/revision/bye; heartbeat comments; poll fallback /api/revision).
 - v1.1 (2026-10-13, LEAD): additive deltas from B1/B3 as-built — MelangeExtension +`recipeId?`; DispatchConfirmResponse +`challan?`; naming record: `ItemExtension.avgUnitWeight` is as-built for the count→kg conversion. SHELL builds against v1.1.

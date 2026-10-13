@@ -23,6 +23,7 @@ Updated: 2026-10-13 | Branch: dev | Base commit: de4c13b
 | P3/W1: Pipeline Home (flag pipeline) | WORKFLOW | done @ 6b844b1 | src/lib/pipeline.*(+test), src/pages/Pipeline.tsx, App.tsx, Layout.tsx, pages.ts, types.ts, index.css | 992 tests |
 | P3/W2: Batch/Lot Detail (flag pipeline) | WORKFLOW | done @ 45b3e5e | src/lib/batchDetail.*(+test), src/pages/BatchDetail.tsx, App.tsx, Layout.tsx, index.css | 998 tests |
 | P3/W3: PO endpoints (contracts v1.3) | WORKFLOW | done | api/_lib/purchaseOrders.ts(+po.test), api/purchase-orders.ts, api/purchase-orders/[id].ts, contracts.ts, DECISIONS #16, RBAC §c | 1008 tests; W4 stage forms next |
+| P3/W4: PO form + register (contracts v1.4) | WORKFLOW | done | src/lib/poApi.ts, src/pages/PurchaseOrdersTab.tsx, Procurement.tsx tab, contracts.ts, index.css | 1008 tests; W5 Receipt forms next |
 
 ## Log
 - 2026-10-13 Phase 0 complete. Baseline green (745 tests, tsc -b, lint, build @ de4c13b). DB target confirmed:
@@ -90,3 +91,15 @@ Updated: 2026-10-13 | Branch: dev | Base commit: de4c13b
   PATCH route reuses the POST contract inline (postAdapter is POST-only). Not flag-gated: a collection
   nothing Classic reads is inert by construction. 10 service tests over the b3 FakeD1 harness. Gates:
   tsc -b, 1008 passed, lint 10 (baseline), build pass.
+- 2026-10-13 WORKFLOW W4. The PO form and register, on Procurement as a third tab (pipeline flag;
+  lazy chunk — Classic never loads it). Building it exposed a v1.3 gap: PATCH wants expectedVersion
+  but the wire carried no version — v1.4 adds PurchaseOrderVersionExtension, every PO the endpoints
+  RETURN carries documents.version (stored docs stay version-less; create→1, patch→observed+1).
+  src/lib/poApi.ts: fetch client with adminApi session semantics + Idempotency-Key per intent
+  (randomUUID) and PoApiError {code, details} so the form branches on the guard that refused.
+  PurchaseOrdersTab: DataTable register (purchase-orders), row → order card with lines +
+  receivedGrnIds + ONLY the machine-legal moves as buttons (legalTargets), each labelled with its
+  guard's plain-language note (guardsRequired→explainGuard); SectionedForm create form with a lines
+  repeater (items datalist), useDraft remembering the last supplier + expected-on day (data-entry
+  reduction), client-side field checks mirroring the server's own questions. Gates: tsc -b, 1008
+  passed, lint 10 (baseline), build pass.

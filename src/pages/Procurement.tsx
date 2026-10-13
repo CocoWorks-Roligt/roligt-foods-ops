@@ -8,7 +8,7 @@
  * on how it got there.
  */
 
-import { useMemo, useState } from 'react'
+import { Suspense, lazy, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { DetailView, type DetailSection } from '../components/DetailView'
 import { detailRowProps } from '../components/detailRow'
@@ -39,6 +39,11 @@ import {
 import { asReceived, gradedUnit } from '../lib/grn'
 import { fmtDate, fmtQty, inr, toLocalInputValue } from '../lib/utils'
 import type { Grn, LedgerEntry } from '../types'
+
+/** The pipeline flag's PO register — its own chunk, so Classic never loads it. */
+const PurchaseOrdersTab = lazy(() =>
+  import('./PurchaseOrdersTab').then((m) => ({ default: m.PurchaseOrdersTab })),
+)
 
 /** Line under the source name: the grower when a vendor is named above it, plus the area. */
 function sourceNote(g: Grn) {
@@ -106,6 +111,7 @@ const blankPm = {
 export function Procurement() {
   const {
     state,
+    flags,
     createGrn,
     updateGrn,
     deleteGrn,
@@ -135,11 +141,17 @@ export function Procurement() {
   /**
    * Which sort of receipt is on screen. Held in the URL so the Packing Materials page
    * can link straight to the one it means, and so a reload does not drop back to
-   * produce with a half-typed form behind it.
+   * produce with a half-typed form behind it. The PO register rides the pipeline
+   * flag (WORKFLOW W4): without it the tab is not offered at all.
    */
-  const tab = params.get('tab') === 'packing' ? 'packing' : 'produce'
-  const setTab = (next: 'produce' | 'packing') =>
-    setParams(next === 'packing' ? { tab: 'packing' } : {}, { replace: true })
+  const tab =
+    params.get('tab') === 'orders' && flags.pipeline
+      ? 'orders'
+      : params.get('tab') === 'packing'
+        ? 'packing'
+        : 'produce'
+  const setTab = (next: 'produce' | 'packing' | 'orders') =>
+    setParams(next === 'produce' ? {} : { tab: next }, { replace: true })
 
   const rows = useMemo(() => filterGrnRows(state.grns, search, status), [search, state.grns, status])
 
@@ -445,12 +457,14 @@ export function Procurement() {
           </span>
         </div>
         <div className="section-head-actions">
-          <button
-            className="btn btn-primary"
-            onClick={tab === 'packing' ? openPmNew : openNew}
-          >
-            {tab === 'packing' ? '+ Receive Packing Material' : '+ New Receipt'}
-          </button>
+          {tab === 'orders' ? null : (
+            <button
+              className="btn btn-primary"
+              onClick={tab === 'packing' ? openPmNew : openNew}
+            >
+              {tab === 'packing' ? '+ Receive Packing Material' : '+ New Receipt'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -469,6 +483,15 @@ export function Procurement() {
         >
           Packing material
         </button>
+        {flags.pipeline ? (
+          <button
+            type="button"
+            className={`type-tab ${tab === 'orders' ? 'active' : ''}`}
+            onClick={() => setTab('orders')}
+          >
+            Purchase orders
+          </button>
+        ) : null}
       </div>
       {tab === 'produce' ? (
         <>
@@ -609,6 +632,10 @@ export function Procurement() {
           </table>
         </div>
         </>
+      ) : tab === 'orders' ? (
+        <Suspense fallback={<div className="note">Loading purchase orders…</div>}>
+          <PurchaseOrdersTab />
+        </Suspense>
       ) : (
         <>
           <div className="note">

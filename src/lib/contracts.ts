@@ -7,6 +7,11 @@
  * neither changes it — a change after freeze needs LEAD approval and a minor
  * version bump, recorded in ARCHITECTURE.md.
  *
+ * v1.4 (2026-10-13, LEAD-approved additive delta — WORKFLOW W4):
+ * - PurchaseOrderVersionExtension — every PO the endpoints RETURN carries its
+ *   documents.version, so the PO form's status moves can CAS-protect themselves
+ *   (PATCH's expectedVersion had nothing to read on the v1.3 wire). Stored PO
+ *   documents stay version-less; the version rides responses only.
  * v1.3 (2026-10-13, LEAD-approved additive delta — WORKFLOW W3):
  * - Purchase order wire shapes: PurchaseOrderCreateRequest / PurchaseOrderPatchRequest
  *   / PurchaseOrderResponse / PurchaseOrderListResponse for POST /api/purchase-orders,
@@ -998,13 +1003,22 @@ export interface PurchaseOrderPatchRequest {
   expectedVersion: number
 }
 
+/**
+ * purchase_orders + the documents.version every endpoint response carries —
+ * the PO form's CAS token for PATCH's expectedVersion (v1.4). Response-only:
+ * the stored document stays without it.
+ */
+export interface PurchaseOrderVersionExtension {
+  version: number
+}
+
 export interface PurchaseOrderResponse {
-  po: PurchaseOrder
+  po: PurchaseOrder & PurchaseOrderVersionExtension
 }
 
 /** GET /api/purchase-orders — newest first. */
 export interface PurchaseOrderListResponse {
-  pos: PurchaseOrder[]
+  pos: (PurchaseOrder & PurchaseOrderVersionExtension)[]
 }
 
 // ── GET /api/genealogy ──────────────────────────────────────────────────────

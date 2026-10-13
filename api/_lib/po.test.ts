@@ -84,6 +84,7 @@ describe('createPurchaseOrder', () => {
     expect(out.status).toBe(201)
     expect(out.body.po.status).toBe('draft')
     expect(out.body.po.number).toBeTruthy()
+    expect(out.body.po.version).toBe(1)
     expect(out.body.po.receivedGrnIds).toEqual([])
     const stored = d1.doc('purchase_orders', out.body.po.id)
     expect(stored).toBeTruthy()
@@ -141,6 +142,7 @@ describe('patchPurchaseOrder', () => {
     const { id, version } = await makePo(d1)
     const out = await patch(d1, procurement, id, { status: 'sent', expectedVersion: version }, 'p1')
     expect(out.body.po.status).toBe('sent')
+    expect(out.body.po.version).toBe(version + 1)
     const audits = (
       d1.db.prepare("SELECT json FROM documents WHERE collection = 'audits' AND json_extract(json, '$.action') = 'po.status'").all() as { json: string }[]
     )
@@ -193,6 +195,7 @@ describe('listPurchaseOrders', () => {
     const out = await list(d1, admin)
     expect(out.pos).toHaveLength(2)
     expect(out.pos[0]!.number >= out.pos[1]!.number).toBe(true)
+    expect(out.pos.every((po) => po.version >= 1)).toBe(true)
     await expect(list(d1, qcOnly)).rejects.toMatchObject({ status: 403 })
   })
 })

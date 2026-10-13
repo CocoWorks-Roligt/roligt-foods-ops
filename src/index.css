@@ -5321,3 +5321,25 @@ table tbody tr.subrow > td {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ── Purchase-order form (WORKFLOW W4) ───────────────────────────────────── */
+/* One material line: fields side by side, remove control at the end. */
+.form-lines {
+  display: grid;
+  gap: 8px;
+}
+.form-line {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+.form-line small {
+  display: block;
+  margin-top: 2px;
+}
+@media (max-width: 720px) {
+  .form-line {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
