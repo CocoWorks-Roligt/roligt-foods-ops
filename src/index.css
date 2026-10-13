@@ -132,6 +132,73 @@
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
+  color-scheme: light;
+
+  /* Zebra rows and the neutral badge, tokenized 2026-10-13 so the dark
+     edition can retune them without touching the rules that read them. */
+  --zebra: #f0f5f3;
+  --neutral-wash: #e6eae8;
+  --neutral-border: rgba(21, 24, 27, 0.22);
+}
+
+/* The dark edition (2026-10-13 overhaul): the same families, drained and
+   lifted — the field goes teal-black, the ink family inverts, the lagoon
+   action colour brightens to teal-300 so it clears AA on dark panels, and
+   the status pair flips from 700-ink/100-wash to 200-ink/900-wash. Only
+   token VALUES change here; every rule keeps its selector. Filled buttons
+   keep white text, so their gradient stops stay deep enough for AA. The
+   paper artefacts (report sheets, §5) keep white on purpose: a printed
+   page does not go dark because the room did. */
+[data-theme='dark'] {
+  --bg: #0d1514;
+  --chrome: #14201e;
+  --well: #172422;
+  --panel: #182523;
+
+  --hair: #243130;
+  --hair-soft: #1f2c2a;
+  --hair-strong: #314441;
+
+  --ink: #e8eeec;
+  --ink-soft: #aab6b3;
+  --ink-mute: #9daaa6;
+  --ink-faint: #6f7c79;
+
+  --leaf: #2dd4bf;
+  --leaf-deep: #14b8a6;
+  --leaf-wash: #103a36;
+  --husk: #d6c3a9;
+  --husk-deep: #b5a186;
+  --water: #1d2624;
+
+  --grove: #0b2725;
+  --grove-active: #0e4d46;
+
+  --leaf-fill: linear-gradient(180deg, #108a7c 0%, #0a5f57 100%);
+  --leaf-fill-hover: linear-gradient(180deg, #12968a 0%, #0b6a61 100%);
+  --grove-fill: linear-gradient(180deg, #104b44 0%, #082421 100%);
+  --grove-active-fill: linear-gradient(180deg, #135a51 0%, #0b3833 100%);
+  --sheen: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --leaf-ring: 0 0 0 3px rgba(45, 212, 191, 0.28);
+
+  --tender: #4ade80;
+  --tender-wash: #0c2e18;
+  --amber: #fbbf24;
+  --amber-wash: #33230a;
+  --clay: #f87171;
+  --clay-wash: #391414;
+  --slate: #7ea6f8;
+  --slate-wash: #14263e;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 10px rgba(0, 0, 0, 0.32);
+  --shadow-pop: 0 6px 24px rgba(0, 0, 0, 0.55);
+  --shadow-dialog: 0 24px 64px rgba(0, 0, 0, 0.65);
+  --shadow-drawer: 0 0 44px rgba(0, 0, 0, 0.7);
+
+  color-scheme: dark;
+  --zebra: #14201e;
+  --neutral-wash: #22302e;
+  --neutral-border: rgba(232, 238, 236, 0.22);
 }
 
 /* Type roles (§4 of the design). Body is the default — 13px in tables, 14 in
@@ -383,7 +450,7 @@ body.drawer-open {
 
 .sidebar-footer select {
   width: 100%;
-  background: white;
+  background: var(--panel);
   color: var(--ink);
   border: 1px solid var(--hair);
   border-radius: 8px;
@@ -442,7 +509,7 @@ body.drawer-open {
 .pill {
   padding: 7px 11px;
   border-radius: 999px;
-  background: white;
+  background: var(--panel);
   border: 1px solid var(--hair);
   color: var(--ink-soft);
   font-size: 12px;
@@ -487,7 +554,7 @@ body.drawer-open {
 
 /* Two classes deep so it survives .btn, which is declared further down. */
 .btn.btn-chip {
-  background: white;
+  background: var(--panel);
   border: 1px solid var(--hair-strong);
   color: var(--ink);
   font-size: 12px;
@@ -868,7 +935,7 @@ body.drawer-open {
 }
 
 .btn-light {
-  background: white;
+  background: var(--panel);
   /* hair-strong: a secondary button sitting on a white card needs an edge
      the eye can find — the plain hairline was 1.3:1. */
   border-color: var(--hair-strong);
@@ -877,7 +944,7 @@ body.drawer-open {
 
 .btn-light:hover {
   background: var(--chrome);
-  border-color: #c4cec9;
+  border-color: var(--hair-strong);
 }
 
 /* Danger is clay on a clay wash — outline treatment, never a clay fill (§5). */
@@ -907,7 +974,7 @@ body.drawer-open {
 .toolbar input,
 .toolbar select {
   border: 1px solid var(--hair-strong);
-  background: white;
+  background: var(--panel);
   border-radius: var(--radius-control);
   padding: 9px 10px;
 }
@@ -942,7 +1009,7 @@ table {
   width: 100%;
   border-collapse: collapse;
   min-width: 760px;
-  background: white;
+  background: var(--panel);
 }
 
 th,
@@ -974,7 +1041,7 @@ tr:last-child td {
    ledger row keeps its place while the eye runs across it. Every hover,
    focus and subrow state below out-ranks it. */
 tbody tr:nth-child(even) td {
-  background: #f0f5f3;
+  background: var(--zebra);
 }
 
 .selectable-row:hover td {
@@ -1199,12 +1266,31 @@ th.cell-num {
    length — so the border is the accent itself now, at full strength.
    Tender green lives here and nowhere else in the chrome. */
 .status {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   padding: 4px 9px;
   border: 1px solid transparent;
   border-radius: var(--radius-control);
   font-size: 11px;
   font-weight: 700;
+}
+
+/* The palette mark (overhaul §6): status is never colour-only — every
+   palette badge carries its glyph beside the word. 11px keeps the badge
+   height unchanged with the icon inside. */
+.status > svg {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+}
+
+/* The movement family (Dispatched / Out for Delivery) rides the action
+   colour — teal says "the goods are moving", green stays for verdicts. */
+.status.brand {
+  background: var(--leaf-wash);
+  border-color: var(--leaf);
+  color: var(--leaf-deep);
 }
 
 .status.success {
@@ -1226,8 +1312,8 @@ th.cell-num {
 }
 
 .status.neutral {
-  background: #e6eae8;
-  border-color: rgba(21, 24, 27, 0.22);
+  background: var(--neutral-wash);
+  border-color: var(--neutral-border);
   color: var(--ink-soft);
 }
 
@@ -1269,7 +1355,7 @@ textarea {
   /* hair-strong, not hair: a field's edge is an affordance, and the softer
      line vanished on white cards (1.3:1). */
   border: 1px solid var(--hair-strong);
-  background: white;
+  background: var(--panel);
   border-radius: var(--radius-control);
   padding: 10px 11px;
   outline: none;
@@ -1554,7 +1640,7 @@ textarea:disabled {
 
 .node {
   min-width: 180px;
-  background: white;
+  background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 13px;
@@ -1736,7 +1822,7 @@ table tbody tr.subrow > td {
   top: 18px;
   left: 50%;
   transform: translateX(-50%);
-  background: white;
+  background: var(--panel);
   border: 1px solid var(--hair);
   color: var(--ink);
   padding: 12px 16px;
@@ -1856,7 +1942,7 @@ table tbody tr.subrow > td {
 .login-flow span {
   display: inline-flex;
   align-items: center;
-  background: white;
+  background: var(--panel);
   border: 1px solid var(--hair);
   border-radius: var(--radius-control);
   padding: 5px 10px;
@@ -1993,7 +2079,7 @@ table tbody tr.subrow > td {
   gap: 8px;
   padding: 10px 12px;
   border-top: 1px solid var(--hair);
-  background: white;
+  background: var(--panel);
 }
 
 .subform-row input,
@@ -2079,7 +2165,7 @@ table tbody tr.subrow > td {
 
 .subform-body {
   padding: 16px 14px;
-  background: white;
+  background: var(--panel);
 }
 
 .subform-body + .subform-body {
@@ -2098,7 +2184,7 @@ table tbody tr.subrow > td {
 
 .autocomplete-list {
   z-index: 1000;
-  background: white;
+  background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
   box-shadow: var(--shadow-pop);
@@ -2151,7 +2237,7 @@ table tbody tr.subrow > td {
   gap: 8px;
   /* Same affordance rule as the native inputs above: hair-strong edge. */
   border: 1px solid var(--hair-strong);
-  background: white;
+  background: var(--panel);
   border-radius: var(--radius-control);
   padding: 10px 11px;
   font: inherit;
@@ -2161,7 +2247,7 @@ table tbody tr.subrow > td {
 }
 
 .ui-select-trigger:hover {
-  border-color: #c5bfae;
+  border-color: var(--hair-strong);
 }
 
 .ui-select-trigger[aria-expanded='true'] {
@@ -2197,7 +2283,7 @@ table tbody tr.subrow > td {
 
 .ui-select-list {
   z-index: 1000;
-  background: white;
+  background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
   box-shadow: var(--shadow-pop);
@@ -2380,7 +2466,7 @@ table tbody tr.subrow > td {
 .vendors-search {
   min-width: min(320px, 100%);
   border: 1px solid var(--line);
-  background: white;
+  background: var(--panel);
   border-radius: var(--radius-control);
   padding: 10px 12px;
 }
@@ -2397,7 +2483,7 @@ table tbody tr.subrow > td {
 .vendor-card {
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: white;
+  background: var(--panel);
   box-shadow: var(--shadow-card);
   padding: 16px;
   display: grid;
@@ -2405,7 +2491,7 @@ table tbody tr.subrow > td {
 }
 
 .vendor-card:hover {
-  border-color: #d5d1c8;
+  border-color: var(--hair-strong);
 }
 
 .vendor-card.is-farmer {
@@ -2576,7 +2662,7 @@ table tbody tr.subrow > td {
 .qc-review-card {
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: white;
+  background: var(--panel);
   padding: 16px;
   display: grid;
   gap: 6px;
@@ -2691,7 +2777,7 @@ table tbody tr.subrow > td {
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 12px;
-  background: white;
+  background: var(--panel);
   max-height: 240px;
   overflow: auto;
 }
@@ -2725,7 +2811,7 @@ table tbody tr.subrow > td {
 .kind-option {
   text-align: left;
   border: 1px solid var(--line);
-  background: white;
+  background: var(--panel);
   border-radius: 10px;
   padding: 14px;
   cursor: pointer;
@@ -2771,6 +2857,8 @@ table tbody tr.subrow > td {
    ambient shadow — because the design stops at paper's edge (§5). Everything
    from here through .report-comments is frozen on the old values on purpose. */
 .report-sheet {
+  /* Paper stays paper: this sheet is the printed artefact, frozen on the
+     light values on purpose — it does not go dark with the room. */
   background: white;
   border: 1px solid #d8d0c1;
   border-radius: 16px;
@@ -3011,7 +3099,7 @@ table tbody tr.subrow > td {
   height: 30px;
   border-radius: 8px;
   border: 1px solid var(--line);
-  background: white;
+  background: var(--panel);
   font-weight: 700;
   cursor: pointer;
 }
@@ -3040,7 +3128,7 @@ table tbody tr.subrow > td {
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 10px 12px;
-  background: white;
+  background: var(--panel);
   display: grid;
   gap: 4px;
   align-content: start;
@@ -4326,4 +4414,318 @@ table tbody tr.subrow > td {
 .report-card small {
   font-size: 12px;
   color: var(--muted);
+}
+
+/* ── Shell components (overhaul Phase 2 SHELL) ─────────────────────────────
+   The overhaul's shared pieces — skeleton, KPI tile, freshness stamp, filter
+   bar, data table, chart card — read the same tokens as everything else, so
+   the dark edition and the status palette apply here without extra rules. */
+
+/* Loading skeletons: one shimmer, token surfaces, no layout shift. */
+.skeleton {
+  display: grid;
+  gap: 10px;
+  padding: 14px 0;
+}
+.skeleton-row {
+  height: 14px;
+  border-radius: 6px;
+  background: var(--well);
+  background-image: linear-gradient(90deg, transparent, var(--hair-soft), transparent);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+.skeleton-row.big {
+  height: 28px;
+}
+@keyframes skeleton-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-row { animation: none; }
+}
+.skeleton-card {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+}
+
+/* KPI tile: the figure leads, the word explains, the delta is a signed chip
+   with its direction glyph (never colour alone). */
+.kpi-card {
+  background: var(--panel);
+  border: 1px solid var(--hair);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  padding: 14px 16px;
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+.kpi-link {
+  text-decoration: none;
+  color: inherit;
+}
+.kpi-link:hover {
+  border-color: var(--leaf);
+}
+.kpi-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+.kpi-value {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.kpi-unit {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  margin-left: 4px;
+}
+.kpi-delta {
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.kpi-delta.good { color: var(--tender); }
+.kpi-delta.bad { color: var(--clay); }
+.kpi-delta.flat { color: var(--ink-mute); }
+.kpi-delta-note {
+  font-weight: 400;
+  color: var(--ink-faint);
+}
+
+/* Freshness: the quiet "as of" line and the loud STALE chip. */
+.freshness {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--ink-mute);
+}
+.freshness-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--amber-wash);
+  color: var(--amber);
+  border: 1px solid var(--amber);
+  font-weight: 700;
+}
+
+/* Filter bar: one row, presets left, slots right (dataviz interaction). */
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.filter-presets {
+  display: inline-flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.filter-presets .btn-chip.active {
+  background: var(--leaf-fill);
+  color: white;
+  border-color: var(--leaf-deep);
+}
+.filter-dates {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.filter-dates input {
+  padding: 7px 9px;
+  border: 1px solid var(--hair-strong);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  color: var(--ink);
+}
+.filter-slots {
+  display: inline-flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+/* Data table: sticky header inside its own scroll container, two densities. */
+.dt {
+  background: var(--panel);
+  border: 1px solid var(--hair);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.dt-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--hair-soft);
+  gap: 10px;
+}
+.dt-density {
+  display: inline-flex;
+  border: 1px solid var(--hair-strong);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+.dt-density button {
+  border: 0;
+  background: transparent;
+  padding: 5px 12px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  min-height: 32px;
+}
+.dt-density button.active {
+  background: var(--leaf-wash);
+  color: var(--leaf-deep);
+  font-weight: 700;
+}
+.dt-columns {
+  position: relative;
+}
+.dt-columns > button {
+  border: 1px solid var(--hair-strong);
+  background: transparent;
+  border-radius: var(--radius-control);
+  padding: 5px 12px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  min-height: 32px;
+}
+.dt-chooser {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 30;
+  background: var(--panel);
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-pop);
+  padding: 10px 12px;
+  display: grid;
+  gap: 8px;
+  min-width: 180px;
+}
+.dt-chooser label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.dt-scroll {
+  overflow: auto;
+  max-height: 70vh;
+}
+.dt table {
+  margin: 0;
+}
+.dt thead th {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--chrome);
+}
+.dt thead th button {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: inherit;
+  font-weight: 700;
+}
+.dt-sort-mark {
+  font-size: 9px;
+  color: var(--ink-faint);
+}
+.dt th[aria-sort] button .dt-sort-mark {
+  color: var(--leaf-deep);
+}
+.dt tbody tr.clickable {
+  cursor: pointer;
+}
+.dt tbody tr.clickable:hover td {
+  background: var(--leaf-wash);
+}
+.dt-error {
+  padding: 16px;
+  color: var(--clay);
+  font-weight: 700;
+}
+.density-compact td,
+.density-compact th {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.density-cosy td,
+.density-cosy th {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+/* Chart card: title, tools, canvas or table — same rows either way. */
+.chart-card {
+  background: var(--panel);
+  border: 1px solid var(--hair);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  padding: 14px 16px;
+  display: grid;
+  gap: 10px;
+}
+.chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.chart-head h4 {
+  margin: 0;
+  font-size: 14px;
+}
+.chart-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.chart-table {
+  max-height: 40vh;
+}
+.chart-fallback {
+  display: grid;
+  place-items: center;
+  color: var(--ink-mute);
+  font-size: 13px;
+  text-align: center;
+  padding: 20px;
+}
+
+/* Screen-reader-only text (freshness sentences and filter labels). */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }

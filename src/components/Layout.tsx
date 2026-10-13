@@ -20,6 +20,7 @@ import {
   SlidersIcon,
 } from './NavIcons'
 import { InstallButton, OfflineBar } from './PwaPrompts'
+import { ThemeToggle } from './ThemeToggle'
 import { Toast } from './Toast'
 
 /**
@@ -242,6 +243,7 @@ export function Layout() {
           <h2>{title}</h2>
           <p>{subtitle}</p>
         </div>
+        <ThemeToggle className="icon-btn" />
         <InstallButton className="btn btn-chip" />
       </header>
 
@@ -314,6 +316,7 @@ export function Layout() {
           </div>
           <div className="topbar-actions">
             <InstallButton />
+            <ThemeToggle />
             <div className="pill">
               {email}
               {isAdmin ? ' (admin)' : ''}

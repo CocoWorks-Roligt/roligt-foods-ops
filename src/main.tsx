@@ -4,7 +4,12 @@ import './index.css'
 import App from './App.tsx'
 import { initApptics } from './lib/apptics'
 import { initAttachmentQueue } from './lib/attachmentQueue'
+import { initTheme } from './lib/theme'
 import { RootErrorBoundary } from './components/ErrorBoundary'
+
+// Paint the stored (or OS) theme before the first frame, so a dark-room
+// device never flashes the light field (FOUC) on boot.
+initTheme()
 
 // Staging-only Apptics trial: boots crash capture before any app code can
 // throw. A no-op unless the token env is present (src/lib/apptics.ts).
