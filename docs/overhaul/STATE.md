@@ -1,5 +1,8 @@
 # STATE — Beverage Ops Platform Overhaul
-Updated: 2026-10-13 | Phase: 0 (Audit) | Branch: dev (clean) | Base: de4c13b
+Updated: 2026-10-13 | Phase: 2 (BACKEND B1 backfills) | Branch: dev | Base: de4c13b
+
+## Contracts
+- FROZEN 2026-10-13: src/lib/contracts.ts (post-Phase-1). Changes require LEAD approval + version bump.
 
 ## DB target — CONFIRMED 2026-10-13 (audit slice 3)
 - Unit/integration: local better-sqlite3 in-memory against real `scripts/d1/schema.sql` (what `npm test` does).

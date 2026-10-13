@@ -1,0 +1,11 @@
+# contracts.md — handoff (ARCHITECT contracts slice, 2026-10-13)
+
+**Artifact:** `src/lib/contracts.ts` (FROZEN, ARCHITECTURE §8). Types + constants + pure type-guards only; zero imports (fully isomorphic); no registry/API edits.
+
+Contents: §1 vocabulary (ProcurementForm, StorageCondition/Zone, OutputType, SpoilageStage, DispatchPackaging, PackFormat/BibSize, GradingMode, RecipeStatus, FefoMode). §2 new entities (SpoilageRecord/Reason + seeds, CartonSpec, Shipment/Stop/Times, DeliveryEvent/Signature, Challan/TaxFields/Line, ReturnRecord/Line/QcDecision, QcSpecValue, FlagRecord + FLAG_KEYS, RecipeMeta, StageTimes). §3 state machines (Lot/Run/Order/Shipment/Challan/Return statuses, GuardKey union, GUARD_EXPLANATIONS, `LEGAL_TRANSITIONS` with `satisfies`-typed StateMachineSpec). §4 Extension partials (Item, Grn, Batch, BatchOutput, Product, Melange, Customer, Order+line+reservation, Qc, StorageLocation, AppConfig). §5 API contracts (ApiError `{error, code?, details?}` matching api/ prose-error style; all listed endpoints; Freshness envelope on KPI/exports; Idempotency-Key note as comment). §6 mass balance (discriminated BaseUnitConversion, MassBalanceResult). §7 type-guards.
+
+Deviations from ARCHITECTURE.md: status literals spelled with spaces ('Partially Dispatched', 'Out for Delivery') to match existing stored keys (§2 already writes "Partially Dispatched"); lot machine adds Receipt→Released for qc-at-receipt-off/QR-exempt (DECISIONS #5 default); order adds Open→Dispatched direct + self-loop for repeat part-dispatches; BaseUnitConversion as discriminated union (better typed than the flat sketch); ReturnLine carries uom (mixed-unit plant). Guard roles/CAS documented as universal, not repeated per transition.
+
+Gates: `npx tsc -b` PASS; `npm test` 745 passed / 0 failed (7 skipped = pre-existing baseline).
+
+Addendum (pre-freeze, ARCHITECTURE §2 update): + PurchaseOrder/PurchaseOrderLine/PurchaseOrderStatus + `LEGAL_TRANSITIONS.purchaseOrder` (new guard `fully_received`); + PackingRunExtension {shiftId}, ControlSampleExtension {storageBin}; StorageLocationExtension +capacity; KPI_MODULES aligned to KPI.md's ten keys (grading-extraction, intermediates-blending, shipment-tracking…). Gates re-run: both PASS, 745/0.
