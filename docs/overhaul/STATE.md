@@ -1,5 +1,5 @@
 # STATE — Beverage Ops Platform Overhaul
-Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W15 done (Pipeline Home, Batch Detail, PO endpoints, PO form, GRN↔PO linkage, Receipt stage form, Coconut Grading form, Extraction stage form, Blend stage form, Packing stage form, QC test entry form, control sample destruction shelf, Storage put-away queue, Order desk, Dispatch stage form); W16 Onboarding next, then Phase 3 QA LIGHT + HEAVY (Journey A through dispatch) | Branch: dev | Base: de4c13b
+Updated: 2026-10-14 | Phase: 3 WORKFLOW COMPLETE — W1–W16 done (Pipeline Home, Batch Detail, PO endpoints, PO form, GRN↔PO linkage, Receipt stage form, Coconut Grading form, Extraction stage form, Blend stage form, Packing stage form, QC test entry form, control sample destruction shelf, Storage put-away queue, Order desk, Dispatch stage form, Onboarding); next: Phase 3 QA LIGHT re-run + HEAVY once (Journey A through dispatch) | Branch: dev | Base: de4c13b
 
 ## Contracts
 - v1.7 (2026-10-14, W8): +BatchVersionExtension — the snapshot's batches carry documents.version
@@ -23,14 +23,20 @@ Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W15 done (Pipeline 
 ## Locks
 - none
 
-## W16 design notes (next slice — Onboarding, read before building)
-- WORKFLOW §5, the last Phase-3 item: first-run tour, tooltips, feedback button, role
-  cheat sheets (cheatsheets/ dir per the prompt — one page per role). All behind the
-  pipeline flag; Classic untouched. No new writes — tour/feedback state is client-side
-  (useDraft-style localStorage); a feedback "button" may just collect text + mailto or
-  log — check DECISIONS before inventing an endpoint.
-- After W16: Phase 3 QA LIGHT, then HEAVY once — Journey A as far as it exists
-  (coconut PO → … → dispatch, the signature/challan legs wait for Phase 4).
+## W16 notes (done 2026-10-14 — kept one line: see PROGRESS log)
+- Onboarding behind the pipeline flag: first-run tour (once per device,
+  roligt_tour_done_v1; "?" replays), tooltips = native title from the ONE source
+  (PAGE_HELP/STAGE_HELP, onboarding.ts — coverage-tested), cheat sheet = the caller's
+  own pages ("?" → My cheat sheet; printable per-role pages in cheatsheets/), feedback =
+  clipboard + local outbox, NO endpoint (DECISIONS W16). Tour step with a missing/hidden
+  anchor renders a centered card, never skipped.
+
+## After W16 — Phase 3 close-out (next session)
+- QA LIGHT re-run on the W16 diff (gates were green at slice end: tsc -b, 1077 tests,
+  lint 10 baseline, build), then HEAVY once: Journey A as far as it exists (coconut PO →
+  … → dispatch; signature/challan legs wait for Phase 4). No Playwright exists yet —
+  decide browser-E2E tooling + one-line DECISIONS entry before writing HEAVY journeys
+  (dev-only dep, needs justification). Multi-viewport screenshots + Lighthouse per QA §6.
 
 ## W15 notes (done 2026-10-14 — kept one line: see PROGRESS log)
 - Dispatch form = 3rd Orders tab behind pipeline; posts through the SAME dispatchOrder
@@ -177,6 +183,15 @@ Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W15 done (Pipeline 
   BOXED/LOOSE/carton step needs a carton master (none exists — AUDIT: PARTIAL) and is
   SHIPMENT-era. The linked-?id effect must not re-seed on state changes under an open
   form (deps [linkedId] with the disable comment — a re-render must never wipe picks).
+- PAGE_HELP / STAGE_HELP (src/lib/onboarding.ts) are the ONE wording source for the
+  sidebar tooltips, the cheat-sheet rows and the tour's page claims; the coverage tests
+  (every catalog page, every pipeline stage id) keep a tooltip from ever rendering blank.
+  Tour state is device-local only (roligt_tour_done_v1); HelpMenu writes NOTHING
+  server-side — feedback is clipboard + localStorage outbox (roligt_feedback_outbox,
+  last 20); adding a feedback endpoint is a DECISIONS decision, not a code whim.
+- The tour's anchor rule: a step whose `data-tour` anchor is missing or measures zero
+  (phone's collapsed sidebar, an off flag) renders as a centered card — never skipped,
+  never spotlit at 0,0. Keep that if the tour is reworked.
 - If the split (multi-file) prompt version is adopted: do NOT copy its STATE/PROGRESS/DECISIONS
   templates over the live files, and rename its DOMAIN.md (business rules) before adding — the live
   DOMAIN.md is the current-state map and they collide.

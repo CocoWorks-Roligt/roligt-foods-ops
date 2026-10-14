@@ -24,6 +24,9 @@ import { InstallButton, OfflineBar } from './PwaPrompts'
 import { ThemeToggle } from './ThemeToggle'
 import { Toast } from './Toast'
 import { CommandPalette } from './shell/CommandPalette'
+import { HelpMenu } from './shell/HelpMenu'
+import { Tour } from './shell/Tour'
+import { PAGE_HELP, tourSteps } from '../lib/onboarding.ts'
 
 /**
  * Icons for the thumb bar — the SPA-side companion to the page catalog (pages.ts
@@ -138,6 +141,28 @@ function SaveIndicator() {
 const NAV_PATHS = PAGE_CATALOG.map((p) => p.path)
 
 /**
+ * The first-run tour's "seen" mark (WORKFLOW W16): one key on this device, so
+ * the tour greets each operator once — reopening it is a decision they make
+ * from Help. Storage may refuse (private window); the tour then simply offers
+ * itself again next visit, which is the politer failure.
+ */
+const TOUR_SEEN_KEY = 'roligt_tour_done_v1'
+const tourSeen = () => {
+  try {
+    return Boolean(localStorage.getItem(TOUR_SEEN_KEY))
+  } catch {
+    return false
+  }
+}
+const markTourSeen = () => {
+  try {
+    localStorage.setItem(TOUR_SEEN_KEY, new Date().toISOString())
+  } catch {
+    // nothing stored — the tour may offer itself again
+  }
+}
+
+/**
  * The over-draw banner (the audit's S2-8): lots whose balance went negative —
  * the two-offline-devices collision, surfaced after the fact. Persistent while
  * any over-draw exists, because it is a reconciliation the plant owes, not an
@@ -186,6 +211,7 @@ export function Layout() {
   const permissions = useSessionPermissions()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [tourOpen, setTourOpen] = useState(false)
   const drawerCloseRef = useRef<HTMLButtonElement>(null)
 
   // /reports/live is its own page one level under Lab Reports; resolving by the
@@ -244,6 +270,17 @@ export function Layout() {
   // The sidebar's live counts, folded from the plant this tab holds — they move
   // with every snapshot install, which is what makes them live.
   const badges = useMemo<NavBadges>(() => navBadges(state), [state])
+
+  // The tour greets an operator once per device, the first time the pipeline
+  // shell reaches them — the flags arrive with the first snapshot, so this
+  // fires when the new look actually switches on, not on a blank boot.
+  useEffect(() => {
+    if (flags.pipeline && !tourSeen()) setTourOpen(true)
+  }, [flags.pipeline])
+  const closeTour = useCallback(() => {
+    markTourSeen()
+    setTourOpen(false)
+  }, [])
 
   // Page scoping, decided once by the catalog (src/lib/pages.ts): the default
   // caller gets the whole open day's work; a caller holding any page permission
@@ -307,7 +344,7 @@ export function Layout() {
   const renderProcessNav = () => {
     const allowedIds = new Set(allowed.map((p) => p.id))
     return (
-      <div className="nav">
+      <div className="nav" data-tour="nav-process">
         {PROCESS_SECTIONS.map((section, si) => {
           // Pipeline Home leads the Home section while its flag is on — the
           // board is the process nav's own landing (ARCHITECTURE §1).
@@ -329,6 +366,10 @@ export function Layout() {
                     className={active ? 'active' : ''}
                     aria-current={active ? 'page' : undefined}
                     onClick={() => go(row.path)}
+                    // the one-line answer to "what is this screen for" — the
+                    // same words the cheat sheet and the tour carry (W16)
+                    title={PAGE_HELP[id]}
+                    data-tour={id === 'pipeline' ? 'pipeline' : undefined}
                   >
                     {label ?? row.label}
                     {badge ? <span className="nav-badge">{badge}</span> : null}
@@ -372,12 +413,18 @@ export function Layout() {
             type="button"
             className="icon-btn"
             aria-label="Search (Ctrl K)"
+            data-tour="search"
             onClick={() => setPaletteOpen(true)}
           >
             <SearchIcon />
           </button>
         ) : null}
-        <ThemeToggle className="icon-btn" />
+        {flags.pipeline ? (
+          <HelpMenu allowed={allowed} screen={title} from={email} onTour={() => setTourOpen(true)} />
+        ) : null}
+        <span data-tour="theme">
+          <ThemeToggle className="icon-btn" />
+        </span>
         <InstallButton className="btn btn-chip" />
       </header>
 
@@ -455,13 +502,19 @@ export function Layout() {
                 className="icon-btn"
                 aria-label="Search (Ctrl K)"
                 aria-expanded={paletteOpen}
+                data-tour="search"
                 onClick={() => setPaletteOpen(true)}
               >
                 <SearchIcon />
               </button>
             ) : null}
+            {flags.pipeline ? (
+              <HelpMenu allowed={allowed} screen={title} from={email} onTour={() => setTourOpen(true)} />
+            ) : null}
             <InstallButton />
-            <ThemeToggle />
+            <span data-tour="theme">
+              <ThemeToggle />
+            </span>
             <div className="pill">
               {email}
               {isAdmin ? ' (admin)' : ''}
@@ -527,6 +580,9 @@ export function Layout() {
       <Toast />
       {flags.shell_nav ? (
         <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      ) : null}
+      {flags.pipeline ? (
+        <Tour steps={tourSteps(allowed.map((p) => p.id))} open={tourOpen} onDone={closeTour} />
       ) : null}
     </div>
   )

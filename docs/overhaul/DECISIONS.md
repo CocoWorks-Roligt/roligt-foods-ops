@@ -38,6 +38,21 @@ Verdicts from audit slice 2 (2026-10-13). RULE: ASSUMED/PARTIAL items are built 
 - Zoho/flags: verified structurally safe (gated endpoints 503 without D1 env; flags collection exists only in D1). Operational rule in STATE.md invariants until engine deletion (2026-10-19).
 - Rollback gap: backfill has no reverse script. Before any apply: scratch apply + `D1_SMOKE=1 npm test` first; prod apply (user-only) takes a D1 Time Travel bookmark or export beforehand. Still deferred — LEAD does the scratch apply before flags go on.
 
+## W16 decisions (2026-10-14, WORKFLOW — Onboarding)
+- Feedback button ASSUMED → clipboard + local outbox, NO endpoint (STATE's W16 law: no new
+  writes). Words are copied ready to paste to an admin; a copy stays on the device
+  (roligt_feedback_outbox, last 20). A centralized feedback endpoint is a later decision if
+  the plant asks for it — it would need RBAC, audit and a collection.
+- Tooltips = native `title` attributes fed from onboarding.ts's PAGE_HELP/STAGE_HELP — one
+  wording source for tooltip + cheat sheet, coverage-tested; no tooltip library added (the
+  ONE-component-system rule stays clean).
+- In-app cheat sheet is the CALLER'S PAGES, not a role name — roles are runtime data
+  (pages.ts), so "your role's cheat sheet" is honestly one line per screen the caller
+  holds. The prompt's named-role pages live printable in docs/overhaul/cheatsheets/ (8
+  roles; delivery-agent marked not-live-until-Phase-4).
+- Tour "seen" mark is one device-local key (roligt_tour_done_v1) — first run only, "?" in
+  the topbar replays. No server state, no per-account tracking.
+
 ## Blocked
 - batch_v2 enablement — blocked on the DECISIONS #2 mass-balance resolution (3/14 pass; extractions cannot close under enforcement).
 - can.* action slugs not yet issued by any role seed (release arm runs on the page.quality proxy).

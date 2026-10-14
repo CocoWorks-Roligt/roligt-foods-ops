@@ -1,5 +1,5 @@
 # PROGRESS — Beverage Ops Platform Overhaul
-Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW through W15
+Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW complete (W16 done)
 
 | Task | Agent | Status | Files | Next action |
 |---|---|---|---|---|
@@ -35,6 +35,7 @@ Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW thro
 | P3/W13: Storage put-away queue | WORKFLOW | done | src/pages/PutAwayTab.tsx, Inventory.tsx (Put away tab, pipeline), src/lib/storageStage.*(+test) | 1065 tests (+4); contracts stay v1.7 (no new wire); W14 Order stage form next |
 | P3/W14: Order desk | WORKFLOW | done | src/pages/OrderDeskTab.tsx, Orders.tsx (Order desk tab, pipeline), src/lib/orderStage.*(+test), ordersView.ts (draftFromOrder/linesFromDraft extracted), pipeline.ts (orders rows → ?tab=desk) | 1069 tests (+4); contracts stay v1.7 (no new wire); W15 Dispatch stage form next |
 | P3/W15: Dispatch stage form | WORKFLOW | done | src/pages/DispatchTab.tsx, Orders.tsx (3rd tab + modal onto shared folds), OrderDeskTab.tsx (dispatch link), ordersView.ts (allocationsFromPicks/allottedFor/shortLineOf), ordersView.test.ts | 1072 tests (+3); contracts stay v1.7 (no new wire); W16 Onboarding next |
+| P3/W16: Onboarding — tour, tooltips, feedback, cheat sheets | WORKFLOW | done | src/lib/onboarding.ts(+test), src/components/shell/Tour.tsx, src/components/shell/HelpMenu.tsx, Layout.tsx (anchors+help+tour), Pipeline.tsx (tile titles), index.css, docs/overhaul/cheatsheets/ (8 roles) | 1077 tests (+5); contracts stay v1.7; Phase 3 QA LIGHT re-run + HEAVY (Journey A) next |
 
 ## Log
 - 2026-10-13 Phase 0 complete. Baseline green (745 tests, tsc -b, lint, build @ de4c13b). DB target confirmed:
@@ -319,3 +320,23 @@ Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW thro
   links onward once the order fills); the Dispatch tile's in-flight rows keep /dispatch
   (they owe a POD, not a dispatch). Contracts stay v1.7 (no new wire). Gates: tsc -b,
   1072 passed (+3), lint 10 (baseline), build pass.
+- 2026-10-14 WORKFLOW W16 — Onboarding, the last Phase-3 item. All behind the pipeline
+  flag; Classic untouched; NO new write anywhere (tour/feedback state is device-local).
+  onboarding.ts is the ONE wording source: PAGE_HELP (one line per catalog page — feeds
+  the sidebar's native-title tooltips AND the cheat sheet; coverage test pins every page)
+  and STAGE_HELP (every pipeline tile's "what this count means"; pinned to the stage ids
+  pipelineStages emits). First-run tour: once per device (roligt_tour_done_v1), offered
+  the moment the pipeline flag reaches an operator; "?" beside search replays it.
+  Tour.tsx spotlights the shell's own data-tour anchors (pipeline row, process nav,
+  search, theme, help); a step whose anchor is missing or measures zero (phone drawer,
+  off flag) renders a centered card — the tour never depends on the viewport, and it
+  never spotlights at 0,0. Keyboard: →/← walk, Esc ends, focus rides Next. HelpMenu.tsx:
+  "?" popover (tour / cheat sheet / feedback). The cheat sheet IS the caller's pages —
+  roles are runtime data, so "your role's cheat sheet" is one line per screen they hold,
+  in sidebar order (cheatSheetRows), grouped like the nav; the prompt's named-role pages
+  live printable in docs/overhaul/cheatsheets/ (8 roles; delivery-agent honestly marked
+  not-live-until-Phase-4). Feedback: textarea → clipboard copy (toast confirms, failure
+  keeps the words and says how to copy by hand) + a device outbox (last 20) — NO
+  endpoint invented (DECISIONS W16). Gates: tsc -b, 1077 passed (+5), lint 10
+  (baseline), build pass. Phase 3 WORKFLOW complete: next is QA LIGHT re-run + HEAVY
+  once (Journey A through dispatch) in a fresh session.

@@ -5361,3 +5361,150 @@ table tbody tr.subrow > td {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 }
+
+/* ── Onboarding: tour + help (WORKFLOW W16, pipeline flag) ───────────────── */
+
+/* The tour points at the shell's own chrome, so it sits above every layer. */
+.tour-catcher {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+}
+/* The ring paints the dimming itself — its huge spread shadow — so the
+   anchored element stays visible inside a transparent hole. */
+.tour-ring {
+  position: fixed;
+  z-index: 1101;
+  pointer-events: none;
+  border-radius: 12px;
+  border: 2px solid var(--leaf);
+  box-shadow: 0 0 0 9999px rgba(15, 20, 22, 0.62);
+  transition:
+    top 0.25s ease,
+    left 0.25s ease,
+    width 0.25s ease,
+    height 0.25s ease;
+}
+.tour-card {
+  position: fixed;
+  z-index: 1102;
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--hair);
+  border-radius: 14px;
+  box-shadow: 0 18px 44px rgba(15, 20, 22, 0.28);
+  padding: 16px;
+  max-width: calc(100vw - 32px);
+}
+.tour-card h3 {
+  margin: 2px 0 6px;
+  font-size: 1.05rem;
+}
+.tour-card p {
+  margin: 0 0 10px;
+  color: var(--ink-soft);
+}
+.tour-step {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-mute);
+}
+.tour-dots {
+  display: flex;
+  gap: 6px;
+  margin: 4px 0 12px;
+}
+.tour-dots span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--hair-strong);
+}
+.tour-dots span.on {
+  background: var(--leaf);
+}
+.tour-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+/* The "?" beside search: a small popover, then Modal-based panels. */
+.help-root {
+  position: relative;
+  display: inline-flex;
+}
+.help-root > .icon-btn {
+  font-weight: 700;
+}
+.help-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 130;
+  min-width: 264px;
+  background: var(--panel);
+  border: 1px solid var(--hair);
+  border-radius: 12px;
+  box-shadow: 0 14px 38px rgba(15, 20, 22, 0.22);
+  padding: 6px;
+  display: grid;
+  gap: 2px;
+}
+.help-menu button {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  padding: 10px 12px;
+  min-height: 44px;
+  border: 0;
+  background: none;
+  border-radius: 8px;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+.help-menu button:hover {
+  background: var(--well);
+}
+.help-menu small {
+  color: var(--ink-mute);
+}
+
+/* Cheat sheet + feedback panels (Modal bodies). */
+.cheat-section,
+.cheat-notes {
+  margin-top: 14px;
+}
+.cheat-section h4,
+.cheat-notes h4 {
+  margin: 0 0 6px;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-mute);
+}
+.cheat-section ul,
+.cheat-notes ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+.cheat-section li {
+  display: grid;
+  gap: 2px;
+}
+.cheat-section li span {
+  color: var(--ink-soft);
+}
+.cheat-notes li {
+  color: var(--ink-soft);
+}
+.feedback-text {
+  width: 100%;
+  resize: vertical;
+}

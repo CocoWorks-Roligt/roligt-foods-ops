@@ -12,6 +12,7 @@ import { EmptyState } from '../components/EmptyState'
 import { StatusBadge } from '../components/StatusBadge'
 import { DataTable, type Column, type DataTableProps } from '../components/shell/DataTable'
 import { useApp } from '../context/AppContext'
+import { STAGE_HELP } from '../lib/onboarding.ts'
 import { pipelineStages, type PipelineRow, type PipelineStage } from '../lib/pipeline.ts'
 import { toDateKey } from '../lib/utils.ts'
 
@@ -37,6 +38,8 @@ function StageTile({
         type="button"
         className={`pipeline-tile${active ? ' active' : ''}${stage.flag ? ' flagged' : ''}`}
         aria-pressed={active}
+        // what the count means and what its rows owe — onboarding.ts's words (W16)
+        title={STAGE_HELP[stage.id]}
         onClick={onSelect}
       >
         <span className="pipeline-count">{stage.count}</span>
@@ -99,7 +102,7 @@ export function Pipeline() {
         <p className="pipeline-clear">No bottlenecks — nothing stuck, held or overdue.</p>
       )}
 
-      <ol className="pipeline-board" aria-label="Stages in process order">
+      <ol className="pipeline-board" aria-label="Stages in process order" data-tour="pipeline-board">
         {stages.map((s) => (
           <StageTile key={s.id} stage={s} active={s.id === stage.id} onSelect={() => setSelected(s.id)} />
         ))}
