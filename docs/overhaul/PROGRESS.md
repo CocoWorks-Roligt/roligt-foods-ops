@@ -1,5 +1,5 @@
 # PROGRESS — Beverage Ops Platform Overhaul
-Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW through W10
+Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW through W11
 
 | Task | Agent | Status | Files | Next action |
 |---|---|---|---|---|
@@ -30,6 +30,7 @@ Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW thro
 | P3/W8: Extraction stage form (press & close; contracts v1.7) | WORKFLOW | done | src/pages/ExtractionTab.tsx, Production.tsx (3rd card, pipeline), src/lib/extractionStage.*(+test), extractionApi.ts, api/_lib/d1Snapshot.ts (batch version ride-along), contracts.ts v1.7, types.ts (Batch.version), pipeline.ts+navBadges.ts (Closed status), ExtractionBatches.tsx (filter option), index.css | 1047 tests; W9 Coconut Milk batch form next |
 | P3/W9: Blend stage form — intermediate runs incl. coconut milk | WORKFLOW | done | src/pages/BlendTab.tsx, Production.tsx (4th card, pipeline), src/lib/blendStage.*(+test), src/lib/extractionApi.ts→runCloseApi.ts (rename: shared close client), ExtractionTab.tsx (import), pipeline.ts (Blending rows → ?stage=blend), index.css (stage-picker-4) | 1051 tests (+4); contracts stay v1.7 (no new wire); W10 Packing stage form next |
 | P3/W10: Packing stage form (bottles + loose BIB pouches) | WORKFLOW | done | src/pages/PackingTab.tsx, Production.tsx (5th card, pipeline), src/lib/packingStage.*(+test), index.css (stage-picker-5) | 1056 tests (+5); contracts stay v1.7 (no new wire); W11 QC test entry next |
+| P3/W11: QC test entry form (bench queue) | WORKFLOW | done | src/pages/QcEntryTab.tsx, Quality.tsx (Test entry tab, pipeline), src/lib/qcStage.*(+test), pipeline.ts (QC rows → ?tab=entry) | 1059 tests (+3); contracts stay v1.7 (no new wire); W12 Control Sample register next |
 
 ## Log
 - 2026-10-13 Phase 0 complete. Baseline green (745 tests, tsc -b, lint, build @ de4c13b). DB target confirmed:
@@ -225,3 +226,22 @@ Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW thro
   carton logic exists in packing). Client gate = checkPacking's own words first,
   then createPackingRun re-checks. Gates: tsc -b, 1056 passed (+5), lint 10
   (baseline), build pass.
+- 2026-10-14 WORKFLOW W11. The QC test-entry form — a "Test entry" tab on Quality behind
+  the pipeline flag (lazy chunk; Classic register untouched when off; the pipeline QC tile's
+  rows now link /quality?tab=entry). NO new write: the form posts through the SAME saveQc
+  the register's Review dialog uses, which decides the disposition from the results
+  themselves (qcDecision), moves stock in place (Released/Rejected; anything else back to
+  awaiting QC), rolls the batch up, and owns the hold-area refusal toast (a null return
+  leaves the form open). qcStage.ts is one fold: pendingQc — the tile's own Pending
+  predicate, oldest batch first, count pinned to pipelineStages under test (a record whose
+  batch is missing keeps its blank date sorting first, as the tile ages it). The form:
+  queue select + ScanInput (batch or QC id; a scan of a two-record batch says the sibling
+  stays queued), one qc-review-card per testsShownFor test (status select in statusLabel
+  words, note), and the decision preview IS qcDecision — the register modal's own sentence
+  (outstanding required tests named via categoryTitle, packs-vs-bulk consequence) — so the
+  form can never promise a disposition the save would not stamp. After a save the form
+  advances to the next-oldest record. Lab reports/evaluations attach from the register's
+  Review (upload + generated-report machinery stays there); raising records for
+  pre-per-product batches stays on the register too (startQc) — every batch posted since
+  gets its records on booking. Contracts stay v1.7 (no new wire). Gates: tsc -b, 1059
+  passed (+3), lint 10 (baseline), build pass.

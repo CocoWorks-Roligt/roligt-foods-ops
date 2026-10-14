@@ -1,5 +1,5 @@
 # STATE — Beverage Ops Platform Overhaul
-Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W10 done (Pipeline Home, Batch Detail, PO endpoints, PO form, GRN↔PO linkage, Receipt stage form, Coconut Grading form, Extraction stage form, Blend stage form, Packing stage form); W11 QC test entry next | Branch: dev | Base: de4c13b
+Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W11 done (Pipeline Home, Batch Detail, PO endpoints, PO form, GRN↔PO linkage, Receipt stage form, Coconut Grading form, Extraction stage form, Blend stage form, Packing stage form, QC test entry form); W12 Control Sample register next | Branch: dev | Base: de4c13b
 
 ## Contracts
 - v1.7 (2026-10-14, W8): +BatchVersionExtension — the snapshot's batches carry documents.version
@@ -23,16 +23,20 @@ Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W10 done (Pipeline 
 ## Locks
 - none
 
-## W11 design notes (next slice — QC test entry, read before building)
-- CHECK FIRST what the Classic Quality page already writes (QC records: parameters vs
-  spec, disposition Pending→Hold/Released/Rejected/…, per-product verdicts) and how a
-  verdict moves stock (postPackingLines stamps packs with the bulk's own verdict;
-  qc_gate_v2's release arm — can.release_lot seam, DECISIONS — is server-side and
-  the flag stays OFF until #2 lands). §3.3-7 hard gate: unreleased lots cannot be
-  blended, packed or dispatched — enforcement exists; the stage form is the entry half.
-- Same pattern as W6–W10: pipeline flag, lazy chunk, queue = the pipeline QC tile's own
-  predicate (Pending, oldest first — qcAged), plain-language refusals from the write
-  path's own words. QC verdict posts through the SAME Classic path.
+## W12 design notes (next slice — Control Sample register, read before building)
+- CHECK FIRST what Classic ControlSamples.tsx already writes (sample rows linked to the
+  batch, storage bin, retention expiry, destruction) and the §3.3-7 sample rule: a
+  control sample links to its parent batch with timestamp, bin, retention expiry; the
+  stock-deduction question is DECISIONS' ASSUMPTION (default: yes, via explicit sample
+  movement — check what the write path actually does before assuming).
+- Same pattern as W6–W11: pipeline flag, lazy chunk, queue = the pipeline Control samples
+  tile's own predicate (controlSampleRows: kept, expiring within the 7-day horizon —
+  pipeline.ts), write through the SAME Classic path, refusals in its own words.
+
+## W11 notes (done 2026-10-14 — kept one line: see PROGRESS log)
+- QC test entry = "Test entry" tab on Quality behind pipeline; posts through the SAME
+  saveQc (disposition computed by qcDecision, never picked); pendingQc pinned to the
+  tile; reports/raising records stay on the register.
 
 ## W10 notes (done 2026-10-14 — kept one line: see PROGRESS log)
 - Packing form = 5th Production card behind pipeline; ONE write through the SAME
@@ -115,6 +119,14 @@ Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W10 done (Pipeline 
   (bulkByBatch = checkPacking's own DRAWABLE rows; packsForBulk hides retired packs while
   fillableBulk keeps a retired-only bulk offered — Classic's own fold), and packing never
   counts a carton: the carton decision is dispatch-time (§3.3-9, SHIPMENT-era).
+- The QC test-entry form (QcEntryTab) posts through the SAME saveQc and the disposition is
+  COMPUTED, never picked: the form's live preview IS qcDecision (the same fold the save
+  runs) — never re-derive a verdict or a required-tests list client-side. saveQc's
+  hold-area refusal is its own toast; a null return must leave the form open. pendingQc
+  (qcStage.ts) is pinned to the pipeline QC tile's count, and the tile's rows link
+  /quality?tab=entry — keep the two in step if either is reworked. Lab reports and
+  evaluations attach only from the register's Review, and startQc (raising records for
+  pre-per-product batches) stays register-side.
 - If the split (multi-file) prompt version is adopted: do NOT copy its STATE/PROGRESS/DECISIONS
   templates over the live files, and rename its DOMAIN.md (business rules) before adding — the live
   DOMAIN.md is the current-state map and they collide.
