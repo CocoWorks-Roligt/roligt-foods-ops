@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { lazy, Suspense, useMemo, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { MoveStockModal } from '../components/MoveStockModal'
 import { SendStockModal } from '../components/SendStockModal'
 import { sendable } from '../lib/npd'
@@ -23,6 +23,10 @@ import type { StockRow, StorageLocation } from '../types'
 /** One storage area with what it is holding folded in. */
 type LocationRow = StorageLocation & { qty: number; value: number; byUom: Map<string, number> }
 
+/** The pipeline flag's put-away queue (WORKFLOW W13) — its own chunk, so
+ *  Classic never loads it. */
+const PutAwayTab = lazy(() => import('./PutAwayTab').then((m) => ({ default: m.PutAwayTab })))
+
 /** "220 L · 30 kg" — one figure per unit, never a sum across two of them. */
 const onHandLabel = (s: { byUom: Map<string, number>; qty: number }) => {
   const parts = [...s.byUom]
@@ -32,8 +36,14 @@ const onHandLabel = (s: { byUom: Map<string, number>; qty: number }) => {
 }
 
 export function Inventory() {
-  const { state, rows, getItemName, exportData } = useApp()
+  const { state, rows, getItemName, exportData, flags } = useApp()
   const navigate = useNavigate()
+  // ?tab=putaway (pipeline flag) is where stock sitting somewhere the rules
+  // flag gets moved to its usual home. Everything else is the Classic snapshot.
+  const [params, setParams] = useSearchParams()
+  const tab = params.get('tab') === 'putaway' && flags.pipeline ? 'putaway' : 'snapshot'
+  const setTab = (next: 'snapshot' | 'putaway') =>
+    setParams(next === 'snapshot' ? {} : { tab: next }, { replace: true })
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const [type, setType] = useState('')
@@ -143,6 +153,31 @@ export function Inventory() {
 
   return (
     <>
+      {flags.pipeline ? (
+        <div className="type-tabs" role="tablist" style={{ marginBottom: 12 }}>
+          <button
+            type="button"
+            className={`type-tab ${tab === 'snapshot' ? 'active' : ''}`}
+            onClick={() => setTab('snapshot')}
+          >
+            Stock snapshot
+          </button>
+          <button
+            type="button"
+            className={`type-tab ${tab === 'putaway' ? 'active' : ''}`}
+            onClick={() => setTab('putaway')}
+          >
+            Put away
+          </button>
+        </div>
+      ) : null}
+
+      {tab === 'putaway' ? (
+        <Suspense fallback={<div className="note">Loading the put-away queue…</div>}>
+          <PutAwayTab />
+        </Suspense>
+      ) : (
+      <>
       <div className="card metric-strip">
         {cards.map(([label, value]) => (
           <div className="metric" key={label}>
@@ -385,6 +420,8 @@ export function Inventory() {
           </table>
         </div>
       </div>
+      </>
+      )}
 
       <MoveStockModal row={moving} onClose={() => setMoving(null)} />
       <SendStockModal row={sending} onClose={() => setSending(null)} />
