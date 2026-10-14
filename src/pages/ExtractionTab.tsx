@@ -31,7 +31,7 @@ import { checkBatch, describeOutputs, isByProduct, defaultBulkStore } from '../l
 import type { BatchInput, OutputInput } from '../lib/posting'
 import { areaChoices, locationLabel, stockRows } from '../lib/stock'
 import { itemName as lookupItemName } from '../lib/stock'
-import { PoApiError, postRunClose } from '../lib/extractionApi'
+import { PoApiError, postRunClose } from '../lib/runCloseApi'
 import {
   extractionReasonCodes,
   massBalanceItemsOf,

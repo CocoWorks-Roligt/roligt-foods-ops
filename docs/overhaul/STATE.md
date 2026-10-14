@@ -1,5 +1,5 @@
 # STATE — Beverage Ops Platform Overhaul
-Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W8 done (Pipeline Home, Batch Detail, PO endpoints, PO form, GRN↔PO linkage, Receipt stage form, Coconut Grading form, Extraction stage form); W9 Coconut Milk batch form next | Branch: dev | Base: de4c13b
+Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W9 done (Pipeline Home, Batch Detail, PO endpoints, PO form, GRN↔PO linkage, Receipt stage form, Coconut Grading form, Extraction stage form, Blend stage form); W10 Packing stage form next | Branch: dev | Base: de4c13b
 
 ## Contracts
 - v1.7 (2026-10-14, W8): +BatchVersionExtension — the snapshot's batches carry documents.version
@@ -23,26 +23,23 @@ Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W8 done (Pipeline H
 ## Locks
 - none
 
-## W9 design notes (next slice — Coconut Milk batch form, read before building)
-- The intermediate run (chain §3.3 step 4): malai lot(s) + water lot(s) + recipe components
-  (stabilizer, sweetener, salt) → a Coconut Milk lot with its own QC / shelf life; downstream
-  blends consume the MILK lot, never the source malai or coconuts (anti-double-consumption).
-- Same pattern as W8: post through the SAME createBatch path (checkBatch answers first, in its
-  own words; blendLines carry the bulk lots, sourceLines any raw recipe components), then
-  POST /api/transformations/close files the mandatory blend-stage spoilage. Build on the SHELL
-  TransformationForm primitive (live computeMassBalance) — never re-derive the balance.
-- CHECK FIRST what vocabulary the Classic blend form already writes: the pipeline Blending tile
-  counts kind 'Melange' — if Coconut Milk posts as one it lands in that queue, which is honest
-  (it IS a blend run); the Coconut Milk BATCH FORM is a blend form offering the milk recipe,
-  not a new stage. Only if the plant needs milk runs separated from beverage blends is that a
-  STATE question first.
-- Inputs: Available bulk/raw lots from the pool checkBatch itself judges (W8's pressableLots
-  lesson: canConsumeLot answers blend/pack/dispatch, checkBatch enforces Available-only — do
-  not offer quarantined stock the post would refuse). Recipe/BOM templates are versioned plain
-  data (ARCHITECTURE) — check what B1 stamped on items/melanges before wiring recipe variance.
-- batch_v2 stays OFF (DECISIONS #2 open); the form runs under the pipeline flag reading the
-  CURRENT vocabulary, exactly as W1–W8 did. Spoilage reasons: the frozen seeds' blend+any
-  codes; the server's spoilage_reasons stays the authority.
+## W10 design notes (next slice — Packing stage form, read before building)
+- Chain §3.3-6: glass bottles = the standard flow; BIB pouches (1L/2.5L/5L) are stored LOOSE
+  in the cold room and the POUCH is the finished-goods unit tracked by lot, size, location.
+  The carton decision is dispatch-time (§3.3-9, SHIPMENT-era) — packing never touches cartons.
+- CHECK FIRST what the Classic Packing page already writes (PackingRuns: bulkItem/medium,
+  packs, OutputLine {sku, packs, litres, unitCost, expiry}) and whether BIB SKUs / sizes /
+  loose-pouch storage exist as items+areas today. The stage form posts through the SAME
+  Classic packing path; only a real gap in that path is new backend.
+- Same pattern as W8/W9: pipeline flag, lazy chunk, pool = the lots the packing post itself
+  judges (W8's pressableLots lesson), prefill off the picked bulk, useDraft for the usual
+  room, plain-language refusals from the write path's own words.
+
+## W9 notes (done 2026-10-14 — kept one line: see PROGRESS log)
+- Blend form = 4th Production card behind pipeline; offers every ACTIVE recipe (milk among
+  them — B1 seeded none, so none is named), posts kind 'Melange' via the SAME createBatch
+  (spoiled: 0, Classic contract — the close's spoilage records are the durable word), then
+  closes via runCloseApi; component pool = the Classic form's own DRAWABLE fold.
 
 ## W8 notes (done 2026-10-14 — kept one line: see PROGRESS log)
 - Extraction form = 3rd Production card behind pipeline; posts through the SAME createBatch,
@@ -88,14 +85,20 @@ Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W8 done (Pipeline H
   snapshot or grading paths are reworked; and the grading form never derives costs or ledger
   lines client-side — priceGrn is a preview, the endpoint's math is the record.
 - The batch version ride-along (v1.7) is READ-ONLY the same way (batches too, column over
-  stale embed, no write path consults the field). The extraction close form NEVER guesses
-  version 1: after createBatch it waits for the snapshot copy that carries the version (the
-  commit's own revision bump wakes the feed), with a "Leave it open" escape — keep that if the
-  form is reworked.
+  stale embed, no write path consults the field). The stage close forms (ExtractionTab,
+  BlendTab) NEVER guess
+  version 1: after createBatch they wait for the snapshot copy that carries the version (the
+  commit's own revision bump wakes the feed), with a "Leave it open" escape — keep that if
+  either form is reworked.
 - CLOSED_BATCH in pipeline.ts AND navBadges.ts includes 'Closed' (what the close endpoint
   stamps): the two sets must stay in step or a closed run keeps counting as open work.
-  openExtractionRuns (extractionStage.ts) mirrors them, pinned to pipelineStages' count under
-  test.
+  openExtractionRuns (extractionStage.ts) and openBlendRuns (blendStage.ts) mirror them,
+  each pinned to pipelineStages' count under test.
+- A blend batch books spoiled: 0 — the Classic contract; a blend's loss is implied in the
+  balance and the durable spoilage record is the close's (mandatory there). BlendTab's
+  component pool (blendableLots, blendStage.ts) mirrors the Classic form's own DRAWABLE
+  fold exactly: quarantine bulk is drawable and offered, press-only raw is not (checkBatch
+  refuses it — the anti-double-consumption edge). Keep both if the blend paths are reworked.
 - Stage forms offer spoilage reasons from the frozen SPOILAGE_REASON_SEEDS (their stage +
   'any'); the server's editable spoilage_reasons collection stays the authority and the
   close's 422 is its word — never read spoilage_reasons client-side.

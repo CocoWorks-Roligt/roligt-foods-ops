@@ -9,7 +9,9 @@
  *
  * The pipeline flag adds a third card (WORKFLOW W8): the Extraction stage form,
  * where a pressing is posted AND closed — graded lots in, water and malai out,
- * spoilage said out loud. It is its own lazy chunk; Classic never loads it.
+ * spoilage said out loud — and a fourth (WORKFLOW W9): the Blend stage form,
+ * where an intermediate run (coconut milk among them) is drawn off a recipe and
+ * closed the same way. Each is its own lazy chunk; Classic never loads them.
  */
 
 import { Suspense, lazy, useEffect, useState } from 'react'
@@ -21,15 +23,25 @@ import { useApp } from '../context/AppContext'
 /** The pipeline flag's Extraction stage form — its own chunk, so Classic never loads it. */
 const ExtractionTab = lazy(() => import('./ExtractionTab').then((m) => ({ default: m.ExtractionTab })))
 
-type Stage = 'extraction' | 'melange' | 'run'
+/** The pipeline flag's Blend stage form — its own chunk, so Classic never loads it. */
+const BlendTab = lazy(() => import('./BlendTab').then((m) => ({ default: m.BlendTab })))
+
+type Stage = 'extraction' | 'melange' | 'run' | 'blend'
 
 export function Production() {
   const { flags } = useApp()
   // /production?stage=melange is where the old /melanges link lands; ?stage=run
-  // (pipeline flag) is where the Extraction tile's open runs link to be closed.
+  // and ?stage=blend (pipeline flag) are where the Extraction and Blending
+  // tiles' open runs link to be closed.
   const [params] = useSearchParams()
   const [stage, setStage] = useState<Stage>(
-    params.get('stage') === 'melange' ? 'melange' : params.get('stage') === 'run' ? 'run' : 'extraction',
+    params.get('stage') === 'melange'
+      ? 'melange'
+      : params.get('stage') === 'run'
+        ? 'run'
+        : params.get('stage') === 'blend'
+          ? 'blend'
+          : 'extraction',
   )
   // A link to a run lands here with ?stage=… while the page may already be open
   // on another stage, so the tab follows the address as well as the click.
@@ -37,13 +49,17 @@ export function Production() {
   useEffect(() => {
     if (linkedStage === 'melange' || linkedStage === 'extraction') setStage(linkedStage)
     else if (linkedStage === 'run' && flags.pipeline) setStage('run')
+    else if (linkedStage === 'blend' && flags.pipeline) setStage('blend')
   }, [linkedStage, flags.pipeline])
 
   const cards: { id: Stage; label: string; blurb: string }[] = [
     { id: 'extraction', label: 'Extraction', blurb: 'Press raw produce into bulk' },
     { id: 'melange', label: 'Blend', blurb: 'Blend that bulk to a recipe' },
     ...(flags.pipeline
-      ? [{ id: 'run' as Stage, label: 'Run a pressing', blurb: 'Graded lots in, water and malai out, closed here' }]
+      ? [
+          { id: 'run' as Stage, label: 'Run a pressing', blurb: 'Graded lots in, water and malai out, closed here' },
+          { id: 'blend' as Stage, label: 'Run a blend', blurb: 'Recipe components in, a blend lot out, closed here' },
+        ]
       : []),
   ]
 
@@ -68,6 +84,10 @@ export function Production() {
       ) : stage === 'run' ? (
         <Suspense fallback={<div className="note">Loading the pressing form…</div>}>
           <ExtractionTab />
+        </Suspense>
+      ) : stage === 'blend' ? (
+        <Suspense fallback={<div className="note">Loading the blending form…</div>}>
+          <BlendTab />
         </Suspense>
       ) : (
         <ExtractionBatches />

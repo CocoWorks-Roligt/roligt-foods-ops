@@ -1,5 +1,5 @@
 # PROGRESS — Beverage Ops Platform Overhaul
-Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW through W8
+Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW through W9
 
 | Task | Agent | Status | Files | Next action |
 |---|---|---|---|---|
@@ -28,6 +28,7 @@ Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW thro
 | P3/W6: Receipt stage form (×3 by procurement form + staged grading) | WORKFLOW | done | src/pages/ReceiptTab.tsx, Procurement.tsx (4th tab), src/lib/receiptStage.*(+test), grn.ts(+test), context/domains/procurement.ts(+test), poApi.ts (receivePurchaseOrderCall), types.ts (Grn.poId), api/_lib/gradingPost.ts (gradedOn fix, b3.test) | 1032 tests; W7 Coconut Grading form next |
 | P3/W7: Coconut Grading form (staged lots; contracts v1.6) | WORKFLOW | done | src/pages/GradingTab.tsx, Procurement.tsx (5th tab), src/lib/gradingStage.*(+test), gradingApi.ts, poApi.ts (shared helpers exported), pipeline.ts (Grading rows → form), api/_lib/d1Snapshot.ts (grn version ride-along), contracts.ts v1.6, types.ts (Grn.version), d1Engine.test, b3.test | 1041 tests; W8 Extraction stage form next |
 | P3/W8: Extraction stage form (press & close; contracts v1.7) | WORKFLOW | done | src/pages/ExtractionTab.tsx, Production.tsx (3rd card, pipeline), src/lib/extractionStage.*(+test), extractionApi.ts, api/_lib/d1Snapshot.ts (batch version ride-along), contracts.ts v1.7, types.ts (Batch.version), pipeline.ts+navBadges.ts (Closed status), ExtractionBatches.tsx (filter option), index.css | 1047 tests; W9 Coconut Milk batch form next |
+| P3/W9: Blend stage form — intermediate runs incl. coconut milk | WORKFLOW | done | src/pages/BlendTab.tsx, Production.tsx (4th card, pipeline), src/lib/blendStage.*(+test), src/lib/extractionApi.ts→runCloseApi.ts (rename: shared close client), ExtractionTab.tsx (import), pipeline.ts (Blending rows → ?stage=blend), index.css (stage-picker-4) | 1051 tests (+4); contracts stay v1.7 (no new wire); W10 Packing stage form next |
 
 ## Log
 - 2026-10-13 Phase 0 complete. Baseline green (745 tests, tsc -b, lint, build @ de4c13b). DB target confirmed:
@@ -178,3 +179,25 @@ Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW thro
   asked. Vocabulary: pipeline.ts + navBadges.ts CLOSED_BATCH gain 'Closed' (what the close
   stamps) and the Classic register filter offers it — otherwise a closed run would still count
   as open work. Gates: tsc -b, 1047 passed (+6), lint 10 (baseline), build pass.
+- 2026-10-14 WORKFLOW W9. The Blend stage form — a fourth Production card ("Run a blend",
+  pipeline flag, lazy chunk; ?stage=blend, the pipeline Blending tile's open runs link in
+  with ?run=<id> pre-picked). STATE's open question answered as it predicted: a coconut-milk
+  run IS a blend run — the form offers every ACTIVE recipe (B1 seeded no melanges; which one
+  is milk is live data, so none is named), posts kind 'Melange' through the SAME createBatch
+  the Classic form uses, and the run lands in the pipeline Blending queue, which is honest.
+  blendStage.ts folds: blendableLots (the Classic form's own pool verbatim — Semi Finished +
+  direct-use raw, DRAWABLE statuses, pooled by lot; quarantine bulk IS offered because the
+  write path accepts it, and press-only raw is NOT because checkBatch refuses it — the
+  anti-double-consumption edge), blendReasonCodes (frozen blend+any seeds), openBlendRuns
+  (pinned to pipelineStages' Blending count incl. 'Closed'), activeRecipes. Form: recipe
+  select lays out one draw row per component in recipe order (Classic's pickRecipe), lot
+  select per row + ScanInput (a scanned lot fills a same-component row first), Classic's
+  incomplete-draw and no-stock refusals verbatim before checkBatch answers, offRecipe
+  >2-points note, drawn-by-uom gap as the spoilage placeholder, mandatory close-time
+  spoilage (stage 'blend'), MassBalanceBar live over the SAME items fold (massBalanceItemsOf/
+  runMassLines shared from extractionStage — one implementation), useDraft remembering the
+  cold room + usual reason. A blend batch books spoiled: 0 exactly as the Classic form posts
+  it — the durable spoilage record is the close's (mandatory there). Close queue mode reads
+  a run back read-only and asks only the spoilage. extractionApi.ts renamed runCloseApi.ts
+  (it was never extraction-only). Contracts stay v1.7: every wire the form uses existed.
+  Gates: tsc -b, 1051 passed (+4), lint 10 (baseline), build pass.

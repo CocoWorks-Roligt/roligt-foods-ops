@@ -183,7 +183,9 @@ export function pipelineStages(state: AppState, today = toDateKey()): PipelineSt
       label: 'Blending',
       queue: true,
       count: blending.length,
-      rows: stageRows(blending),
+      // rows land on the Blend stage form with the run picked — the close
+      // (spoilage filed, balance stamped) is the action a waiting run owes
+      rows: stageRows(blending).map((r) => ({ ...r, href: `/production?stage=blend&run=${r.id}` })),
       flag: stuckNote(blending),
     },
     {

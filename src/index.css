@@ -4036,6 +4036,12 @@ table tbody tr.subrow > td {
   max-width: 980px;
 }
 
+/* …and its fourth — the Blend stage form (WORKFLOW W9). */
+.stage-picker-4 {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  max-width: 980px;
+}
+
 /* The melange page's "no recipes yet" prompt: one line of explanation and the button
    that fixes it, side by side, wrapping to two rows on a phone. */
 .melange-setup-note {

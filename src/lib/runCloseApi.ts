@@ -1,9 +1,9 @@
 /**
- * Fetch client for POST /api/transformations/close — the Extraction stage
- * form's one server call (WORKFLOW W8). Same session semantics and
- * Idempotency-Key discipline as the PO client, whose helpers it shares;
- * PoApiError is the shared refusal shape so the form branches on the guard
- * that refused (cas_version, already_closed, the spoilage guards).
+ * Fetch client for POST /api/transformations/close — the run-close call every
+ * pipeline stage form makes (WORKFLOW W8 extraction, W9 blending). Same session
+ * semantics and Idempotency-Key discipline as the PO client, whose helpers it
+ * shares; PoApiError is the shared refusal shape so the form branches on the
+ * guard that refused (cas_version, already_closed, the spoilage guards).
  */
 import { call, newIdempotencyKey, read } from './poApi'
 import { PoApiError } from './poApi'
