@@ -1,5 +1,5 @@
 # PROGRESS — Beverage Ops Platform Overhaul
-Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW complete (W16 done)
+Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 4 SHIPMENT in flight (H1, B5a done)
 
 | Task | Agent | Status | Files | Next action |
 |---|---|---|---|---|
@@ -36,6 +36,8 @@ Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW comp
 | P3/W14: Order desk | WORKFLOW | done | src/pages/OrderDeskTab.tsx, Orders.tsx (Order desk tab, pipeline), src/lib/orderStage.*(+test), ordersView.ts (draftFromOrder/linesFromDraft extracted), pipeline.ts (orders rows → ?tab=desk) | 1069 tests (+4); contracts stay v1.7 (no new wire); W15 Dispatch stage form next |
 | P3/W15: Dispatch stage form | WORKFLOW | done | src/pages/DispatchTab.tsx, Orders.tsx (3rd tab + modal onto shared folds), OrderDeskTab.tsx (dispatch link), ordersView.ts (allocationsFromPicks/allottedFor/shortLineOf), ordersView.test.ts | 1072 tests (+3); contracts stay v1.7 (no new wire); W16 Onboarding next |
 | P3/W16: Onboarding — tour, tooltips, feedback, cheat sheets | WORKFLOW | done | src/lib/onboarding.ts(+test), src/components/shell/Tour.tsx, src/components/shell/HelpMenu.tsx, Layout.tsx (anchors+help+tour), Pipeline.tsx (tile titles), index.css, docs/overhaul/cheatsheets/ (8 roles) | 1077 tests (+5); contracts stay v1.7; Phase 3 QA LIGHT re-run + HEAVY (Journey A) next |
+| P4/H1: delivery-agent scoping — external tier, clamp, snapshot allowlist | LEAD | done @ 78348c2 | src/lib/pages.ts(+test) ('external' tier, pageScope clamp, local admin exemption), src/types.ts, api/_lib/domain.ts (isDeliveryAgent rewritten: any non-admin holder of page.my-deliveries), api/_lib/snapshot.ts (agent projection: state {}, all keys withheld) + snapshot.test, Layout.tsx (Delivery nav section), Roles.tsx (external field), onboarding.ts, utils.ts, seed-rbac.mjs (delivery_agent role, reconcile:false) | 1082 tests (+2); RBAC.md as-built notes pending docs slice |
+| P4/B5a: shipments service — create/list/get/patch/events (contracts v1.9) | BACKEND | done @ f89fb37 | src/lib/contracts.ts (v1.9 additive: ShipmentVersionExtension, ShipmentLine, ShipmentChallanLink, ShipmentDetail/List/EventsResponse, PatchShipmentRequest/Response), api/_lib/shipments.ts(+test), api/shipments.ts, api/shipments/[id].ts, api/shipments/[id]/events.ts | 1097 tests (+15); B5b submit+challan next |
 
 ## Log
 - 2026-10-13 Phase 0 complete. Baseline green (745 tests, tsc -b, lint, build @ de4c13b). DB target confirmed:
@@ -359,3 +361,35 @@ Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW comp
   observation filed (no action): toasts say Posted while the commit throttle still
   queues the write — "saved on this device / queued" state is a Phase-6 UX item.
   Phase 3 CLOSED. Next: Phase 4 SHIPMENT in a fresh session.
+- 2026-10-15 P4 H1 — delivery-agent scoping foundation (LEAD). pages.ts grows an 'external'
+  tier (my-deliveries); pageScope CLAMPS any non-admin holder of page.my-deliveries to that
+  one page — a mis-ticked role cannot widen an agent — and the exemption is structural: the
+  admin holds the whole catalog, agent page included. Server mirror: isDeliveryAgent rewritten
+  from the old every-check (which let a mis-ticked agent through to the page-based withhold
+  list, leaking ungated keys — exactly RBAC §d) to includes('page.my-deliveries') &&
+  !isAdminPermissions; every consumer (kpis, traceSearch) strictly safer. Snapshot answers an
+  agent an allowlist projection: state {}, every collection key named withheld — restoreWithheld
+  handles a fresh device, seeding is local, agents never commit. Roles screen shows the External
+  field with the never-tick-anything-else warning; seed-rbac grows delivery_agent (reconcile:false
+  — the Roles screen owns it after first seed); agents are ALWAYS created with the role attached
+  (zero-slug default-deny is the operational rule, stated in three places). Layout: Delivery nav
+  section (external tier), shipments behind the flag. Gates: tsc -b, 1082 (+2), lint 10 baseline.
+  Committed 78348c2.
+- 2026-10-15 P4 B5a — shipments service, part 1 (BACKEND). Contracts v1.9 additive: the version
+  ride-along (PO v1.4 rules verbatim — documents.version is the only truth, stored docs stay
+  version-less), ShipmentLine (a dispatch row flattened: batchId IS the lot, challan IS the
+  Classic DC number), challan links, the three GET shapes, Patch shapes. Design decisions, all
+  in code comments: (1) a trip is ONE order's dispatches — dispatch.orderId must match, no
+  free-floating dispatches yet; (2) the busy guard refuses a dispatch already on a non-terminal
+  trip (409, names the trip) and frees it when the trip lands; (3) multi-customer trips demand
+  stops spelled out (single-stop derives off the customer master: name + shipTo); (4) packaging
+  reads LOOSE until dispatch_v2 stamps real per-line decisions — MIXED would lie today; (5) an
+  agent reading a foreign trip gets 404, never 403 — externals must not learn other ids exist;
+  (6) PATCH owns exactly two arrows (Created→Dispatched stamps times.dispatched, Failed→
+  Rescheduled); 'started' walks Created→Dispatched→Out for Delivery when the board forgot to
+  dispatch (the agent is never stranded) and starts Rescheduled's second trip; the four outcomes
+  of Out for Delivery are the submit endpoint's alone; (7) line_confirm/arrived/otp/signature
+  events are append-only and leave the trip doc's version (every reader's CAS token) alone.
+  15 service tests over the FakeD1 harness — including the agent-scope pair, the bad-day walk
+  (failed→rescheduled→started again), and replay. Suite 1097, tsc -b clean, lint 10 baseline.
+  Committed f89fb37. Next: B5b submit + challan PDF.
