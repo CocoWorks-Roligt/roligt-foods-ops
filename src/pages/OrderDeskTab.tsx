@@ -14,6 +14,7 @@
  * form open.
  */
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { SectionedForm } from '../components/shell/SectionedForm'
 import { ScanInput } from '../components/shell/ScanInput'
@@ -44,6 +45,7 @@ const blankDraft = (): OrderDraft => ({
 
 export function OrderDeskTab() {
   const { state, rows, getItemName, saveOrder } = useApp()
+  const [, setParams] = useSearchParams()
   const today = toDateKey()
   // Data-entry reduction: the desk usually serves returning customers — the
   // last one used is remembered, everything else starts blank per order.
@@ -287,6 +289,23 @@ export function OrderDeskTab() {
                       >
                         Edit this order
                       </button>
+                      {/* The order's next action once it fills — the dispatch
+                          stage form (W15), arriving with this order picked. */
+                      current.fillable ? (
+                        <button
+                          className="btn btn-light"
+                          type="button"
+                          style={{ marginLeft: 8 }}
+                          onClick={() =>
+                            setParams(
+                              { tab: 'dispatch', id: current.order.id },
+                              { replace: true },
+                            )
+                          }
+                        >
+                          Dispatch this order →
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 ) : null}

@@ -30,8 +30,10 @@ import { StatusBadge } from '../components/StatusBadge'
 import { useApp } from '../context/AppContext'
 import { formatSize } from '../lib/packs'
 import { lotDates } from '../lib/productionDates'
-import { locationLabel, parseRowKey, rowKey } from '../lib/stock'
+import { locationLabel, rowKey } from '../lib/stock'
 import {
+  allottedFor,
+  allocationsFromPicks,
   drinkCatalog,
   draftFromOrder,
   filterOrders,
@@ -40,14 +42,16 @@ import {
   releasedPacksBySku,
   resolveBlocks as resolveDraftBlocks,
   seedAllocations,
+  shortLineOf,
   type OrderDraft,
 } from '../lib/ordersView'
 import { fmtDate, fmtQty, QTY_EPSILON, toDateKey, toLocalInputValue } from '../lib/utils'
 import type { Order, OrderLine } from '../types'
 
-/** The pipeline flag's order desk (WORKFLOW W14) — its own chunk, so Classic
- *  never loads it. */
+/** The pipeline flag's order desk (WORKFLOW W14) and dispatch stage form (W15)
+ *  — their own chunks, so Classic never loads them. */
 const OrderDeskTab = lazy(() => import('./OrderDeskTab').then((m) => ({ default: m.OrderDeskTab })))
+const DispatchTab = lazy(() => import('./DispatchTab').then((m) => ({ default: m.DispatchTab })))
 
 const blankDraft = (): OrderDraft => ({
   customerId: '',
@@ -62,11 +66,13 @@ const blankDraft = (): OrderDraft => ({
 export function Orders() {
   const { state, rows, getItemName, saveOrder, cancelOrder, deleteOrder, dispatchOrder, flags } =
     useApp()
-  // ?tab=desk (pipeline flag) is where open orders are worked in ship-by order.
-  // Everything else is the Classic register.
+  // ?tab=desk (W14) and ?tab=dispatch (W15) are the pipeline flag's order desk
+  // and dispatch form. Everything else is the Classic register.
   const [params, setParams] = useSearchParams()
-  const tab = params.get('tab') === 'desk' && flags.pipeline ? 'desk' : 'register'
-  const setTab = (next: 'register' | 'desk') =>
+  const tabParam = params.get('tab')
+  const tab =
+    flags.pipeline && (tabParam === 'desk' || tabParam === 'dispatch') ? tabParam : 'register'
+  const setTab = (next: 'register' | 'desk' | 'dispatch') =>
     setParams(next === 'register' ? {} : { tab: next }, { replace: true })
 
   const [search, setSearch] = useState('')
@@ -204,20 +210,12 @@ export function Orders() {
     setPicks(seedAllocations(o.lines, availableFor))
   }
 
-  const allocations = sending
-    ? sending.lines.map((l) => ({
-        sku: l.sku,
-        picks: Object.entries(picks[l.sku] || {}).map(([k, qty]) => {
-          const { lot, location, expiry } = parseRowKey(k)
-          return { lot, location, expiry, qty }
-        }),
-      }))
-    : []
+  // The dispatch modal's own folds — shared with the dispatch stage form (W15):
+  // one implementation of picks→allocations, the allotted meter, and the
+  // all-or-nothing short line.
+  const allocations = sending ? allocationsFromPicks(sending.lines, picks) : []
 
-  const allottedFor = (sku: string) =>
-    Object.values(picks[sku] || {}).reduce((a, q) => a + (Number(q) || 0), 0)
-
-  const shortLine = sending?.lines.find((l) => Math.abs(allottedFor(l.sku) - l.qty) > QTY_EPSILON)
+  const shortLine = sending ? shortLineOf(sending.lines, picks) : undefined
 
 
   const viewingOrder = viewId ? state.orders.find((o) => o.id === viewId) : undefined
@@ -277,12 +275,23 @@ export function Orders() {
           >
             Order desk
           </button>
+          <button
+            type="button"
+            className={`type-tab ${tab === 'dispatch' ? 'active' : ''}`}
+            onClick={() => setTab('dispatch')}
+          >
+            Dispatch
+          </button>
         </div>
       ) : null}
 
       {tab === 'desk' ? (
         <Suspense fallback={<div className="note">Loading the order desk…</div>}>
           <OrderDeskTab />
+        </Suspense>
+      ) : tab === 'dispatch' ? (
+        <Suspense fallback={<div className="note">Loading the dispatch form…</div>}>
+          <DispatchTab />
         </Suspense>
       ) : (
       <div className="card">
@@ -699,7 +708,7 @@ export function Orders() {
       >
         {sending?.lines.map((line) => {
           const lots = availableFor.get(line.sku) || []
-          const allotted = allottedFor(line.sku)
+          const allotted = allottedFor(picks, line.sku)
           return (
             <div className="subform" key={line.sku} style={{ marginBottom: 12 }}>
               <div className="subform-head">
@@ -771,7 +780,7 @@ export function Orders() {
 
         <div className={`note${shortLine ? ' warning-note' : ''}`}>
           {shortLine
-            ? `${packLabel(shortLine.sku)} is ${allottedFor(shortLine.sku)} of ${shortLine.qty}. An order goes out complete, so every line has to be filled before it can be dispatched.`
+            ? `${packLabel(shortLine.sku)} is ${allottedFor(picks, shortLine.sku)} of ${shortLine.qty}. An order goes out complete, so every line has to be filled before it can be dispatched.`
             : 'Every line is checked against live stock again as it posts, and all of them are written together — the order cannot end up half sent.'}
         </div>
       </Modal>

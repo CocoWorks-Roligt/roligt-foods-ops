@@ -1,16 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import { fixtureState } from './reports/fixtures.ts'
 import {
+  allottedFor,
+  allocationsFromPicks,
   drinkCatalog,
   filterOrders,
   linesByDrink,
   releasedPacksBySku,
   resolveBlocks,
   seedAllocations,
+  shortLineOf,
   type OrderDraft,
   type ReleasedLot,
 } from './ordersView.ts'
-import { rowKey } from './stock.ts'
+import { checkOrderDispatch } from './posting.ts'
+import { rowKey, stockRows } from './stock.ts'
+import { migrateState } from './migrate.ts'
 import type { Item, Order, Product, StockRow } from '../types.ts'
 
 /**
@@ -233,5 +238,96 @@ describe('seedAllocations', () => {
 
   it('a sku with nothing released seeds an empty pick set, not a gap', () => {
     expect(seedAllocations([{ sku: 'FG-NONE', qty: 5 }], availableFor)).toEqual({ 'FG-NONE': {} })
+  })
+})
+
+describe('allocationsFromPicks / allottedFor / shortLineOf', () => {
+  const lots: ReleasedLot[] = [
+    { item: 'FG-TCW-5L', lot: 'BAT-OLD', location: 'Cold Room', qty: 10, expiry: '2026-10-30' },
+    { item: 'FG-TCW-5L', lot: 'BAT-NEW', location: 'Cold Room', qty: 6, expiry: '2026-12-30' },
+  ]
+  const lines = [
+    { sku: 'FG-TCW-5L', qty: 12 },
+    { sku: 'FG-TCW-250ML', qty: 4 },
+  ]
+  const picks = seedAllocations(lines, new Map([['FG-TCW-5L', lots]]))
+
+  it('unpacks the picks state into the dispatch write\'s allocations — row identity intact', () => {
+    expect(allocationsFromPicks(lines, picks)).toEqual([
+      {
+        sku: 'FG-TCW-5L',
+        picks: [
+          // The rowKey carries lot + location + expiry — the whole row — and the
+          // allocation puts each part back.
+          { lot: 'BAT-OLD', location: 'Cold Room', qty: 10, expiry: '2026-10-30' },
+          { lot: 'BAT-NEW', location: 'Cold Room', qty: 2, expiry: '2026-12-30' },
+        ],
+      },
+      { sku: 'FG-TCW-250ML', picks: [] },
+    ])
+  })
+
+  it('the seeded picks are exactly what the write\'s own check accepts', () => {
+    // Reconciliation pin: seed → unpack → checkOrderDispatch, the same chain the
+    // dispatch form posts through. A covered order must pass with the rows in
+    // oldest-expiry-first order — the pool's own sort.
+    const s = migrateState({})
+    s.ledger.push(
+      {
+        id: 'L1',
+        type: 'Receipt',
+        doc: 'RUN-1',
+        item: 'FG-TCW-5L',
+        itemType: 'Finished Goods',
+        lot: 'BAT-OLD',
+        location: 'Cold Room',
+        status: 'Released',
+        uom: 'Pack',
+        qtyIn: 10,
+        qtyOut: 0,
+        unitCost: 20,
+        time: '2026-10-05T04:00:00.000Z',
+        expiry: '2026-10-30',
+      },
+      {
+        id: 'L2',
+        type: 'Receipt',
+        doc: 'RUN-1',
+        item: 'FG-TCW-5L',
+        itemType: 'Finished Goods',
+        lot: 'BAT-NEW',
+        location: 'Cold Room',
+        status: 'Released',
+        uom: 'Pack',
+        qtyIn: 6,
+        qtyOut: 0,
+        unitCost: 20,
+        time: '2026-10-05T04:00:00.000Z',
+        expiry: '2026-12-30',
+      },
+    )
+    const lines = [{ sku: 'FG-TCW-5L', qty: 12 }]
+    const picks = seedAllocations(lines, releasedPacksBySku(s, stockRows(s)))
+    const check = checkOrderDispatch(s, { lines }, allocationsFromPicks(lines, picks))
+    expect(check.ok).toBe(true)
+    if (check.ok) {
+      expect(check.rows).toEqual([
+        { sku: 'FG-TCW-5L', lot: 'BAT-OLD', location: 'Cold Room', qty: 10, expiry: '2026-10-30' },
+        { sku: 'FG-TCW-5L', lot: 'BAT-NEW', location: 'Cold Room', qty: 2, expiry: '2026-12-30' },
+      ])
+    }
+  })
+
+  it('allottedFor sums the picks; shortLineOf names the first line not exactly filled', () => {
+    expect(allottedFor(picks, 'FG-TCW-5L')).toBe(12)
+    expect(allottedFor(picks, 'FG-TCW-250ML')).toBe(0)
+    // The 250 ml line is short — the order cannot go out.
+    expect(shortLineOf(lines, picks)?.sku).toBe('FG-TCW-250ML')
+    // Fully allotted: no short line, the order can go.
+    const full = { ...picks, 'FG-TCW-250ML': { 'x': 4 } }
+    expect(shortLineOf(lines, full)).toBeUndefined()
+    // Over is as refused as under — an order goes out complete.
+    const over = { ...picks, 'FG-TCW-5L': { [rowKey(lots[0])]: 11 } }
+    expect(shortLineOf(lines, over)?.sku).toBe('FG-TCW-5L')
   })
 })

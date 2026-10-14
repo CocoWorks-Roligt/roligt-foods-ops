@@ -1,5 +1,5 @@
 # PROGRESS — Beverage Ops Platform Overhaul
-Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW through W14
+Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW through W15
 
 | Task | Agent | Status | Files | Next action |
 |---|---|---|---|---|
@@ -34,6 +34,7 @@ Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW thro
 | P3/W12: Control sample destruction shelf | WORKFLOW | done | src/pages/SamplesTab.tsx, ControlSamples.tsx (Destruction shelf tab, pipeline), src/lib/sampleStage.*(+test), pipeline.ts (samples rows → ?tab=shelf) | 1061 tests (+2); contracts stay v1.7 (no new wire); W13 Storage put-away next |
 | P3/W13: Storage put-away queue | WORKFLOW | done | src/pages/PutAwayTab.tsx, Inventory.tsx (Put away tab, pipeline), src/lib/storageStage.*(+test) | 1065 tests (+4); contracts stay v1.7 (no new wire); W14 Order stage form next |
 | P3/W14: Order desk | WORKFLOW | done | src/pages/OrderDeskTab.tsx, Orders.tsx (Order desk tab, pipeline), src/lib/orderStage.*(+test), ordersView.ts (draftFromOrder/linesFromDraft extracted), pipeline.ts (orders rows → ?tab=desk) | 1069 tests (+4); contracts stay v1.7 (no new wire); W15 Dispatch stage form next |
+| P3/W15: Dispatch stage form | WORKFLOW | done | src/pages/DispatchTab.tsx, Orders.tsx (3rd tab + modal onto shared folds), OrderDeskTab.tsx (dispatch link), ordersView.ts (allocationsFromPicks/allottedFor/shortLineOf), ordersView.test.ts | 1072 tests (+3); contracts stay v1.7 (no new wire); W16 Onboarding next |
 
 ## Log
 - 2026-10-13 Phase 0 complete. Baseline green (745 tests, tsc -b, lint, build @ de4c13b). DB target confirmed:
@@ -299,3 +300,22 @@ Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW thro
   remembers the last customer. Dispatch itself is NOT here — it is W15's form (with the
   §3.3-9 packaging step). Contracts stay v1.7 (no new wire). Gates: tsc -b, 1069 passed
   (+4), lint 10 (baseline), build pass.
+- 2026-10-14 WORKFLOW W15. The Dispatch stage form — a third "Dispatch" tab on Orders behind the
+  pipeline flag (lazy chunk; ?id=<order> pre-picks, the desk's "Dispatch this order" links in).
+  NO new write: it posts through the SAME dispatchOrder the register's Dispatch modal uses —
+  picks seeded by the modal's own seedAllocations (oldest released stock first), vehicle
+  remembered by useDraft, refusals are its own toasts (short line, "only N left", hold-area
+  stock), and a null return leaves the form open. The modal's inline picks→allocations /
+  allotted meter / short-line folds were EXTRACTED into ordersView.ts as
+  allocationsFromPicks / allottedFor / shortLineOf — one implementation, the Classic modal
+  and the dispatch form both call them (the W14 draftFromOrder precedent) — pinned by a
+  reconciliation test (seed → unpack → checkOrderDispatch ACCEPTS, rows oldest-expiry-first).
+  Client checks mirror only the all-or-nothing question (shortLineOf disables the button);
+  per-lot "only N left" stays the save's own word. After a dispatch the form advances to the
+  next open order, seeded exactly as a pick seeds it. Cartons NOT decided here: §3.3-9's
+  BOXED/LOOSE/carton suggestion needs a carton master that does not exist (AUDIT: PARTIAL) —
+  deferred to SHIPMENT-era, as the design note ruled. The pipeline Orders tile keeps
+  href /orders?tab=desk (a short order owes an edit only the desk offers; the desk's card
+  links onward once the order fills); the Dispatch tile's in-flight rows keep /dispatch
+  (they owe a POD, not a dispatch). Contracts stay v1.7 (no new wire). Gates: tsc -b,
+  1072 passed (+3), lint 10 (baseline), build pass.

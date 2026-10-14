@@ -7,7 +7,8 @@
 
 import type { AppState, Item, Order, OrderLine, Product, StockRow } from '../types.ts'
 import { bulkItemOf, drinkName } from './packs.ts'
-import { displayExpiry, inHoldArea, rowKey } from './stock.ts'
+import type { OrderAllocation } from './posting.ts'
+import { displayExpiry, inHoldArea, parseRowKey, rowKey } from './stock.ts'
 import { QTY_EPSILON, toLocalInputValue } from './utils.ts'
 
 /**
@@ -233,6 +234,37 @@ export function seedAllocations(
     }
   }
   return seeded
+}
+
+/** The picks state as the dispatch write takes it: each line's chosen rows,
+ *  the rowKey (lot + location + expiry — the whole row identity) unpacked back
+ *  into the allocation. ONE fold: the Classic modal and the dispatch stage form
+ *  both build their allocations here, so what either posts is the same shape. */
+export function allocationsFromPicks(
+  lines: OrderLine[],
+  picks: Record<string, Record<string, number>>,
+): OrderAllocation[] {
+  return lines.map((l) => ({
+    sku: l.sku,
+    picks: Object.entries(picks[l.sku] || {}).map(([k, qty]) => {
+      const { lot, location, expiry } = parseRowKey(k)
+      return { lot, location, expiry, qty }
+    }),
+  }))
+}
+
+/** Units allotted to a sku so far — the dispatch form's live meter. */
+export function allottedFor(picks: Record<string, Record<string, number>>, sku: string): number {
+  return Object.values(picks[sku] || {}).reduce((a, q) => a + (Number(q) || 0), 0)
+}
+
+/** The first line not exactly allotted — over is as refused as under, because
+ *  an order goes out complete. `undefined` means the order can go. */
+export function shortLineOf(
+  lines: OrderLine[],
+  picks: Record<string, Record<string, number>>,
+): OrderLine | undefined {
+  return lines.find((l) => Math.abs(allottedFor(picks, l.sku) - l.qty) > QTY_EPSILON)
 }
 
 /**
