@@ -7,6 +7,17 @@
  * neither changes it — a change after freeze needs LEAD approval and a minor
  * version bump, recorded in ARCHITECTURE.md.
  *
+ * v1.9 (2026-10-15, LEAD-approved additive delta — SHIPMENT B5a):
+ * - The shipment read/PATCH wire: ShipmentVersionExtension (documents.version
+ *   as a response-only ride-along, the PO's v1.4 rules verbatim), ShipmentLine
+ *   (a dispatch row flattened for the board and the PWA), ShipmentChallanLink,
+ *   ShipmentDetail / ShipmentListResponse / ShipmentEventsResponse for the
+ *   GETs, and PatchShipmentRequest / PatchShipmentResponse for the board's
+ *   reassign/ETA/vehicle moves and its two own status arrows
+ *   (Created→Dispatched, Failed→Rescheduled). The four outcomes of Out for
+ *   Delivery stay the submit endpoint's alone. CreateShipmentResponse and
+ *   PatchShipmentResponse carry the ride-along too, so the board holds a CAS
+ *   token from the moment a trip exists.
  * v1.8 (2026-10-14, LEAD-approved additive delta — WORKFLOW close-out):
  * - CommitVersionRide — POST /api/commit's response carries `versions`
  *   (table → row id → the documents.version the commit left each written row
@@ -942,7 +953,7 @@ export interface CreateShipmentRequest {
 }
 
 export interface CreateShipmentResponse {
-  shipment: Shipment
+  shipment: Shipment & ShipmentVersionExtension
 }
 
 export interface DeliveryEventRequest {
@@ -991,6 +1002,71 @@ export interface SubmitDeliveryResponse {
   challan: Challan
   /** Empty when nothing was rejected at the door. */
   returns: ReturnRecord[]
+}
+
+// ── GET/PATCH /api/shipments (v1.9) ─────────────────────────────────────────
+
+/** documents.version ride-along — the board's CAS token for PATCH's
+ *  expectedVersion, under the response-only rules of the PO's v1.4: the stored
+ *  shipment document stays version-less; the documents table's column is the
+ *  only truth. */
+export interface ShipmentVersionExtension {
+  version: number
+}
+
+/** One dispatch line as the board and the PWA read it — the dispatch row
+ *  flattened (its `batchId` is the lot; its `challan` is the DC number the
+ *  Classic dispatch already minted). */
+export interface ShipmentLine {
+  dispatchId: string
+  sku: string
+  lot: string
+  qty: number
+  expiry?: string
+  customerId: string
+  customerName: string
+  challan: string
+}
+
+/** A challan link on the board — the PDF itself answers at /api/challans/:id/file. */
+export interface ShipmentChallanLink {
+  id: string
+  number: string
+  status: ChallanStatus
+  version: number
+}
+
+/** One trip with everything the board draws for it. */
+export interface ShipmentDetail {
+  shipment: Shipment & ShipmentVersionExtension
+  lines: ShipmentLine[]
+  challans: ShipmentChallanLink[]
+}
+
+/** GET /api/shipments — newest first; an agent's list is their own trips only. */
+export interface ShipmentListResponse {
+  shipments: ShipmentDetail[]
+}
+
+/** GET /api/shipments/:id — the detail plus the append-only event history. */
+export interface ShipmentEventsResponse extends ShipmentDetail {
+  events: DeliveryEvent[]
+}
+
+/** PATCH /api/shipments/:id — reassign/ETA/vehicle on any non-terminal trip,
+ *  or the board's own status arrows. The machine's other arrows are endpoint
+ *  territory: Dispatched→Out for Delivery is the agent's `started` event, and
+ *  the four outcomes of Out for Delivery are the submit's. */
+export interface PatchShipmentRequest {
+  expectedVersion: number
+  agentUserId?: string
+  vehicle?: string
+  eta?: string
+  status?: ShipmentStatus
+}
+
+export interface PatchShipmentResponse {
+  shipment: Shipment & ShipmentVersionExtension
 }
 
 // ── POST /api/returns ───────────────────────────────────────────────────────
