@@ -27,6 +27,9 @@ export default defineConfig(({ mode }) => {
     apptics.VITE_APPTICS_APP_TOKEN && apptics.VITE_APPTICS_ZSOID && apptics.VITE_APPTICS_PROJECT_ID,
   )
   return {
+    // The Playwright E2E specs (e2e/*.spec.ts) are NOT vitest tests — exclude
+    // them or the default include pattern sweeps them into `npm test`.
+    test: process.env.VITEST ? { exclude: ['**/node_modules/**', '**/dist/**', 'e2e/**'] } : undefined,
     define: process.env.VITEST
       ? {}
       : {

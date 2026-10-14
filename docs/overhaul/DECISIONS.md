@@ -25,6 +25,7 @@ Verdicts from audit slice 2 (2026-10-13). RULE: ASSUMED/PARTIAL items are built 
 - (SHELL 2026-10-13) echarts ^6 (Apache-2.0) — the ONE chart library; only it covers all six wire kinds (line/bar/stacked/treemap/heatmap/control); tree-shaken via src/components/shell/echartsChunk.ts, lazy chunk.
 - (SHELL 2026-10-13) NO component library added — the existing hand-rolled set (Modal/Select/dropdown positioning/Toast) IS the one component system; a headless lib would duplicate patterns the codebase already owns and owns well.
 - (SHELL 2026-10-13) SignaturePad hand-rolled (pointer events + canvas) — `signature-pad` is unpublished from npm (404), `react-signature-canvas` is alpha on old React peers; ~100 lines beats a bet on a small personal lib.
+- (QA 2026-10-14, dev-only) @playwright/test — browser E2E for HEAVY journeys + multi-viewport screenshots + Lighthouse host; the prompt names Playwright first, one runner covers journey/screenshots (Cypress needs its own service), Apache-2.0, never ships to the client bundle.
 - (SHELL 2026-10-13) QR/barcode input is scanner-gun-typed text input (ScanInput); camera decode deferred to SHIPMENT PWA where the delivery workflow needs it.
 
 ## LEAD review 2026-10-13 (decisions + open items from the B1–B3 review)
