@@ -65,6 +65,31 @@ describe('diffState', () => {
     expect(d.empty).toBe(false)
   })
 
+  it('strips the grn/batch version ride-along from the wire — expect must equal the stored doc', () => {
+    // The snapshot attaches documents.version onto grn/batch rows (contracts
+    // v1.6/v1.7, read-only). Left on the wire it rides `expect` too, and the
+    // server's full-document conflict compare sees a `version` key the stored
+    // row never holds — every edit of an existing grn/batch row came back 409
+    // "another device saved first" and the adoption path dropped the edit.
+    const prev = asState({
+      grns: [{ id: 'GRN-1', status: 'Posted', version: 4 }],
+      batches: [{ id: 'BAT-1', status: 'Open', version: 2 }],
+      counters: {},
+    })
+    const next = asState({
+      grns: [{ id: 'GRN-1', status: 'Graded', version: 4 }],
+      batches: [{ id: 'BAT-1', status: 'Closed', version: 2 }],
+      counters: {},
+    })
+    const d = diffState(prev, next)
+    const grns = d.tables.find((t) => t.table === 'grns')!
+    expect(grns.upsert).toEqual([{ id: 'GRN-1', data: { id: 'GRN-1', status: 'Graded' } }])
+    expect(grns.expect).toEqual({ 'GRN-1': { id: 'GRN-1', data: { id: 'GRN-1', status: 'Posted' } } })
+    const batches = d.tables.find((t) => t.table === 'batches')!
+    expect(batches.upsert[0]).toEqual({ id: 'BAT-1', data: { id: 'BAT-1', status: 'Closed' } })
+    expect(batches.expect!['BAT-1']).toEqual({ id: 'BAT-1', data: { id: 'BAT-1', status: 'Open' } })
+  })
+
   it('ledger inserts carry no expectation — a line is only ever new', () => {
     const prev = asState({ counters: {} })
     const next = asState({

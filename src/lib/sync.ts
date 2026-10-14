@@ -103,10 +103,19 @@ export function diffRows<T>(
   return { upsert, remove, expect }
 }
 
-const asRow = (spec: CollectionSpec) => (row: Record<string, unknown>) => ({
-  id: spec.id(row),
-  data: row,
-})
+/**
+ * The grn/batch version ride-along (contracts v1.6/v1.7) is read-only — a
+ * snapshot-attached field no write path consults. Left on the wire it rides the
+ * `expect` precondition too, and the server's full-document conflict compare
+ * then sees a `version` key the stored row never held: EVERY edit of an
+ * existing grn/batch row comes back 409 "another device saved first", whose
+ * adoption path drops the operator's edit to that row on the floor. Stripped
+ * here, one place, for every collection — `version` is never a stored field.
+ */
+const asRow = (spec: CollectionSpec) => (row: Record<string, unknown>) => {
+  const { version: _readOnlyRideAlong, ...data } = row
+  return { id: spec.id(row), data }
+}
 
 const hasKeys = (o: Record<string, unknown>) => Object.keys(o).length > 0
 
