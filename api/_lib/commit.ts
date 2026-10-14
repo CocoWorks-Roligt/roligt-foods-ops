@@ -258,6 +258,13 @@ export interface CommitResult {
   /** Whether ANY write landed (upsert, remove, config, counter). False means the
    *  whole commit was already exactly true — no reader needs to re-sweep. */
   wrote: boolean
+  /** The documents.version every written row now sits at, table → row id →
+   *  version — the D1 engine's answer only (its rows carry the CAS column the
+   *  legacy engine's do not). Rides the response so the saving client can stamp
+   *  its own copy: with the feed down, the revision poll never re-reads the
+   *  bump a device itself caused, so without this the versioned rows only ever
+   *  arrive with somebody else's write. */
+  versions?: Record<string, Record<string, number>>
 }
 
 export function commitChanges(zoho: ZohoClient, caller: Caller, changes: StateChanges): Promise<CommitResult> {

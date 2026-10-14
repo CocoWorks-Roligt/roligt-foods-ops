@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { adoptServerRows, diffRows, diffState, installOver, offlineBootBase, restoreWithheld } from './sync.ts'
+import { adoptServerRows, diffRows, diffState, installOver, offlineBootBase, restoreWithheld, stampWriteVersions } from './sync.ts'
 import type { AppState } from '../types.ts'
 
 /**
@@ -279,5 +279,29 @@ describe('restoreWithheld', () => {
     const outState = out.state as unknown as Record<string, unknown>
     expect(outState.qcs).toEqual([{ id: 'QC-1' }])
     expect('grns' in outState).toBe(false) // still absent — nothing to bridge from
+  })
+})
+
+describe('stampWriteVersions', () => {
+  it('stamps the version a commit just wrote onto its own grns and batches', () => {
+    const state = asState({
+      grns: [{ id: 'RFLOT-1', total: 90 }, { id: 'RFLOT-2', total: 10 }],
+      batches: [{ id: 'BAT-1', status: 'Pending' }],
+    })
+    const out = stampWriteVersions(state, { grns: { 'RFLOT-1': 1 }, batches: { 'BAT-1': 3 } })
+    expect(out).not.toBe(state) // a new object — AppContext re-renders on it
+    expect(out.grns).toEqual([
+      { id: 'RFLOT-1', total: 90, version: 1 },
+      { id: 'RFLOT-2', total: 10 }, // no version rode for it — untouched
+    ])
+    expect(out.batches).toEqual([{ id: 'BAT-1', status: 'Pending', version: 3 }])
+  })
+
+  it('keeps the same object when nothing rode or nothing differs', () => {
+    const state = asState({ grns: [{ id: 'RFLOT-1', version: 1 }], batches: [] })
+    expect(stampWriteVersions(state, undefined)).toBe(state)
+    expect(stampWriteVersions(state, {})).toBe(state)
+    expect(stampWriteVersions(state, { grns: { 'RFLOT-1': 1 } })).toBe(state) // already stamped
+    expect(stampWriteVersions(state, { ledger: { L1: 5 } })).toBe(state) // not a version-riding table
   })
 })

@@ -127,7 +127,17 @@ export function fetchDb(): Promise<DbSnapshot> {
 }
 
 export type SaveResult =
-  | { ok: true; revision: string }
+  | {
+      ok: true
+      revision: string
+      /** The CAS version every written row now sits at, table → row id →
+       *  version, accumulated across the commit chunks (absent when nothing was
+       *  written or the engine keeps no versions). AppContext stamps these onto
+       *  its own copy: the follow-up API calls (PO link, run close) need the
+       *  versioned row, and the poll fallback never re-reads this device's own
+       *  bump to deliver it. */
+      versions?: Record<string, Record<string, number>>
+    }
   | { ok: false; reason: 'forbidden'; message: string }
   | { ok: false; reason: 'unauthorized'; message: string }
   | {
@@ -378,6 +388,7 @@ export async function saveDb(next: AppState, prev: AppState | null): Promise<Sav
       return finish({ ok: true, revision })
     }
     let revision = ''
+    const versions: Record<string, Record<string, number>> = {}
     for (const chunk of chunkChanges(changes)) {
       if (chunk.empty) continue
       const res = await api('/api/commit', {
@@ -385,7 +396,16 @@ export async function saveDb(next: AppState, prev: AppState | null): Promise<Sav
         body: JSON.stringify({ changes: chunk }),
       })
       if (res.ok) {
-        revision = String(((await res.json()) as { revision: number | string }).revision ?? '')
+        const j = (await res.json()) as {
+          revision?: number | string
+          versions?: Record<string, Record<string, number>>
+        }
+        revision = String(j.revision ?? '')
+        // Each chunk carries only its own rows' versions — a multi-chunk save
+        // still owes the caller every row it wrote.
+        for (const [table, rows] of Object.entries(j.versions ?? {})) {
+          Object.assign((versions[table] ??= {}), rows)
+        }
         continue
       }
       if (res.status === 403) {
@@ -413,7 +433,7 @@ export async function saveDb(next: AppState, prev: AppState | null): Promise<Sav
       const j = (await res.json().catch(() => ({}))) as { error?: string }
       return finish({ ok: false, reason: 'error', message: j.error ?? `commit failed (HTTP ${res.status})` })
     }
-    return finish({ ok: true, revision })
+    return finish({ ok: true, revision, ...(Object.keys(versions).length ? { versions } : {}) })
   } catch (e) {
     // A dead session is not an outage: the work stays held on this device and
     // is pushed after signing in again. Reporting it as offline would promise a

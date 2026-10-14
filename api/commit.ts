@@ -50,7 +50,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
       res.status(429).json({ error: 'Too many commits from this account — the change is still saved on this device and will retry.' })
       return
     }
-    const { token: revision, wrote } = await commitChanges(store, caller, body.changes)
+    const { token: revision, wrote, versions } = await commitChanges(store, caller, body.changes)
     if (wrote) {
       // This process has now changed the base with its own hands — anything it
       // cached about the old plant is spent, even though the revision moved too.
@@ -60,7 +60,9 @@ export default async function (req: VercelRequest, res: VercelResponse) {
       // a re-sweep for a nothing-burger.
       invalidateSnapshotCache(revision)
     }
-    res.status(200).json({ revision })
+    // The written rows' CAS versions ride along (additive; absent on the legacy
+    // engine) so the saving client can stamp its own copy — see CommitResult.
+    res.status(200).json({ revision, ...(versions ? { versions } : {}) })
   } catch (e) {
     if (e instanceof AuthError) {
       res.status(401).json({ error: e.message })

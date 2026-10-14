@@ -293,6 +293,13 @@ export async function commitChangesD1(d1: D1Client, caller: Caller, changes: Sta
   const writes: { sql: string; params?: unknown[] }[] = [{ sql: SQL_DELETE_ASSERT_HEAD }]
   /** Every guarded upsert, for the Conflict a batch assert-trip synthesizes. */
   const guarded: RowConflict[] = []
+  /** The documents.version each written row now sits at, table → row id →
+   *  version. The client stamps these onto its own copy at save-success — the
+   *  follow-up API calls (PO link, run close) need the versioned row, and with
+   *  the feed down the revision poll never re-reads this device's own write
+   *  (it skips the bump it caused), so without this ride-along those calls
+   *  stall until somebody else commits. */
+  const versions: Record<string, Record<string, number>> = {}
   let wrote = false
   const now = new Date().toISOString()
 
@@ -328,6 +335,7 @@ export async function commitChangesD1(d1: D1Client, caller: Caller, changes: Sta
         writes.push({ sql: SQL_UPSERT_GUARDED, params: [change.table, appId, json, observed + 1, now, observed] })
         writes.push({ sql: SQL_ASSERT })
         guarded.push({ table: change.table, id: appId, kind: observed === 0 ? 'exists' : 'changed' })
+        ;(versions[change.table] ??= {})[appId] = observed + 1
       }
       wrote = true
     }
@@ -402,7 +410,7 @@ export async function commitChangesD1(d1: D1Client, caller: Caller, changes: Sta
   }
   if (!token) throw new Error('The revision bump returned no token — the commit was refused whole.')
   noteD1Revision(token)
-  return { token, wrote: true }
+  return { token, wrote: true, versions }
 }
 
 /**

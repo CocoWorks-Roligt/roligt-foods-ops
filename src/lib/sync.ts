@@ -267,6 +267,44 @@ export function installOver(live: AppState, base: AppState | null, source: AppSt
 }
 
 /**
+ * Stamps the CAS versions a commit just wrote back onto the state that sent it.
+ *
+ * The snapshot rides each grn's and batch's documents.version (contracts
+ * v1.6/v1.7), and the flows that follow a write with a direct API call — the
+ * receipt→PO link, the run close — wait for that version as proof their row is
+ * on the server. Feed-degraded, the revision poll never re-reads the bump a
+ * device itself caused, so the versioned copy of its own write only ever
+ * arrived with somebody else's; the commit response now carries the numbers
+ * (contracts v1.8) and the save path stamps them here, from the server's own
+ * mouth.
+ *
+ * Only the two version-riding collections are stamped, rows only where the
+ * number differs, and the SAME state object comes back when there is nothing
+ * to do — AppContext reads identity as "already what the database holds".
+ */
+export function stampWriteVersions(
+  state: AppState,
+  versions: Record<string, Record<string, number>> | undefined,
+): AppState {
+  if (!versions) return state
+  let out: AppState | null = null
+  for (const table of ['grns', 'batches'] as const) {
+    const stamped = versions[table]
+    if (!stamped) continue
+    const rows = state[table] as Array<{ id: string; version?: number }>
+    const next = rows.map((row) =>
+      stamped[row.id] !== undefined && stamped[row.id] !== row.version
+        ? { ...row, version: stamped[row.id] }
+        : row,
+    )
+    if (next.every((row, i) => row === rows[i])) continue
+    out = out ?? { ...state }
+    ;(out as unknown as Record<string, unknown>)[table] = next
+  }
+  return out ?? state
+}
+
+/**
  * Puts back the tables a partial snapshot withheld, BEFORE anything downstream
  * looks at the state.
  *

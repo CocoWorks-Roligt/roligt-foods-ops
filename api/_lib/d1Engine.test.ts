@@ -275,9 +275,12 @@ describe('commitChangesD1', () => {
 
   it('writes doc + ledger + audit + counter in one atomic batch and stamps the audit actor', async () => {
     const d1 = fresh()
-    const { token, wrote } = await commitChangesD1(d1 as unknown as D1Client, admin, CHANGES)
+    const { token, wrote, versions } = await commitChangesD1(d1 as unknown as D1Client, admin, CHANGES)
     expect(wrote).toBe(true)
     expect(token).toMatch(/^1:[0-9a-z]+$/)
+    // every guarded row's post-write version rides the result (contracts v1.8)
+    // so the saving client can stamp its own copy — insert-only audits excepted
+    expect(versions).toEqual({ grns: { 'GRN-1': 1 }, ledger: { L1: 1 } })
     expect(JSON.parse(d1.doc('grns', 'GRN-1')!.json)).toEqual(GRN_DOC)
     expect(d1.doc('grns', 'GRN-1')!.version).toBe(1)
     expect(JSON.parse(d1.doc('ledger', 'L1')!.json)).toEqual(LEDGER_ROW) // flat, unstamped
@@ -295,6 +298,7 @@ describe('commitChangesD1', () => {
     const again = await commitChangesD1(store, admin, CHANGES)
     expect(again.wrote).toBe(false)
     expect(again.token).toBe(first.token)
+    expect(again.versions).toBeUndefined() // nothing written — nothing to stamp
     expect(d1.calls.batch).toBe(3) // commit 1's preflight + write, commit 2's preflight only
     expect(d1.revision()).toBe(first.token)
   })
@@ -303,12 +307,13 @@ describe('commitChangesD1', () => {
     const d1 = fresh()
     seed(d1, [{ collection: 'grns', id: 'GRN-1', json: GRN_DOC }])
     const amended = { ...GRN_DOC, status: 'Amended' }
-    const { token, wrote } = await commitChangesD1(d1 as unknown as D1Client, admin, {
+    const { token, wrote, versions } = await commitChangesD1(d1 as unknown as D1Client, admin, {
       ...CHANGES,
       tables: [{ table: 'grns', upsert: [{ id: 'GRN-1', data: amended }], remove: [], expect: { 'GRN-1': { id: 'GRN-1', data: GRN_DOC } } }],
       counters: {},
     })
     expect(wrote).toBe(true)
+    expect(versions).toEqual({ grns: { 'GRN-1': 2 } }) // the ADVANCED version, not the base
     expect(d1.doc('grns', 'GRN-1')!.version).toBe(2)
     expect(JSON.parse(d1.doc('grns', 'GRN-1')!.json)).toEqual(amended)
     expect(d1.revision()).toBe(token)

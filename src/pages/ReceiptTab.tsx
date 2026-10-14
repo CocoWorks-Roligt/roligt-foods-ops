@@ -190,9 +190,15 @@ export function ReceiptTab() {
   const attempted = useRef(new Set<string>())
   useEffect(() => {
     if (!chosen) return
+    // A GRN booked this second is local-only until the debounced push lands, and
+    // the server cannot link a receipt it has not received — firing now races the
+    // commit and lands as "No receipt …" every time. So the link waits for the
+    // polled copy: the snapshot rides each GRN's documents.version (v1.6), and a
+    // versioned GRN is one the server has provably handed back.
     const grn = state.grns.find(
       (g) =>
         g.poId === chosen.id &&
+        g.version !== undefined &&
         !attempted.current.has(g.id) &&
         !chosen.receivedGrnIds.includes(g.id),
     )

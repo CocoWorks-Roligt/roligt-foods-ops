@@ -27,7 +27,7 @@ import { useStorageLocations } from './domains/storage'
 import { fetchDb, fetchRevision, saveDb, ThrottledError, UnauthorizedError } from '../lib/dbApi'
 import { ALL_FLAGS_OFF, readFlags, type FlagMap } from '../lib/rules/flags.ts'
 import { readLocal, writeLocal, type LocalCopy } from '../lib/localDb'
-import { adoptServerRows, installOver, offlineBootBase, restoreWithheld } from '../lib/sync'
+import { adoptServerRows, installOver, offlineBootBase, restoreWithheld, stampWriteVersions } from '../lib/sync'
 import { canAny, type PermissionKey } from '../lib/permissions.ts'
 import { setSessionPermissions, useSessionPermissions } from '../lib/sessionPermissions'
 import {
@@ -634,12 +634,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
         .then((result) => {
           if (!live) return
           if (result.ok) {
-            synced.current = state
+            // The written rows' CAS versions ride the response (contracts v1.8):
+            // stamp them onto this device's own copy. Feed-degraded, the poll
+            // below never re-reads the bump this save caused, so without this
+            // the versioned rows never arrive here — and the follow-up calls
+            // that wait on them (the receipt→PO link, the run close) stall.
+            const stamped = stampWriteVersions(state, result.versions)
+            synced.current = stamped
             revision.current = result.revision
             setDirty(false)
             setOffline(false)
             setConflictHeld(false)
-            writeMirror({ state, dirty: false, revision: revision.current })
+            if (stamped !== state) setState(stamped)
+            writeMirror({ state: stamped, dirty: false, revision: revision.current })
             saveErrorShown.current = false
             return
           }

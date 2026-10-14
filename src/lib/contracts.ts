@@ -7,6 +7,17 @@
  * neither changes it — a change after freeze needs LEAD approval and a minor
  * version bump, recorded in ARCHITECTURE.md.
  *
+ * v1.8 (2026-10-14, LEAD-approved additive delta — WORKFLOW close-out):
+ * - CommitVersionRide — POST /api/commit's response carries `versions`
+ *   (table → row id → the documents.version the commit left each written row
+ *   at; D1 engine only, absent when nothing was written). The saving client
+ *   stamps these onto its own grns/batches at save-success: feed-degraded, the
+ *   revision poll never re-reads the bump a device itself caused, so the
+ *   versioned copy of its own write only ever arrived with somebody else's —
+ *   and the follow-up calls that wait on it (the receipt→PO link's grn lookup,
+ *   the run close's expectedVersion) stalled until another writer moved the
+ *   plant. Found by HEAVY Journey A in the local harness, which runs the
+ *   designed poll-fallback path (the SSE feed 404s there by design).
  * v1.7 (2026-10-14, LEAD-approved additive delta — WORKFLOW W8):
  * - BatchVersionExtension — the snapshot ride-along v1.6 gave grns now covers
  *   batches too, for the same reason and under the same rules: the Extraction
