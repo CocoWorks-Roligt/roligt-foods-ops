@@ -229,7 +229,8 @@ export function pipelineStages(state: AppState, today = toDateKey()): PipelineSt
         detail: `Batch ${r.run.batchId}`,
         status: r.status,
         date: r.sample.expiresOn,
-        href: '/control-samples',
+        // the destruction shelf (WORKFLOW W12) — the sample is picked from it there
+        href: '/control-samples?tab=shelf',
       })),
       flag: samples.some((r) => r.status === 'Expired')
         ? { kind: 'expiry', note: 'Samples past expiry still on the shelf' }

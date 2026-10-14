@@ -6,7 +6,8 @@
  * kept — who collected them, the day they expire, the day they were destroyed.
  */
 
-import { useMemo, useState } from 'react'
+import { Suspense, lazy, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { DetailView, type DetailSection } from '../components/DetailView'
 import { detailRowProps } from '../components/detailRow'
 import { DocLink } from '../components/DocLink'
@@ -38,8 +39,18 @@ const TABS: [ControlSampleStatus | '', string][] = [
   ['Destroyed', 'Destroyed'],
 ]
 
+/** The pipeline flag's destruction shelf (WORKFLOW W12) — its own chunk, so
+ *  Classic never loads it. */
+const SamplesTab = lazy(() => import('./SamplesTab').then((m) => ({ default: m.SamplesTab })))
+
 export function ControlSamples() {
-  const { state, updateControlSample } = useApp()
+  const { state, updateControlSample, flags } = useApp()
+  // ?tab=shelf (pipeline flag) is where the pipeline Control samples tile's
+  // rows land — the destruction shelf. Everything else is the Classic register.
+  const [params, setParams] = useSearchParams()
+  const tab = params.get('tab') === 'shelf' && flags.pipeline ? 'shelf' : 'register'
+  const setTab = (next: 'register' | 'shelf') =>
+    setParams(next === 'register' ? {} : { tab: next }, { replace: true })
   const today = toDateKey()
   const all = useMemo(() => controlSampleRows(state, today), [state, today])
   const [search, setSearch] = useState('')
@@ -115,7 +126,32 @@ export function ControlSamples() {
     : []
 
   return (
-    <div className="card">
+    <div>
+      {flags.pipeline ? (
+        <div className="type-tabs" role="tablist" style={{ marginBottom: 12 }}>
+          <button
+            type="button"
+            className={`type-tab ${tab === 'register' ? 'active' : ''}`}
+            onClick={() => setTab('register')}
+          >
+            Register
+          </button>
+          <button
+            type="button"
+            className={`type-tab ${tab === 'shelf' ? 'active' : ''}`}
+            onClick={() => setTab('shelf')}
+          >
+            Destruction shelf
+          </button>
+        </div>
+      ) : null}
+
+      {tab === 'shelf' ? (
+        <Suspense fallback={<div className="note">Loading the destruction shelf…</div>}>
+          <SamplesTab />
+        </Suspense>
+      ) : (
+      <div className="card">
       <div className="section-head">
         <div>
           <h3>Control Samples</h3>
@@ -288,6 +324,8 @@ export function ControlSamples() {
           </>
         ) : null}
       </Modal>
+      </div>
+      )}
     </div>
   )
 }
