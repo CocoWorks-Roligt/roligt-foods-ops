@@ -1111,6 +1111,19 @@ export interface CreateReturnResponse {
   record: ReturnRecord
 }
 
+/** POST /api/returns/:id/decision — QC's verdict: where the returned stock
+ *  lands. coldroom → Released at a cold room; quarantine → Quarantine at a
+ *  hold area; writeoff → the terminal Written Off balance. Closes the record
+ *  and posts the movement (one ledger line per return line, type 'Return'). */
+export interface ReturnDecisionRequest {
+  decision: ReturnQcDecision
+  note?: string
+}
+
+export interface ReturnDecisionResponse {
+  record: ReturnRecord
+}
+
 // ── POST /api/grading (staged mode) ─────────────────────────────────────────
 
 /** Grades for a staged GRN, entered later through the grading form. The scale
