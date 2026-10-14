@@ -1,5 +1,5 @@
 # PROGRESS — Beverage Ops Platform Overhaul
-Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW through W12
+Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW through W13
 
 | Task | Agent | Status | Files | Next action |
 |---|---|---|---|---|
@@ -32,6 +32,7 @@ Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW thro
 | P3/W10: Packing stage form (bottles + loose BIB pouches) | WORKFLOW | done | src/pages/PackingTab.tsx, Production.tsx (5th card, pipeline), src/lib/packingStage.*(+test), index.css (stage-picker-5) | 1056 tests (+5); contracts stay v1.7 (no new wire); W11 QC test entry next |
 | P3/W11: QC test entry form (bench queue) | WORKFLOW | done | src/pages/QcEntryTab.tsx, Quality.tsx (Test entry tab, pipeline), src/lib/qcStage.*(+test), pipeline.ts (QC rows → ?tab=entry) | 1059 tests (+3); contracts stay v1.7 (no new wire); W12 Control Sample register next |
 | P3/W12: Control sample destruction shelf | WORKFLOW | done | src/pages/SamplesTab.tsx, ControlSamples.tsx (Destruction shelf tab, pipeline), src/lib/sampleStage.*(+test), pipeline.ts (samples rows → ?tab=shelf) | 1061 tests (+2); contracts stay v1.7 (no new wire); W13 Storage put-away next |
+| P3/W13: Storage put-away queue | WORKFLOW | done | src/pages/PutAwayTab.tsx, Inventory.tsx (Put away tab, pipeline), src/lib/storageStage.*(+test) | 1065 tests (+4); contracts stay v1.7 (no new wire); W14 Order stage form next |
 
 ## Log
 - 2026-10-13 Phase 0 complete. Baseline green (745 tests, tsc -b, lint, build @ de4c13b). DB target confirmed:
@@ -263,3 +264,21 @@ Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW thro
   job starts filled), collectedBy/remark editable, and after a save the form advances to
   the next sample. Contracts stay v1.7 (no new wire). Gates: tsc -b, 1061 passed (+2),
   lint 10 (baseline), build pass.
+- 2026-10-14 WORKFLOW W13. The Storage put-away form — a "Put away" tab on Inventory behind
+  the pipeline flag (lazy chunk; Classic snapshot untouched when off). The queue is NOT the
+  pipeline Stock tile's held lots (its design-note guess) — checked first, and held lots owe
+  nothing a move can pay: a Quarantine lot owes a verdict (W11's bench) and Rejected stock
+  parked in a hold area owes a write-off (Stock Issues); a move changes where stock sits,
+  never its QC status. The honest queue is stock the app's OWN rules flag where it sits:
+  storageStage.putAwayRows = areaRefusal (an area that no longer takes it — e.g. a Released
+  lot still standing in a hold area, the exact stock saveQc's "move it back out" refusal
+  names, or a room whose master is gone) → a deactivated room (the state areaDeleteBlocker's
+  "deactivate it instead" advice leaves behind) → roomSuits' merely-unusual home (the same
+  flag every picker shows), worst first, soonest expiry within a band. NO new write: the
+  form posts through the SAME moveStock the Move dialog uses (two Stock Transfer lines +
+  audit; its refusals are its own toasts); destinations ARE areaChoices and the unusual-
+  destination warning IS roomSuits — the dialog's own folds, never re-derived. qty defaults
+  to the whole row (put-away carries the pallet), scan matches stock ID / lot / item name.
+  pipeline.ts untouched: the Stock tile's held rows keep href /inventory — re-pointing them
+  at a move form would lie about what they owe. Contracts stay v1.7 (no new wire). Gates:
+  tsc -b, 1065 passed (+4), lint 10 (baseline), build pass.

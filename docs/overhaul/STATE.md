@@ -1,5 +1,5 @@
 # STATE — Beverage Ops Platform Overhaul
-Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W12 done (Pipeline Home, Batch Detail, PO endpoints, PO form, GRN↔PO linkage, Receipt stage form, Coconut Grading form, Extraction stage form, Blend stage form, Packing stage form, QC test entry form, control sample destruction shelf); W13 Storage put-away next | Branch: dev | Base: de4c13b
+Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W13 done (Pipeline Home, Batch Detail, PO endpoints, PO form, GRN↔PO linkage, Receipt stage form, Coconut Grading form, Extraction stage form, Blend stage form, Packing stage form, QC test entry form, control sample destruction shelf, Storage put-away queue); W14 Order stage form next | Branch: dev | Base: de4c13b
 
 ## Contracts
 - v1.7 (2026-10-14, W8): +BatchVersionExtension — the snapshot's batches carry documents.version
@@ -23,16 +23,20 @@ Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W12 done (Pipeline 
 ## Locks
 - none
 
-## W13 design notes (next slice — Storage put-away, read before building)
-- CHECK FIRST what Classic Storage.tsx / Inventory.tsx already do (areas incl. cold room,
-  moves, put-away) and the §3.3-8 rule: zones Ambient, Cold Room, Quarantine, Dispatch
-  Staging as a cross-cutting layer, intermediates first-class stock. The Receipt form
-  (W6) and Packing form (W10) already choose a storage area on their own writes — this
-  form is for stock ALREADY booked that needs moving/putting away (the pipeline Stock
-  tile's held lots are the likely queue: quarantine/hold-area rows).
-- Same pattern as W6–W12: pipeline flag, lazy chunk, queue = the pipeline Stock tile's own
-  predicate where it fits, write through the SAME Classic move path, refusals in its own
-  words (hold-area rules in qcExempt.ts/saveQc are the constraint edges).
+## W14 design notes (next slice — Order stage form, read before building)
+- CHECK FIRST what Classic Orders.tsx already does (create/edit order, lines, due date,
+  customer packaging default BOXED|LOOSE|ASK per §3.3-9 — the carton machinery is
+  SHIPMENT/dispatch-era, NOT this form's) and src/lib/ordersView.ts's pools.
+- Same pattern as W6–W13: pipeline flag, lazy chunk, queue/write through the SAME Classic
+  createOrder path; refusals in its own words. The pipeline Orders tile's rows link
+  /orders today — re-point at the new form's tab once it exists, keeping the tile's
+  count predicate in step.
+
+## W13 notes (done 2026-10-14 — kept one line: see PROGRESS log)
+- Put-away = "Put away" tab on Inventory behind pipeline; posts through the SAME moveStock;
+  queue = the app's OWN flags where stock sits (areaRefusal → inactive room → roomSuits
+  unusual), NOT the Stock tile's held lots (they owe a verdict/write-off, not a move —
+  tile rows keep href /inventory).
 
 ## W12 notes (done 2026-10-14 — kept one line: see PROGRESS log)
 - Destruction shelf = "Destruction shelf" tab on Control Samples behind pipeline; posts
@@ -139,6 +143,13 @@ Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W12 done (Pipeline 
   (sampleStage.ts) is pinned to the pipeline samples tile's kept-in-7-days count and the
   tile's rows link /control-samples?tab=shelf — keep the two in step. No sample move,
   issue or dispatch path may ever exist.
+- The put-away queue (putAwayRows, storageStage.ts) is ONLY the app's own flags where
+  stock sits — areaRefusal, a deactivated area, then roomSuits' unusual home — and NEVER
+  the pipeline Stock tile's held lots: quarantine owes a QC verdict, hold-area stock owes
+  a write-off, and moveStock changes where stock sits, never its QC status. The form
+  (PutAwayTab) posts through the SAME moveStock with destinations from areaChoices
+  verbatim — do not add a stricter placement rule client-side, and do not re-point the
+  Stock tile's held rows at it.
 - If the split (multi-file) prompt version is adopted: do NOT copy its STATE/PROGRESS/DECISIONS
   templates over the live files, and rename its DOMAIN.md (business rules) before adding — the live
   DOMAIN.md is the current-state map and they collide.
