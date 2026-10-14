@@ -195,3 +195,16 @@ Updated: 2026-10-14 | Phase: 3 WORKFLOW COMPLETE — W1–W16 done (Pipeline Hom
 - If the split (multi-file) prompt version is adopted: do NOT copy its STATE/PROGRESS/DECISIONS
   templates over the live files, and rename its DOMAIN.md (business rules) before adding — the live
   DOMAIN.md is the current-state map and they collide.
+- components/Select.tsx takes `aria-label`/`aria-labelledby` and renders them on the
+  trigger — a combobox must never ship nameless (Lighthouse button-name + every
+  getByRole query agree). New call sites name their Selects; the desk quick-order form
+  and Orders' raise-order modal are the reference spelling.
+- The type-tab strips (`.type-tabs`) carry NO role — they are styled button strips and
+  never managed tablist semantics (no role=tab children, no arrow-key contract). Do not
+  re-add role="tablist" without implementing the whole tab contract.
+- e2e journey specs settle on the MIRROR, not on toasts: afterEach polls that no
+  `roligt_foods_ops_v1:t:` spill key remains (dirty work lives there; the shared key is
+  clean-tab-only). failOnPageErrors exempts 429 (commit throttle) and 409 (CAS
+  refuse/adopt/re-save) — both are sync-protocol events the client owns, though the
+  browser logs the failed fetch. Batch ids are BAT-YYYY-NNNN: `\d+` cannot span the
+  inner hyphen in text matchers.

@@ -340,3 +340,22 @@ Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW comp
   endpoint invented (DECISIONS W16). Gates: tsc -b, 1077 passed (+5), lint 10
   (baseline), build pass. Phase 3 WORKFLOW complete: next is QA LIGHT re-run + HEAVY
   once (Journey A through dispatch) in a fresh session.
+- 2026-10-15 QA W17 — Phase 3 close-out: LIGHT re-run + HEAVY once, both green; QA_REPORT.md
+  delivered (first one — duty 7). HEAVY: Journey A 10/10 through dispatch + genealogy (boot
+  1/1) on the e2e harness; the spec's settle guard (per-tab spill keys → clean mirror, 90s)
+  is what makes the throttle-queued late legs honest, and failOnPageErrors now exempts the
+  commit CAS 409 (refused-whole/adopt/re-save protocol event) alongside 429. LIGHT on the
+  full diff: tsc -b clean, 1080 passed (+3 sync regression), lint 10 (baseline), build +
+  build:e2e + assert-no-apptics clean. Lighthouse (§5): a11y 98/100/100 on
+  pipeline/production/orders after fixing FOUR real defects Lighthouse found: Select
+  forwarded no aria-label (nameless comboboxes, 8 call sites), the desk quick-order
+  form's Customer/Order-date/Ship-by were unnamed (Orders' raise-order modal too),
+  bottom-nav "More" name didn't contain its visible text, and 13 type-tabs strips
+  declared role=tablist they never honoured (role removed — they are button strips).
+  §6 visual: 39 screenshots (13 screens × 3 widths) in .artifacts/screenshots/, zero
+  horizontal scroll (measured), zero color-only chips; perf mobile-sim 64-65 is the
+  218KB snapshot boot over simulated slow 4G (TBT 0/CLS 0), desktop preset 96 with
+  FCP 0.9s — inside the <2s-LAN duty; snapshot size/split is a Phase-6 item. QA
+  observation filed (no action): toasts say Posted while the commit throttle still
+  queues the write — "saved on this device / queued" state is a Phase-6 UX item.
+  Phase 3 CLOSED. Next: Phase 4 SHIPMENT in a fresh session.
