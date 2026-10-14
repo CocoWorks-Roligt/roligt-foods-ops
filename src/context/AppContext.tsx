@@ -26,6 +26,7 @@ import { useStaffRoster, type ShiftInput, type StaffInput } from './domains/rost
 import { useStorageLocations } from './domains/storage'
 import { fetchDb, fetchRevision, saveDb, ThrottledError, UnauthorizedError } from '../lib/dbApi'
 import { ALL_FLAGS_OFF, readFlags, type FlagMap } from '../lib/rules/flags.ts'
+import type { FlagWireRow } from '../lib/localDb'
 import { readLocal, writeLocal, type LocalCopy } from '../lib/localDb'
 import { adoptServerRows, installOver, offlineBootBase, restoreWithheld, stampWriteVersions } from '../lib/sync'
 import { canAny, type PermissionKey } from '../lib/permissions.ts'
@@ -281,6 +282,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>(boot.current.state)
   /** Flags fold from every snapshot install; ALL_FLAGS_OFF until one arrives. */
   const [flags, setFlags] = useState<FlagMap>(ALL_FLAGS_OFF)
+  /** The last flag ROWS a snapshot carried — what the mirror records, so a
+   *  fast-path reload (no snapshot read) can still fold the plant's live flags. */
+  const flagRows = useRef<FlagWireRow[] | null>(null)
   const [ready, setReady] = useState(false)
   const saveErrorShown = useRef(false)
 
@@ -324,6 +328,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const synced = useRef<AppState | null>(null)
   /** The database's change token (`<n>:<nonce>`), as of our last read or write. */
   const revision = useRef('0')
+  /** True once a server snapshot has actually been installed here. A device that
+   *  has never synced can hold a revision token pinned by its own no-op seed
+   *  commit (see the boot catch) — for it a matching token is not "nothing new". */
+  const everSynced = useRef(false)
   /** True while a save is in flight, so the poll does not read a half-written plant. */
   const saving = useRef(false)
   /** True while a poll tick is still out — a tick hanging on the server's budget
@@ -338,6 +346,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [conflictHeld, setConflictHeld] = useState(false)
   /** Bumped by the retry timer so a failed save is attempted again on its own. */
   const [retryTick, setRetryTick] = useState(0)
+  /** Bumped when a throttled boot reconcile may retry — the boot effect's own
+   *  tick, so a 429 at startup re-reads instead of falling to the in-memory path. */
+  const [bootTick, setBootTick] = useState(0)
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   /**
    * A save that failed for something time heals — no signal, or the server's
@@ -432,6 +443,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
    */
   useEffect(() => {
     let cancelled = false
+    // Set when the reconcile was refused for pace, not reach — the finally
+    // must not flip `ready` for it: the retry below re-runs this whole effect.
+    let throttledBoot = false
     ;(async () => {
       const local = readLocal()
       // The state this device painted from before the first read went out —
@@ -451,6 +465,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
             const mirror = migrateState(local.state)
             synced.current = mirror
             revision.current = rev
+            everSynced.current = true
+            // The mirror is the plant, but flags ride the SNAPSHOT, not the
+            // state — fold the rows the last snapshot left in the mirror, or a
+            // quiet plant (revision never moving) keeps this device's shell on
+            // whatever it booted with, forever.
+            if (local.flags) {
+              flagRows.current = local.flags
+              setFlags(readFlags(local.flags))
+            }
             setState(installSnapshot(mirror, painted))
             return
           }
@@ -461,7 +484,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         // The BFF speaks the caller's permissions with every snapshot — adopting
         // them here means a role change lands on the next poll, no reload needed.
         setSessionPermissions(remote.permissions)
-        if (remote.flags) setFlags(readFlags(remote.flags))
+        if (remote.flags) {
+          flagRows.current = remote.flags
+          setFlags(readFlags(remote.flags))
+        }
 
         // What the database holds is the plant, empty or not — reading it back
         // never invents masters, so a plant somebody cleared stays cleared. A
@@ -472,7 +498,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         // would otherwise read as "never written" to the seeding and as a wipe
         // to the merge.
         const server = remote.state ? migrateState(restoreWithheld(remote, painted).state) : null
-        if (server) synced.current = server
+        if (server) {
+          synced.current = server
+          everSynced.current = true
+        }
 
         // Work this device did without a signal is real work, and the only copy of it.
         // It is adopted and pushed up; because writes are now per-document upserts,
@@ -508,6 +537,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
           showToast(e.message)
           return
         }
+        if (e instanceof ThrottledError) {
+          // The database ANSWERED — it asked for a pause, it did not go down.
+          // Falling through to the offline path below is not survivable for a
+          // first-run device: migrateState seeds the empty state with default
+          // sticker templates, the save effect pushes that "work", the no-op
+          // commit answers with the CURRENT revision token, and the poll then
+          // reads the pin as "nothing new" — a reload inside a throttle window
+          // showed a defaults-only Classic plant that never recovered. Ask
+          // again when the server said to; the loading screen is the honest
+          // state until the plant has actually answered.
+          throttledBoot = true
+          setTimeout(() => {
+            if (!cancelled) setBootTick((t) => t + 1)
+          }, Math.min(e.retryAfterSec, 30) * 1000)
+          return
+        }
         // Offline at startup. The device's own copy is the only record there is —
         // but a device that has synced before still holds a legitimate view of
         // the server (a clean mirror at its recorded revision, or a dirty
@@ -531,13 +576,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           showToast('Could not reach the database. Using in-memory data until reconnect.')
         }
       } finally {
-        if (!cancelled) setReady(true)
+        if (!cancelled && !throttledBoot) setReady(true)
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [showToast])
+  }, [showToast, bootTick])
 
   /**
    * Notice when somebody else posts something.
@@ -562,7 +607,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       polling.current = true
       try {
         const rev = await fetchRevision()
-        if (cancelled || rev === revision.current) return
+        // A matching token means "nothing new" only for a device that has
+        // actually held the plant. A first-run device that pushed its seed
+        // while unreachable holds a token pinned by its own no-op commit with
+        // no plant behind it — for that device the poll's job is still the
+        // FIRST read, whatever the token says.
+        if (cancelled || (rev === revision.current && everSynced.current)) return
         const remote = await fetchDb()
         if (cancelled || dirty || saving.current) return
         // A read that straddled a commit is not a snapshot: the revision moved
@@ -578,7 +628,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (revNum(remote.revision) < revNum(revision.current)) return
         revision.current = remote.revision
         setSessionPermissions(remote.permissions)
-        if (remote.flags) setFlags(readFlags(remote.flags))
+        if (remote.flags) {
+          flagRows.current = remote.flags
+          setFlags(readFlags(remote.flags))
+        }
         if (!remote.state) return
         // Same withheld rule as the reconcile: the tables this caller may not
         // read come back from the last synced view, so a partial snapshot never
@@ -587,6 +640,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const was = synced.current
         setState(installSnapshot(server, was))
         synced.current = server
+        everSynced.current = true
       } catch (e) {
         // A poll that cannot reach the database says nothing new; the save path is
         // what reports being offline. A ThrottledError is more than "said
@@ -622,10 +676,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // it as unsaved would have the next startup treat it as offline work and announce
     // that it was saving something that had never left.
     if (state === synced.current) {
-      writeMirror({ state, dirty: false, revision: revision.current })
+      writeMirror({ state, dirty: false, revision: revision.current, flags: flagRows.current ?? undefined })
       return
     }
-    writeMirror({ state, dirty: true, revision: revision.current, base: synced.current ?? null })
+    writeMirror({
+      state,
+      dirty: true,
+      revision: revision.current,
+      base: synced.current ?? null,
+      flags: flagRows.current ?? undefined,
+    })
 
     let live = true
     const t = setTimeout(() => {
@@ -646,7 +706,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
             setOffline(false)
             setConflictHeld(false)
             if (stamped !== state) setState(stamped)
-            writeMirror({ state: stamped, dirty: false, revision: revision.current })
+            writeMirror({
+              state: stamped,
+              dirty: false,
+              revision: revision.current,
+              flags: flagRows.current ?? undefined,
+            })
             saveErrorShown.current = false
             return
           }
@@ -686,7 +751,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 if (!live || !remote.state) return
                 revision.current = remote.revision
                 setSessionPermissions(remote.permissions)
-                if (remote.flags) setFlags(readFlags(remote.flags))
+                if (remote.flags) {
+                  flagRows.current = remote.flags
+                  setFlags(readFlags(remote.flags))
+                }
                 const serverState = migrateState(remote.state)
                 if (synced.current) {
                   // The base takes the SERVER's counters verbatim while the live

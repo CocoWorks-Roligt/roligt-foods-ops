@@ -61,6 +61,12 @@ function capAudits(rows: AppState['audits'] | undefined): AppState['audits'] | u
   return rows.filter((r) => String(r.time ?? '') >= floor)
 }
 
+/** A flag row as the snapshot wire carries it — the mirror stores these verbatim. */
+export interface FlagWireRow {
+  key: string
+  enabled: boolean
+}
+
 export interface LocalCopy {
   state: AppState
   /** True while this copy holds changes the database has not accepted. */
@@ -80,6 +86,10 @@ export interface LocalCopy {
    * upserts everything and removes nothing).
    */
   base?: AppState | null
+  /** The flag rows the last snapshot carried, so a fast-path reload (revision
+   *  confirmed, no snapshot read) can still fold the plant's live flags —
+   *  without them a quiet plant left the shell reading a stale view forever. */
+  flags?: FlagWireRow[]
   savedAt: string
 }
 
@@ -89,6 +99,7 @@ interface ParsedCopy {
   dirty: boolean
   revision?: number | string
   base?: AppState
+  flags?: FlagWireRow[]
   savedAt: string
 }
 
@@ -110,6 +121,7 @@ function parseEnvelope(raw: string | null): ParsedCopy | null {
         parsed.base && typeof parsed.base === 'object' && 'counters' in parsed.base
           ? (parsed.base as AppState)
           : undefined,
+      flags: Array.isArray(parsed.flags) ? (parsed.flags as FlagWireRow[]) : undefined,
       savedAt: parsed.savedAt || '',
     }
   } catch {
