@@ -40,6 +40,18 @@ const SEED_ROLES = {
     permissions: ['page.npd'],
     reconcile: false,
   },
+  // The delivery agent (SHIPMENT P4, RBAC.md §a): EXTERNAL users. My Deliveries
+  // is their whole app — pageScope clamps any holder of the slug to it — and
+  // the snapshot answers them an empty projection. Never tick anything else on
+  // this role; an agent account created with no roles at all falls back to the
+  // operator tier (RBAC.md §d default-deny note), so agents are always created
+  // WITH this role attached.
+  delivery_agent: {
+    name: 'Delivery Agent',
+    description: 'External delivery driver — own assigned trips and challans only (the My Deliveries app)',
+    permissions: ['page.my-deliveries'],
+    reconcile: false,
+  },
 }
 
 const log = (msg) => console.log(`[seed-rbac] ${msg}`)

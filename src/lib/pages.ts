@@ -22,7 +22,13 @@
  */
 import type { ViewId } from '../types.ts'
 
-export type PageTier = 'open' | 'masters' | 'settings' | 'admin'
+/**
+ * The delivery agent's tier. An external page is never part of the operator's
+ * open day's work — only a role that ticks it sees it — and holding it clamps
+ * the caller to it (pageScope below): an agent is an agent even on a role that
+ * accidentally ticks more.
+ */
+export type PageTier = 'open' | 'masters' | 'settings' | 'admin' | 'external'
 
 export interface PageRow {
   id: ViewId
@@ -57,6 +63,20 @@ export const PAGE_CATALOG: readonly PageRow[] = [
   { id: 'packing', path: '/packing', label: 'Packing', slug: 'page.packing', tier: 'open', group: 'After production' },
   { id: 'orders', path: '/orders', label: 'Orders', slug: 'page.orders', tier: 'open' },
   { id: 'dispatch', path: '/dispatch', label: 'Dispatch', slug: 'page.dispatch', tier: 'open' },
+  // Shipment Tracking (SHIPMENT, `shipments` flag): everything that left the
+  // gate, out to the signed challan. In the day's work like Dispatch — the
+  // flag alone decides whether the nav names it and the route answers.
+  { id: 'shipments', path: '/shipments', label: 'Shipment Tracking', slug: 'page.shipments', tier: 'open' },
+  // The delivery agent's own app — the only page their tier ever holds. It
+  // sits outside the day's work on purpose: no operator lands on it by
+  // default, and an agent never lands on anything else.
+  {
+    id: 'my-deliveries',
+    path: '/my-deliveries',
+    label: 'My Deliveries',
+    slug: 'page.my-deliveries',
+    tier: 'external',
+  },
   { id: 'inventory', path: '/inventory', label: 'Inventory', slug: 'page.inventory', tier: 'open', group: 'Stock' },
   { id: 'packing-materials', path: '/packing-materials', label: 'Packing Materials', slug: 'page.packing-materials', tier: 'open' },
   { id: 'stock-issues', path: '/stock-issues', label: 'Stock Issues', slug: 'page.stock-issues', tier: 'open' },
@@ -109,10 +129,22 @@ export function isPageSlug(slug: string): boolean {
  * work) applies. Holds any page slug ⇒ scoped to exactly those pages; a caller
  * whose roles tick no pages is an operator — the open tier, nothing else. A
  * full administrator is not a special case, just a role with every page ticked.
+ *
+ * One clamp (RBAC.md §a): a caller holding My Deliveries is a delivery agent —
+ * an external user whose whole app is that one screen — so it outweighs every
+ * other tick. Admins are exempt (the whole catalog is what an admin is).
  */
 export function pageScope(held: readonly string[]): ReadonlySet<ViewId> | null {
+  if (held.includes('page.my-deliveries') && !isAdminHeld(held)) {
+    return new Set<ViewId>(['my-deliveries'])
+  }
   const pages = PAGE_CATALOG.filter((p) => held.includes(p.slug))
   return pages.length ? new Set(pages.map((p) => p.id)) : null
+}
+
+/** The whole-catalog grant sessionPermissions gives the admin role. */
+function isAdminHeld(held: readonly string[]): boolean {
+  return PAGE_CATALOG.every((p) => held.includes(p.slug))
 }
 
 /**

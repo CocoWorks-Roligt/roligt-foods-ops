@@ -82,6 +82,14 @@ export const PAGES: Record<string, [string, string]> = {
     'What each customer asked for. Raised once the goods are packed and cleared, and sent out complete on one challan.',
   ],
   dispatch: ['Dispatch & Delivery', 'Released stock only. Deduct at dispatch, not delivery.'],
+  shipments: [
+    'Shipment Tracking',
+    'Everything that left the gate: trips out with their delivery agent, what was delivered, and the signed challan that proves it.',
+  ],
+  'my-deliveries': [
+    'My Deliveries',
+    'Your own trips — what is on the vehicle, where it goes, the customer signature and the challan it produces.',
+  ],
   inventory: ['Inventory', 'Transaction-driven stock by item, lot, batch, status and storage area.'],
   'packing-materials': [
     'Packing Materials',

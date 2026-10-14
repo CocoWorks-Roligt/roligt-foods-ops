@@ -893,6 +893,23 @@ describe('projectSnapshot — one substrate, each caller their own view', () => 
     expect(view.withheld).toEqual(withheldForCaller(SUPPLIERS_CLERK))
   })
 
+  it('the delivery agent allowlist — an external caller receives NO plant data (RBAC §d)', () => {
+    const snap = fullSnap()
+    // even a mis-ticked role cannot widen the projection: the agent test is
+    // slug-based, exactly like the server's other agent gates
+    const view = projectSnapshot(snap, ['page.my-deliveries', 'page.orders'])
+    expect(view.state).toEqual({})
+    expect(view.revision).toBe(snap.revision)
+    // every state key the substrate can hold is named — masters and the
+    // ledger included, which the page-based withhold list alone would leak
+    expect(view.withheld).toEqual(
+      expect.arrayContaining(['grns', 'vendors', 'customers', 'items', 'ledger', 'config']),
+    )
+    // and the substrate itself is untouched — the next caller reads the plant
+    const next = projectSnapshot(snap, [])
+    expect(next.state?.grns?.length).toBe(1)
+  })
+
   it('never narrows the shared substrate — the next caller still gets the whole plant', () => {
     const snap = fullSnap()
     const scoped = projectSnapshot(snap, SUPPLIERS_CLERK)

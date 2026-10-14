@@ -69,13 +69,15 @@ export function mayCloseRun(held: readonly string[]): boolean {
 }
 
 /**
- * The delivery agent: RBAC.md §(a) — `page.my-deliveries` ONLY. The slug is
- * not in PAGE_CATALOG, so pageScope cannot see it; the string test is the
- * honest read. Any other page in hand means the caller is more than an agent.
- * Search and genealogy answer every other signed-in caller.
+ * The delivery agent: RBAC.md §(a) — `page.my-deliveries` ONLY. Any NON-ADMIN
+ * holder of the slug is an agent, whatever else a mis-ticked role added — the
+ * same clamp pageScope applies on the client (pages.ts), so the server's
+ * gates (search, genealogy, KPIs, the snapshot allowlist) can never treat a
+ * half-ticked agent as an operator. Admins hold the whole catalog, slug
+ * included, and are exempt.
  */
 export function isDeliveryAgent(held: readonly string[]): boolean {
-  return held.includes('page.my-deliveries') && held.every((p) => p === 'page.my-deliveries' || p.startsWith('can.'))
+  return held.includes('page.my-deliveries') && !isAdminPermissions(held)
 }
 
 // ── statement builders — every write batch shares d1Commit's grammar ────────

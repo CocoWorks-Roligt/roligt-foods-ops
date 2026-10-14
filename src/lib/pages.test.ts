@@ -21,7 +21,7 @@ describe('PAGE_CATALOG', () => {
     // …and runtime: they are all of them, unique, and the display map agrees
     expect(new Set(ids).size).toBe(PAGE_CATALOG.length)
     expect([...ids].sort()).toEqual(Object.keys(PAGES).sort())
-    expect(PAGE_CATALOG.length).toBe(29)
+    expect(PAGE_CATALOG.length).toBe(31)
   })
 
   it('has unique paths and unique slugs', () => {
@@ -70,6 +70,16 @@ describe('pageScope', () => {
 
   it('ignores slugs no page owns', () => {
     expect(pageScope(['page.nope'])).toBeNull()
+  })
+
+  it('the delivery agent clamp — My Deliveries outweighs every other tick (RBAC §a)', () => {
+    expect(pageScope(['page.my-deliveries'])).toEqual(new Set(['my-deliveries']))
+    // a mis-ticked role cannot widen an agent: the clamp wins. The full-catalog
+    // grant above is the exemption — an admin holds every page, agent page
+    // included, and keeps the whole catalog.
+    expect(pageScope(['page.my-deliveries', 'page.orders', 'page.inventory'])).toEqual(
+      new Set(['my-deliveries']),
+    )
   })
 })
 

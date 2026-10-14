@@ -11,6 +11,7 @@ import { ZOHO_WIRE_TABLES, stateKeyFor } from './registry.js'
 import { rowToDoc } from './mappers.js'
 import { COLLECTIONS, ledgerFromRow, auditFromRow } from '../../src/lib/tables.js'
 import { canViewPage } from '../../src/lib/pages.js'
+import { isDeliveryAgent } from './domain.js'
 import type { AppState, ViewId } from '../../src/types.js'
 
 export interface Assembled {
@@ -183,6 +184,23 @@ export function withheldForCaller(held: readonly string[]): string[] {
   return READ_GATED.filter((g) => !sees(g.page)).map((g) => g.key)
 }
 
+/**
+ * Every state key the substrate can hold. The delivery agent's allowlist is its
+ * complement (RBAC.md §d): an external caller receives NO plant data at all —
+ * the PWA reads /api/shipments and /api/challans, never the mirror. Constant
+ * per role like withheldForCaller's list, so it leaks nothing about the base.
+ */
+const AGENT_WITHHELD: readonly string[] = [
+  ...new Set([
+    ...COLLECTIONS.map((c) => c.key),
+    'ledger',
+    'audits',
+    'counters',
+    'counterPeriods',
+    'config',
+  ]),
+]
+
 /** What one caller's GET /api/snapshot returns after authorization. */
 export interface ProjectedSnapshot {
   state: Partial<AppState> | null
@@ -207,6 +225,12 @@ export interface ProjectedSnapshot {
  * `withheld`, because the client must NOT bridge them back from a stale mirror.
  */
 export function projectSnapshot(snap: Assembled, held: readonly string[]): ProjectedSnapshot {
+  // The delivery agent first (RBAC.md §d): the projection inverts to an
+  // allowlist whose member list is empty — no masters, no ledger, no day's
+  // work reaches an external caller, whatever pages a mis-ticked role added.
+  if (isDeliveryAgent(held)) {
+    return { state: {}, revision: snap.revision, withheld: [...AGENT_WITHHELD] }
+  }
   const withheld = withheldForCaller(held)
   const masks = MASTER_MASKS.filter((m) => !held.includes(m.page))
   if (!snap.state || (!withheld.length && !masks.length)) {

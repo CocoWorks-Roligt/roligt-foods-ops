@@ -22,6 +22,8 @@ const DAY_PAGES = PAGE_CATALOG.filter((p) => p.tier === 'open')
 const MASTER_PAGES = PAGE_CATALOG.filter((p) => p.tier === 'masters')
 /** Settings and the two Administration pages — the ticks that make an administrator. */
 const SITE_PAGES = PAGE_CATALOG.filter((p) => p.tier === 'settings' || p.tier === 'admin')
+/** The delivery agent's external page — never part of the day's work. */
+const EXTERNAL_PAGES = PAGE_CATALOG.filter((p) => p.tier === 'external')
 
 /** Plain words for what a role grants — the line the admin actually reads. */
 function summarize(permissions: Iterable<string>): string {
@@ -238,6 +240,23 @@ export function Roles() {
             <p className="small">
               These ticks are what makes an administrator — they carry the Settings and
               user/role admin screens (and their writes) like any other page.
+            </p>
+          </div>
+
+          <div className="field">
+            <label>External</label>
+            <div className="chip-row">
+              {EXTERNAL_PAGES.map((page) => (
+                <PageChip key={page.id} page={page} on={editing.held.has(page.slug)} onToggle={() => toggle(page.slug)} />
+              ))}
+            </div>
+            <p className="small">
+              My Deliveries is the delivery agent's whole app — an external user's own
+              trips, nothing inside the plant. Ticking it <strong>outweighs every other
+              tick</strong>: a holder of this page sees only it, so give it to a role on
+              its own (RBAC calls that role <code>delivery_agent</code>). An agent
+              account with no roles at all would fall back to the operator tier — always
+              create agents with their role attached.
             </p>
           </div>
 

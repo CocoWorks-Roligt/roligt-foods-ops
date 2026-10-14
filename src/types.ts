@@ -13,6 +13,8 @@ export type ViewId =
   | 'pipeline'
   | 'storage'
   | 'orders'
+  | 'shipments'
+  | 'my-deliveries'
   | 'procurement'
   | 'production'
   | 'packing'

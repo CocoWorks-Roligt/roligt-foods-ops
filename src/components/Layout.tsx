@@ -87,7 +87,7 @@ const PROCESS_SECTIONS: { title?: string; items: { id: ViewId; label?: string }[
     title: 'Stock',
     items: [{ id: 'inventory' }, { id: 'packing-materials' }, { id: 'stock-issues' }, { id: 'storage' }],
   },
-  { items: [{ id: 'orders' }, { id: 'dispatch' }] },
+  { items: [{ id: 'orders' }, { id: 'dispatch' }, { id: 'shipments' }] },
   { items: [{ id: 'npd' }, { id: 'stickers' }] },
   {
     title: 'Planning',
@@ -290,7 +290,11 @@ export function Layout() {
   // without a reload.
   const scope = pageScope(permissions)
   const allowed = allowedPages(permissions)
-  const openItems = allowed.filter((p) => p.tier === 'open')
+  // The shipments board rides its flag in BOTH navs (Classic keeps today's
+  // groups when the overhaul flags are off — an off flag must remove it, not
+  // leak it); the delivery agent's own page renders wherever it lands.
+  const openItems = allowed.filter((p) => p.tier === 'open' && (p.id !== 'shipments' || flags.shipments))
+  const externalItems = allowed.filter((p) => p.tier === 'external')
   const mastersItems = allowed.filter((p) => p.tier === 'masters' || p.tier === 'settings')
   const adminItems = allowed.filter((p) => p.tier === 'admin')
 
@@ -350,7 +354,7 @@ export function Layout() {
           // board is the process nav's own landing (ARCHITECTURE §1).
           const items = (
             si === 0 && flags.pipeline ? [{ id: 'pipeline' as ViewId }, ...section.items] : section.items
-          ).filter((i) => allowedIds.has(i.id))
+          ).filter((i) => allowedIds.has(i.id) && (i.id !== 'shipments' || flags.shipments))
           if (!items.length) return null
           return (
             <Fragment key={si}>
@@ -456,8 +460,21 @@ export function Layout() {
           </button>
         </div>
 
-        <div className="nav-title">Operations</div>
-        {flags.shell_nav ? renderProcessNav() : renderNav(openItems)}
+        {/* An agent's whole app is the Delivery section — the Operations
+            header would label an empty list. */}
+        {allowed.some((p) => p.tier !== 'external') ? (
+          <>
+            <div className="nav-title">Operations</div>
+            {flags.shell_nav ? renderProcessNav() : renderNav(openItems)}
+          </>
+        ) : null}
+
+        {externalItems.length > 0 ? (
+          <>
+            <div className="nav-title">Delivery</div>
+            {renderNav(externalItems)}
+          </>
+        ) : null}
 
         {mastersItems.length > 0 ? (
           <>
