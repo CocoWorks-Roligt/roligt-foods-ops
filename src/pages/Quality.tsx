@@ -278,7 +278,7 @@ export function Quality() {
   return (
     <div className="products-page">
       {flags.pipeline ? (
-        <div className="type-tabs" role="tablist" style={{ marginBottom: 12 }}>
+        <div className="type-tabs" style={{ marginBottom: 12 }}>
           <button
             type="button"
             className={`type-tab ${tab === 'register' ? 'active' : ''}`}
@@ -323,7 +323,7 @@ export function Quality() {
         </div>
 
         <div className="vendors-toolbar">
-          <div className="type-tabs" role="tablist">
+          <div className="type-tabs">
             {(
               [
                 ['', 'All'],
@@ -350,7 +350,7 @@ export function Quality() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          <div className="type-tabs" role="tablist" aria-label="View">
+          <div className="type-tabs">
             <button
               type="button"
               className={`type-tab ${view === 'table' ? 'active' : ''}`}

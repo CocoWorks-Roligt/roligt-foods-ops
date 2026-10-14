@@ -103,7 +103,7 @@ export function Vendors() {
         </div>
 
         <div className="vendors-toolbar">
-          <div className="type-tabs" role="tablist" aria-label="Filter by type">
+          <div className="type-tabs">
             {(
               [
                 ['', 'All'],

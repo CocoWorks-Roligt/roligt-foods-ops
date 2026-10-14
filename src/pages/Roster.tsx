@@ -380,7 +380,7 @@ export function Roster() {
       </div>
 
       <div className="vendors-toolbar">
-        <div className="type-tabs" role="tablist">
+        <div className="type-tabs">
           {(
             [
               ['week', 'This week'],

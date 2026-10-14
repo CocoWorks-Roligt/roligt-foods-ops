@@ -151,7 +151,7 @@ export function PackingMaterials() {
         </div>
 
         <div className="vendors-toolbar">
-          <div className="type-tabs" role="tablist">
+          <div className="type-tabs">
             <button
               type="button"
               className={`type-tab ${onlyLow ? '' : 'active'}`}

@@ -154,7 +154,7 @@ export function Inventory() {
   return (
     <>
       {flags.pipeline ? (
-        <div className="type-tabs" role="tablist" style={{ marginBottom: 12 }}>
+        <div className="type-tabs" style={{ marginBottom: 12 }}>
           <button
             type="button"
             className={`type-tab ${tab === 'snapshot' ? 'active' : ''}`}

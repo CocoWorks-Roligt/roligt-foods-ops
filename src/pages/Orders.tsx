@@ -260,7 +260,7 @@ export function Orders() {
   return (
     <>
       {flags.pipeline ? (
-        <div className="type-tabs" role="tablist" style={{ marginBottom: 12 }}>
+        <div className="type-tabs" style={{ marginBottom: 12 }}>
           <button
             type="button"
             className={`type-tab ${tab === 'register' ? 'active' : ''}`}
@@ -496,6 +496,7 @@ export function Orders() {
             <Select
               value={form.customerId}
               onChange={(e) => setForm((f) => ({ ...f, customerId: e.target.value }))}
+              aria-label="Customer"
             >
               <option value="">
                 {customers.length ? 'Select customer' : 'No active customers — add one first'}
@@ -512,6 +513,7 @@ export function Orders() {
             <input
               type="datetime-local"
               value={form.date}
+              aria-label="Order date"
               onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
             />
           </div>
@@ -520,6 +522,7 @@ export function Orders() {
             <input
               type="date"
               value={form.dueDate}
+              aria-label="Ship by"
               onChange={(e) => setForm((f) => ({ ...f, dueDate: e.target.value }))}
             />
           </div>

@@ -35,6 +35,11 @@ interface SelectProps {
   disabled?: boolean
   className?: string
   id?: string
+  /** The trigger's accessible name — without it the combobox is nameless to
+   *  every screen reader (and every role query): call sites passing
+   *  aria-label were silently naming nothing. */
+  'aria-label'?: string
+  'aria-labelledby'?: string
 }
 
 /** Plain text of an option, for type-ahead. */
@@ -56,7 +61,16 @@ function optionsFromChildren(children: ReactNode): OptionInfo[] {
     })
 }
 
-export function Select({ value, onChange, children, disabled, className, id }: SelectProps) {
+export function Select({
+  value,
+  onChange,
+  children,
+  disabled,
+  className,
+  id,
+  'aria-label': ariaLabel,
+  'aria-labelledby': ariaLabelledby,
+}: SelectProps) {
   const [open, setOpen] = useState(false)
   const [rect, setRect] = useState<{
     top?: number
@@ -225,6 +239,8 @@ export function Select({ value, onChange, children, disabled, className, id }: S
         className="ui-select-trigger"
         disabled={disabled}
         role="combobox"
+        aria-label={ariaLabel}
+        aria-labelledby={ariaLabelledby}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listId.current : undefined}

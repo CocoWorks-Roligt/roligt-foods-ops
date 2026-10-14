@@ -326,6 +326,7 @@ export function OrderDeskTab() {
                       onChange={(e) =>
                         setDraft((d) => ({ ...d, customerId: e.target.value }))
                       }
+                      aria-label="Customer"
                     >
                       <option value="">
                         {customers.length ? 'Select customer' : 'No active customers — add one first'}
@@ -342,6 +343,7 @@ export function OrderDeskTab() {
                     <input
                       type="datetime-local"
                       value={draft.date}
+                      aria-label="Order date"
                       onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))}
                     />
                   </div>
@@ -350,6 +352,7 @@ export function OrderDeskTab() {
                     <input
                       type="date"
                       value={draft.dueDate}
+                      aria-label="Ship by"
                       onChange={(e) => setDraft((d) => ({ ...d, dueDate: e.target.value }))}
                     />
                   </div>

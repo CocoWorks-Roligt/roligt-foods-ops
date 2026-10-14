@@ -567,7 +567,7 @@ export function Layout() {
         <button
           type="button"
           className={!bottomNavActive ? 'active' : ''}
-          aria-label="Open navigation menu"
+          aria-label="More — open navigation menu"
           aria-expanded={drawerOpen}
           aria-controls="app-drawer"
           onClick={() => setDrawerOpen(true)}

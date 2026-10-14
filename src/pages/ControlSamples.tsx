@@ -128,7 +128,7 @@ export function ControlSamples() {
   return (
     <div>
       {flags.pipeline ? (
-        <div className="type-tabs" role="tablist" style={{ marginBottom: 12 }}>
+        <div className="type-tabs" style={{ marginBottom: 12 }}>
           <button
             type="button"
             className={`type-tab ${tab === 'register' ? 'active' : ''}`}
@@ -170,7 +170,7 @@ export function ControlSamples() {
       </div>
 
       <div className="vendors-toolbar">
-        <div className="type-tabs" role="tablist">
+        <div className="type-tabs">
           {TABS.map(([id, label]) => (
             <button
               key={id || 'all'}
