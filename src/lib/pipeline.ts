@@ -213,7 +213,8 @@ export function pipelineStages(state: AppState, today = toDateKey()): PipelineSt
         detail: q.batchId,
         status: q.disposition,
         date: batch?.date,
-        href: '/quality',
+        // the bench queue (WORKFLOW W11) — the record is picked from it there
+        href: '/quality?tab=entry',
       })),
       flag: qcNote(),
     },

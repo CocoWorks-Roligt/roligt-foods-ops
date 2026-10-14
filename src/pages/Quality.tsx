@@ -1,4 +1,5 @@
-import { Fragment, useMemo, useRef, useState } from 'react'
+import { Fragment, Suspense, lazy, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { AttachmentLink } from '../components/Attachments'
 import { DetailView, type DetailSection } from '../components/DetailView'
 import { detailRowProps } from '../components/detailRow'
@@ -50,8 +51,18 @@ function reportOption(r: LabReport) {
   return `${r.id} · ${r.customerName} · ${r.issueDate}`
 }
 
+/** The pipeline flag's QC test-entry form (WORKFLOW W11) — its own chunk, so
+ *  Classic never loads it. */
+const QcEntryTab = lazy(() => import('./QcEntryTab').then((m) => ({ default: m.QcEntryTab })))
+
 export function Quality() {
-  const { state, saveQc, startQc, showToast } = useApp()
+  const { state, saveQc, startQc, showToast, flags } = useApp()
+  // ?tab=entry (pipeline flag) is where the pipeline QC tile's rows land — the
+  // bench queue. Everything else is the Classic register.
+  const [params, setParams] = useSearchParams()
+  const tab = params.get('tab') === 'entry' && flags.pipeline ? 'entry' : 'register'
+  const setTab = (next: 'register' | 'entry') =>
+    setParams(next === 'register' ? {} : { tab: next }, { replace: true })
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('')
   /** The table scans faster once records pile up; the cards stay one tap away. */
@@ -266,6 +277,31 @@ export function Quality() {
 
   return (
     <div className="products-page">
+      {flags.pipeline ? (
+        <div className="type-tabs" role="tablist" style={{ marginBottom: 12 }}>
+          <button
+            type="button"
+            className={`type-tab ${tab === 'register' ? 'active' : ''}`}
+            onClick={() => setTab('register')}
+          >
+            Register
+          </button>
+          <button
+            type="button"
+            className={`type-tab ${tab === 'entry' ? 'active' : ''}`}
+            onClick={() => setTab('entry')}
+          >
+            Test entry
+          </button>
+        </div>
+      ) : null}
+
+      {tab === 'entry' ? (
+        <Suspense fallback={<div className="note">Loading the test-entry form…</div>}>
+          <QcEntryTab />
+        </Suspense>
+      ) : (
+      <>
       <div className="card products-panel">
         <div className="section-head">
           <div>
@@ -810,6 +846,8 @@ export function Quality() {
           </>
         ) : null}
       </Modal>
+      </>
+      )}
     </div>
   )
 }
