@@ -59,6 +59,19 @@ const complianceFile = (await import('../api/compliance/file.ts')).default
 const complianceRemind = (await import('../api/compliance/remind.ts')).default
 const attachmentsUpload = (await import('../api/attachments/upload.ts')).default
 const attachmentsFile = (await import('../api/attachments/file.ts')).default
+const gradingHandler = (await import('../api/grading.ts')).default
+const purchaseOrdersHandler = (await import('../api/purchase-orders.ts')).default
+const purchaseOrderItemHandler = (await import('../api/purchase-orders/[id].ts')).default
+const purchaseOrderReceiveHandler = (await import('../api/purchase-orders/[id]/receive.ts')).default
+const closeRunHandler = (await import('../api/transformations/close.ts')).default
+const kpisModuleHandler = (await import('../api/kpis/[module].ts')).default
+const searchHandler = (await import('../api/search.ts')).default
+const genealogyHandler = (await import('../api/genealogy.ts')).default
+const dispatchConfirmHandler = (await import('../api/dispatch/confirm.ts')).default
+// /api/events is deliberately NOT wired here: its handler streams SSE, and the
+// node adapter below only answers json()/end(). It 404s in this harness, which
+// is the designed degraded path — the client's EventSource fails over to the
+// /api/revision poll (B4), and the E2E journey exercises exactly that fallback.
 
 const API_ROUTES = {
   '/api/snapshot': snapshotHandler,
@@ -76,6 +89,35 @@ const API_ROUTES = {
   '/api/compliance/remind': complianceRemind,
   '/api/attachments/upload': attachmentsUpload,
   '/api/attachments/file': attachmentsFile,
+  '/api/grading': gradingHandler,
+  '/api/purchase-orders': purchaseOrdersHandler,
+  '/api/transformations/close': closeRunHandler,
+  '/api/search': searchHandler,
+  '/api/genealogy': genealogyHandler,
+  '/api/dispatch/confirm': dispatchConfirmHandler,
+}
+
+/** Segment-pattern routes for the paths Vercel's file router parameterizes.
+ * Each handler parses req.url itself, so matching only has to pick the file. */
+const PARAM_API_ROUTES = [
+  { pattern: '/api/purchase-orders/:id/receive', handler: purchaseOrderReceiveHandler },
+  { pattern: '/api/purchase-orders/:id', handler: purchaseOrderItemHandler },
+  { pattern: '/api/kpis/:module', handler: kpisModuleHandler },
+]
+
+/** The first pattern that matches, with its params — handlers read `req.query`
+ * (where Vercel's file router delivers path params), so the caller injects them. */
+function matchParamRoute(path) {
+  for (const route of PARAM_API_ROUTES) {
+    const pattern = route.pattern.split('/')
+    const actual = path.split('/')
+    if (pattern.length !== actual.length) continue
+    const params = {}
+    if (pattern.every((seg, i) => (seg.startsWith(':') ? ((params[seg.slice(1)] = actual[i]), true) : seg === actual[i]))) {
+      return { handler: route.handler, params }
+    }
+  }
+  return null
 }
 
 const DIST = join(root, 'dist')
@@ -161,8 +203,9 @@ const server = createServer(async (req, res) => {
 
   try {
     if (path.startsWith('/api/')) {
-      const handler = API_ROUTES[path] ?? null
-      if (!handler) {
+      const exact = API_ROUTES[path]
+      const paramHit = exact ? null : matchParamRoute(path)
+      if (!exact && !paramHit) {
         res.writeHead(404).end('no such api route')
         log(404)
         return
@@ -173,8 +216,16 @@ const server = createServer(async (req, res) => {
         // this is the only place the wire truth of "what changed" exists.
         writeFileSync(join(root, 'tmp-commit-body.json'), JSON.stringify(body, null, 2))
       }
+      // Vercel's req.query carries path params + search params; the param routes
+      // read their segment from it, exact routes read search params at most.
+      const query = Object.fromEntries(new URL(req.url || '/', 'http://localhost').searchParams)
+      const params = paramHit ? { ...query, ...paramHit.params } : query
+      const handler = exact ?? paramHit.handler
       await handler(
-        { method: req.method, url: req.url, headers: req.headers, ...(body !== undefined ? { body } : {}) },
+        {
+          method: req.method, url: req.url, headers: req.headers,
+          query: params, ...(body !== undefined ? { body } : {}),
+        },
         toVercelRes(res),
       )
       log(res.statusCode)

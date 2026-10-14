@@ -45,3 +45,9 @@ gui-test-screenshots/
 # D1 migration artifacts — data dumps of the plant, never commit
 scripts/d1/dump-*.sql
 scripts/d1/dump-*.manifest.json
+
+# E2E harness — disposable DB, Playwright output, screenshots, Lighthouse runs
+scripts/e2e/.tmp/
+e2e/.artifacts/
+e2e/playwright-report/
+e2e/test-results/
