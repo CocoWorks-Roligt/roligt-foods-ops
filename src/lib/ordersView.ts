@@ -8,7 +8,7 @@
 import type { AppState, Item, Order, OrderLine, Product, StockRow } from '../types.ts'
 import { bulkItemOf, drinkName } from './packs.ts'
 import { displayExpiry, inHoldArea, rowKey } from './stock.ts'
-import { QTY_EPSILON } from './utils.ts'
+import { QTY_EPSILON, toLocalInputValue } from './utils.ts'
 
 /**
  * A customer orders by drink, not by pack SKU — "TCW" comes as 5 L BiBs, 2.5 L
@@ -233,4 +233,50 @@ export function seedAllocations(
     }
   }
   return seeded
+}
+
+/**
+ * An order's flat lines rebuilt into the form's draft — the inverse of
+ * `linesFromDraft`, so editing starts from what was saved. Each drink holds only
+ * the packs the order actually asks for; a sku the master no longer knows keeps
+ * its own orphan block, because the order for it may be perfectly dispatchable.
+ */
+export function draftFromOrder(order: Order, productById: Map<string, Product>): OrderDraft {
+  const picked: string[] = []
+  const formats: Record<string, string[]> = {}
+  const qtys: Record<string, number | ''> = {}
+  for (const l of order.lines) {
+    qtys[l.sku] = l.qty
+    const p = productById.get(l.sku)
+    const key = p ? bulkItemOf(p) : `orphan:${l.sku}`
+    if (!picked.includes(key)) picked.push(key)
+    if (p) (formats[key] ||= []).push(l.sku)
+  }
+  return {
+    customerId: order.customerId,
+    // The date the form's datetime-local input shows, not the stored ISO stamp.
+    date: toLocalInputValue(new Date(order.date)),
+    dueDate: order.dueDate || '',
+    notes: order.notes || '',
+    picked,
+    formats,
+    qtys,
+  }
+}
+
+/**
+ * The form's blocks flattened back into plain order lines — only what the visible
+ * blocks hold is written: drinks in the order they were picked, formats
+ * largest-first, and an unquantified format never a line.
+ */
+export function linesFromDraft(blocks: DraftBlock[], qtys: Record<string, number | ''>): OrderLine[] {
+  const lines: OrderLine[] = []
+  for (const b of blocks) {
+    const skus = b.sku ? [b.sku] : b.formats.map((p) => p.id)
+    for (const sku of skus) {
+      const qty = qtys[sku]
+      if (Number(qty) > 0) lines.push({ sku, qty: Number(qty) })
+    }
+  }
+  return lines
 }

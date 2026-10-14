@@ -11,7 +11,8 @@
  * save, so nothing downstream ever sees the difference.
  */
 
-import { useMemo, useState } from 'react'
+import { lazy, Suspense, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { DetailView, type DetailSection } from '../components/DetailView'
 import { detailRowProps } from '../components/detailRow'
 import { useLinkedView } from '../lib/linkedView'
@@ -27,13 +28,15 @@ import {
 } from '../components/tableSort'
 import { StatusBadge } from '../components/StatusBadge'
 import { useApp } from '../context/AppContext'
-import { bulkItemOf, formatSize } from '../lib/packs'
+import { formatSize } from '../lib/packs'
 import { lotDates } from '../lib/productionDates'
 import { locationLabel, parseRowKey, rowKey } from '../lib/stock'
 import {
   drinkCatalog,
+  draftFromOrder,
   filterOrders,
   linesByDrink as groupLinesByDrink,
+  linesFromDraft,
   releasedPacksBySku,
   resolveBlocks as resolveDraftBlocks,
   seedAllocations,
@@ -41,6 +44,10 @@ import {
 } from '../lib/ordersView'
 import { fmtDate, fmtQty, QTY_EPSILON, toDateKey, toLocalInputValue } from '../lib/utils'
 import type { Order, OrderLine } from '../types'
+
+/** The pipeline flag's order desk (WORKFLOW W14) — its own chunk, so Classic
+ *  never loads it. */
+const OrderDeskTab = lazy(() => import('./OrderDeskTab').then((m) => ({ default: m.OrderDeskTab })))
 
 const blankDraft = (): OrderDraft => ({
   customerId: '',
@@ -53,7 +60,14 @@ const blankDraft = (): OrderDraft => ({
 })
 
 export function Orders() {
-  const { state, rows, getItemName, saveOrder, cancelOrder, deleteOrder, dispatchOrder } = useApp()
+  const { state, rows, getItemName, saveOrder, cancelOrder, deleteOrder, dispatchOrder, flags } =
+    useApp()
+  // ?tab=desk (pipeline flag) is where open orders are worked in ship-by order.
+  // Everything else is the Classic register.
+  const [params, setParams] = useSearchParams()
+  const tab = params.get('tab') === 'desk' && flags.pipeline ? 'desk' : 'register'
+  const setTab = (next: 'register' | 'desk') =>
+    setParams(next === 'register' ? {} : { tab: next }, { replace: true })
 
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState(false)
@@ -121,27 +135,8 @@ export function Orders() {
   const openEdit = (o: Order) => {
     setEditId(o.id)
     // The flat lines rebuild into drinks in the order the customer named them —
-    // each drink holding only the packs the order actually asks for. A sku the
-    // master no longer knows keeps its own block so it stays on the order.
-    const picked: string[] = []
-    const formats: Record<string, string[]> = {}
-    const qtys: Record<string, number | ''> = {}
-    for (const l of o.lines) {
-      qtys[l.sku] = l.qty
-      const p = productById.get(l.sku)
-      const key = p ? bulkItemOf(p) : `orphan:${l.sku}`
-      if (!picked.includes(key)) picked.push(key)
-      if (p) (formats[key] ||= []).push(l.sku)
-    }
-    setForm({
-      customerId: o.customerId,
-      date: toLocalInputValue(new Date(o.date)),
-      dueDate: o.dueDate || '',
-      notes: o.notes || '',
-      picked,
-      formats,
-      qtys,
-    })
+    // draftFromOrder (the same fold the order desk edits through).
+    setForm(draftFromOrder(o, productById))
     setOpen(true)
   }
 
@@ -265,7 +260,32 @@ export function Orders() {
     : []
 
   return (
-    <div className="card">
+    <>
+      {flags.pipeline ? (
+        <div className="type-tabs" role="tablist" style={{ marginBottom: 12 }}>
+          <button
+            type="button"
+            className={`type-tab ${tab === 'register' ? 'active' : ''}`}
+            onClick={() => setTab('register')}
+          >
+            Register
+          </button>
+          <button
+            type="button"
+            className={`type-tab ${tab === 'desk' ? 'active' : ''}`}
+            onClick={() => setTab('desk')}
+          >
+            Order desk
+          </button>
+        </div>
+      ) : null}
+
+      {tab === 'desk' ? (
+        <Suspense fallback={<div className="note">Loading the order desk…</div>}>
+          <OrderDeskTab />
+        </Suspense>
+      ) : (
+      <div className="card">
       <div className="section-head">
         <div>
           <h3>Orders</h3>
@@ -447,14 +467,7 @@ export function Orders() {
         onSave={() => {
           // Only what the visible blocks hold is written — drinks in the order they
           // were picked, formats largest-first; an unquantified format never a line.
-          const lines: OrderLine[] = []
-          for (const b of resolveBlocks(form)) {
-            const skus = b.sku ? [b.sku] : b.formats.map((p) => p.id)
-            for (const sku of skus) {
-              const qty = form.qtys[sku]
-              if (Number(qty) > 0) lines.push({ sku, qty: Number(qty) })
-            }
-          }
+          const lines: OrderLine[] = linesFromDraft(resolveBlocks(form), form.qtys)
           const ok = saveOrder(
             {
               customerId: form.customerId,
@@ -762,6 +775,8 @@ export function Orders() {
             : 'Every line is checked against live stock again as it posts, and all of them are written together — the order cannot end up half sent.'}
         </div>
       </Modal>
-    </div>
+      </div>
+      )}
+    </>
   )
 }

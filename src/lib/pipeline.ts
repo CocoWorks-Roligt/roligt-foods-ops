@@ -277,7 +277,8 @@ export function pipelineStages(state: AppState, today = toDateKey()): PipelineSt
         detail: o.dueDate ? `ship by ${o.dueDate}` : 'no ship-by date',
         status: o.status,
         date: o.dueDate,
-        href: '/orders',
+        // the order desk (WORKFLOW W14) — the order is picked from it there
+        href: '/orders?tab=desk',
       })),
       flag: overdue.length ? { kind: 'overdue', note: `${overdue.length} order${overdue.length === 1 ? '' : 's'} past ship-by` } : undefined,
     },
