@@ -1,5 +1,5 @@
 # PROGRESS — Beverage Ops Platform Overhaul
-Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 4 SHIPMENT in flight (H1, B5a done)
+Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 4 SHIPMENT in flight (H1, B5 done — backend wire complete)
 
 | Task | Agent | Status | Files | Next action |
 |---|---|---|---|---|
@@ -38,6 +38,8 @@ Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 4 SHIPMENT in f
 | P3/W16: Onboarding — tour, tooltips, feedback, cheat sheets | WORKFLOW | done | src/lib/onboarding.ts(+test), src/components/shell/Tour.tsx, src/components/shell/HelpMenu.tsx, Layout.tsx (anchors+help+tour), Pipeline.tsx (tile titles), index.css, docs/overhaul/cheatsheets/ (8 roles) | 1077 tests (+5); contracts stay v1.7; Phase 3 QA LIGHT re-run + HEAVY (Journey A) next |
 | P4/H1: delivery-agent scoping — external tier, clamp, snapshot allowlist | LEAD | done @ 78348c2 | src/lib/pages.ts(+test) ('external' tier, pageScope clamp, local admin exemption), src/types.ts, api/_lib/domain.ts (isDeliveryAgent rewritten: any non-admin holder of page.my-deliveries), api/_lib/snapshot.ts (agent projection: state {}, all keys withheld) + snapshot.test, Layout.tsx (Delivery nav section), Roles.tsx (external field), onboarding.ts, utils.ts, seed-rbac.mjs (delivery_agent role, reconcile:false) | 1082 tests (+2); RBAC.md as-built notes pending docs slice |
 | P4/B5a: shipments service — create/list/get/patch/events (contracts v1.9) | BACKEND | done @ f89fb37 | src/lib/contracts.ts (v1.9 additive: ShipmentVersionExtension, ShipmentLine, ShipmentChallanLink, ShipmentDetail/List/EventsResponse, PatchShipmentRequest/Response), api/_lib/shipments.ts(+test), api/shipments.ts, api/shipments/[id].ts, api/shipments/[id]/events.ts | 1097 tests (+15); B5b submit+challan next |
+| P4/B5b: shipment submit + challan mint/register/correct + KPI fold | BACKEND | done @ 71f790c | api/_lib/shipmentSubmit.ts(+test), api/_lib/challans.ts, api/_lib/challanPdf.ts, api/shipments/[id]/submit.ts, api/challans.ts, api/challans/[id]/file.ts, api/challans/[id]/correct.ts, src/lib/kpis/shipmentTracking.ts(+test), src/lib/kpis/index.ts, api/_lib/b4.test.ts | 1115 tests (+18); B5c returns next |
+| P4/B5c: returns — record + QC decision (ledger 'Return' lines) | BACKEND | done @ 9222476 | api/_lib/returns.ts(+test), api/returns.ts, api/returns/[id]/decision.ts, src/lib/contracts.ts (ReturnDecisionRequest/Response) | 1122 tests (+14); S1 board page next |
 
 ## Log
 - 2026-10-13 Phase 0 complete. Baseline green (745 tests, tsc -b, lint, build @ de4c13b). DB target confirmed:
@@ -393,3 +395,30 @@ Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 4 SHIPMENT in f
   15 service tests over the FakeD1 harness — including the agent-scope pair, the bad-day walk
   (failed→rescheduled→started again), and replay. Suite 1097, tsc -b clean, lint 10 baseline.
   Committed f89fb37. Next: B5b submit + challan PDF.
+- 2026-10-15 P4 B5b — shipment submit + challans (BACKEND). The delivery's outcome in one
+  idempotent write: signature required, per-line delivered/rejected arithmetic must reconcile
+  with the dispatch rows, outcome computed off the numbers (all-rejected → Returned, partial →
+  Partially Delivered + ONE Open ReturnRecord, else Delivered), dispatch rows stamped in
+  Classic's own words (status/pod = printedName, deliveredTime kept, deliveryNote names the
+  return). Challan numbering: the counter series KEY is 'challan' (the same belt the client's
+  nextId pre-mints from, format {P}{N}/{YYYY} 4-pad → DC0201/2026); submit ADOPTS the member
+  dispatches' shared DC number when exactly one distinct non-empty exists and no challan doc
+  holds it (two trips off one wave would collide), mints fresh otherwise. PDF is lazy: submit
+  stores pdfKey challans/<number>.pdf; GET /file probes R2, renders+uploads on 404, 302s — a
+  failed render costs a retry, never the delivery. Latin-1 only (no ₹/arrows), times printed
+  IST, tax block printed only when challanTax configured and always caveated "pending
+  accountant sign-off" (DECISIONS #11). Correct (board only, Issued only) supersedes with a
+  fresh DC and version+1 on the corrected doc. KPI fold: shipment-tracking registered with
+  st-out/st-delivered-today/st-on-time + board chart; cacheTtlSec 3600 KEPT — the layer's one
+  real cached-fold user (b4's cache test rides it). 18 tests. Committed 71f790c.
+- 2026-10-15 P4 B5c — returns (BACKEND). Two endpoints: record (agent-own-shipment / board /
+  dispatch desk; trip must be past Created; every line must name stock the trip carried —
+  line_not_on_trip; one Open ReturnRecord per call) and QC's decision (page.quality only;
+  coldroom → Released at the first active cold room's NAME, quarantine → Quarantine and
+  writeoff → the terminal Written Off balance at the hold area; missing location is an honest
+  422 location_missing, never a silent post to nowhere). The decision posts ONE ledger line
+  per return line — type 'Return', doc = record id, qtyIn (the deduction already happened at
+  dispatch), unit_cost/expiry copied off the trip's own 'Dispatch' ledger line when found —
+  then stamps the record Closed with qcDecision/decidedBy/ledgerRef. 14 tests incl. the
+  404-never-403 privacy pair, second-verdict 409 return_closed, replay. Suite 1122, tsc -b
+  clean, lint 10 baseline. Committed 9222476. Phase-4 backend wire complete; S1 board page next.
