@@ -17,7 +17,9 @@
  *   (Created→Dispatched, Failed→Rescheduled). The four outcomes of Out for
  *   Delivery stay the submit endpoint's alone. CreateShipmentResponse and
  *   PatchShipmentResponse carry the ride-along too, so the board holds a CAS
- *   token from the moment a trip exists.
+ *   token from the moment a trip exists. The challan wire joins the same
+ *   delta: ChallanListResponse, and ChallanCorrectRequest/Response for the
+ *   supersede correction.
  * v1.8 (2026-10-14, LEAD-approved additive delta — WORKFLOW close-out):
  * - CommitVersionRide — POST /api/commit's response carries `versions`
  *   (table → row id → the documents.version the commit left each written row
@@ -998,7 +1000,7 @@ export interface SubmitDeliveryRequest {
 }
 
 export interface SubmitDeliveryResponse {
-  shipment: Shipment
+  shipment: Shipment & ShipmentVersionExtension
   challan: Challan
   /** Empty when nothing was rejected at the door. */
   returns: ReturnRecord[]
@@ -1067,6 +1069,26 @@ export interface PatchShipmentRequest {
 
 export interface PatchShipmentResponse {
   shipment: Shipment & ShipmentVersionExtension
+}
+
+// ── GET /api/challans, POST /api/challans/:id/correct (v1.9) ────────────────
+
+/** GET /api/challans — newest first; an agent's list is their own challans only. */
+export interface ChallanListResponse {
+  challans: Challan[]
+}
+
+/** POST /api/challans/:id/correct — a correction never edits a challan; it
+ *  supersedes the old one with a fresh number and a reason (DECISIONS #10). */
+export interface ChallanCorrectRequest {
+  reason: string
+  expectedVersion: number
+  /** Corrected lines — the issued lines stand when omitted. */
+  lines?: ChallanLine[]
+}
+
+export interface ChallanCorrectResponse {
+  challan: Challan
 }
 
 // ── POST /api/returns ───────────────────────────────────────────────────────

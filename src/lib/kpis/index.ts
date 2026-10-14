@@ -21,6 +21,7 @@ import { collectionOf } from '../tables.ts'
 import type { AppState } from '../../types.ts'
 import { qcKpis, type KpiPayload } from './qc.ts'
 import { ordersDispatchKpis } from './ordersDispatch.ts'
+import { shipmentTrackingKpis } from './shipmentTracking.ts'
 
 export type { KpiPayload }
 
@@ -64,9 +65,16 @@ export const KPI_SPECS: Record<KpiModule, KpiSpec> = {
     collections: ['orders', 'dispatches', 'items', 'customers', 'batches'],
     fold: ordersDispatchKpis,
   },
-  // The shipments/challans entities land with SHIPMENT (Phase 4); the module
-  // is registered now so the layer's cached-fold path has a real first user.
-  'shipment-tracking': { pages: ['dispatch'], collections: ['shipments', 'dispatches'], cacheTtlSec: 3600 },
+  // SHIPMENT (Phase 4): the live board numbers; the cached daily folds (avg
+  // delivery time, agent performance) are Phase 5 module work. The TTL stays —
+  // it is the layer's one real cached-fold user (b4's cache test rides it),
+  // and a cold start past a quiet revision serves from meta.
+  'shipment-tracking': {
+    pages: ['dispatch', 'shipments'],
+    collections: ['shipments', 'dispatches'],
+    cacheTtlSec: 3600,
+    fold: shipmentTrackingKpis,
+  },
 }
 
 export const KPI_MODULES_LIST = Object.keys(KPI_SPECS) as KpiModule[]
