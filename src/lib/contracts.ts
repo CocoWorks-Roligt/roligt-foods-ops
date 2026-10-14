@@ -7,6 +7,12 @@
  * neither changes it — a change after freeze needs LEAD approval and a minor
  * version bump, recorded in ARCHITECTURE.md.
  *
+ * v1.7 (2026-10-14, LEAD-approved additive delta — WORKFLOW W8):
+ * - BatchVersionExtension — the snapshot ride-along v1.6 gave grns now covers
+ *   batches too, for the same reason and under the same rules: the Extraction
+ *   stage form's POST /api/transformations/close needs the batch's
+ *   expectedVersion, the column is attached at snapshot parse and overwrites
+ *   any stale embedded value, and no write path consults the field.
  * v1.6 (2026-10-14, LEAD-approved additive delta — WORKFLOW W7):
  * - GrnVersionExtension — the D1 snapshot's grns carry their documents.version
  *   as a read-only ride-along, so the grading form's POST /api/grading can read
@@ -706,6 +712,15 @@ export interface GrnExtension {
  * is off and the grading form is unreachable, so the field is optional).
  */
 export interface GrnVersionExtension {
+  version: number
+}
+
+/**
+ * batches + the same ride-along (v1.7): POST /api/transformations/close's
+ * expectedVersion reads it. Same rules as grns — snapshot-attached, read-only,
+ * the column over any stale embedded value.
+ */
+export interface BatchVersionExtension {
   version: number
 }
 

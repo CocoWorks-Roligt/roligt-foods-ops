@@ -1,12 +1,14 @@
 # STATE — Beverage Ops Platform Overhaul
-Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W7 done (Pipeline Home, Batch Detail, PO endpoints, PO form, GRN↔PO linkage, Receipt stage form, Coconut Grading form); W8 Extraction stage form next | Branch: dev | Base: de4c13b
+Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W8 done (Pipeline Home, Batch Detail, PO endpoints, PO form, GRN↔PO linkage, Receipt stage form, Coconut Grading form, Extraction stage form); W9 Coconut Milk batch form next | Branch: dev | Base: de4c13b
 
 ## Contracts
-- v1.6 (2026-10-14, W7): +GrnVersionExtension — the D1 snapshot's grns carry documents.version
+- v1.7 (2026-10-14, W8): +BatchVersionExtension — the snapshot's batches carry documents.version
+  too (read-only ride-along, column over stale embed; the close form's expectedVersion reads it);
+  v1.6 (2026-10-14, W7): +GrnVersionExtension — the D1 snapshot's grns carry documents.version
   (read-only ride-along, attached at snapshot parse; POST /api/grading's expectedVersion reads it);
   v1.5 (2026-10-13, W5): +POST /api/purchase-orders/:id/receive (GRN↔PO linkage);
   v1.4 (2026-10-13, W4): +PurchaseOrderVersionExtension (PO responses carry documents.version);
-  v1.3 (2026-10-13, W3): +purchase-order wire shapes; v1.2 (2026-10-13, B4): +RevisionEvent (SSE); v1.1 (2026-10-13, LEAD): src/lib/contracts.ts — frozen v1 plus additive deltas (challan, recipeId, avgUnitWeight naming → file header + ARCHITECTURE.md §8). WORKFLOW builds against v1.5.
+  v1.3 (2026-10-13, W3): +purchase-order wire shapes; v1.2 (2026-10-13, B4): +RevisionEvent (SSE); v1.1 (2026-10-13, LEAD): src/lib/contracts.ts — frozen v1 plus additive deltas (challan, recipeId, avgUnitWeight naming → file header + ARCHITECTURE.md §8). WORKFLOW builds against v1.7.
 
 ## DB target — CONFIRMED 2026-10-13 (audit slice 3)
 - Unit/integration: local better-sqlite3 in-memory against real `scripts/d1/schema.sql` (what `npm test` does).
@@ -21,20 +23,31 @@ Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W7 done (Pipeline H
 ## Locks
 - none
 
-## W8 design notes (next slice — Extraction stage form, read before building)
-- The client form for the extraction run: multi-output (water/malai/by-product) + MANDATORY
-  spoilage, posting through the B3 close machinery (POST /api/transformations/close; contracts
-  §-transformation). The SHELL TransformationForm primitive (live computeMassBalance) already
-  exists — build the page on it, do not re-derive mass balance.
-- batch_v2 stays OFF (DECISIONS #2: 3/14 historical batches close at 2%; the decision on
-  unaccounted-loss/per-material tolerance/warn-first is open). Whatever form is built must run
-  under the pipeline flag and read the CURRENT vocabulary (Classic Extraction batches +
-  rulesGate close answers), exactly as W1/W2 did — the v2 run machine waits for the flag.
-- Inputs: graded coconut lots (the Grading form's output — Available stock rows via
-  canConsumeLot per lot, as W2's QC gate reads). Recipe/BOM templates are versioned plain data
-  (ARCHITECTURE) — check what B1 stamped on items/melanges before wiring recipe variance.
-- Spoilage reason codes are per-stage editable reference data (spoilage_reasons collection,
-  B3 tests seed them) — offer the extraction stage's own codes only.
+## W9 design notes (next slice — Coconut Milk batch form, read before building)
+- The intermediate run (chain §3.3 step 4): malai lot(s) + water lot(s) + recipe components
+  (stabilizer, sweetener, salt) → a Coconut Milk lot with its own QC / shelf life; downstream
+  blends consume the MILK lot, never the source malai or coconuts (anti-double-consumption).
+- Same pattern as W8: post through the SAME createBatch path (checkBatch answers first, in its
+  own words; blendLines carry the bulk lots, sourceLines any raw recipe components), then
+  POST /api/transformations/close files the mandatory blend-stage spoilage. Build on the SHELL
+  TransformationForm primitive (live computeMassBalance) — never re-derive the balance.
+- CHECK FIRST what vocabulary the Classic blend form already writes: the pipeline Blending tile
+  counts kind 'Melange' — if Coconut Milk posts as one it lands in that queue, which is honest
+  (it IS a blend run); the Coconut Milk BATCH FORM is a blend form offering the milk recipe,
+  not a new stage. Only if the plant needs milk runs separated from beverage blends is that a
+  STATE question first.
+- Inputs: Available bulk/raw lots from the pool checkBatch itself judges (W8's pressableLots
+  lesson: canConsumeLot answers blend/pack/dispatch, checkBatch enforces Available-only — do
+  not offer quarantined stock the post would refuse). Recipe/BOM templates are versioned plain
+  data (ARCHITECTURE) — check what B1 stamped on items/melanges before wiring recipe variance.
+- batch_v2 stays OFF (DECISIONS #2 open); the form runs under the pipeline flag reading the
+  CURRENT vocabulary, exactly as W1–W8 did. Spoilage reasons: the frozen seeds' blend+any
+  codes; the server's spoilage_reasons stays the authority.
+
+## W8 notes (done 2026-10-14 — kept one line: see PROGRESS log)
+- Extraction form = 3rd Production card behind pipeline; posts through the SAME createBatch,
+  then closes via POST /api/transformations/close; batch version rides the snapshot (v1.7);
+  sources follow checkBatch's Available-only pool (NOT canConsumeLot — deliberate, logged).
 
 ## W7 notes (done 2026-10-14 — kept one line: see PROGRESS log)
 - Grading form = 5th Procurement tab behind pipeline; grn version rides the snapshot (v1.6);
@@ -74,6 +87,18 @@ Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W7 done (Pipeline H
   field (client writes preflight their own versions server-side). Keep it that way if the
   snapshot or grading paths are reworked; and the grading form never derives costs or ledger
   lines client-side — priceGrn is a preview, the endpoint's math is the record.
+- The batch version ride-along (v1.7) is READ-ONLY the same way (batches too, column over
+  stale embed, no write path consults the field). The extraction close form NEVER guesses
+  version 1: after createBatch it waits for the snapshot copy that carries the version (the
+  commit's own revision bump wakes the feed), with a "Leave it open" escape — keep that if the
+  form is reworked.
+- CLOSED_BATCH in pipeline.ts AND navBadges.ts includes 'Closed' (what the close endpoint
+  stamps): the two sets must stay in step or a closed run keeps counting as open work.
+  openExtractionRuns (extractionStage.ts) mirrors them, pinned to pipelineStages' count under
+  test.
+- Stage forms offer spoilage reasons from the frozen SPOILAGE_REASON_SEEDS (their stage +
+  'any'); the server's editable spoilage_reasons collection stays the authority and the
+  close's 422 is its word — never read spoilage_reasons client-side.
 - If the split (multi-file) prompt version is adopted: do NOT copy its STATE/PROGRESS/DECISIONS
   templates over the live files, and rename its DOMAIN.md (business rules) before adding — the live
   DOMAIN.md is the current-state map and they collide.

@@ -440,6 +440,7 @@ export function ExtractionBatches() {
           <option>Released</option>
           <option>On Hold</option>
           <option>Rejected</option>
+          <option>Closed</option>
         </Select>
       </div>
       <SortSelect

@@ -114,6 +114,7 @@ const operator: Caller = { email: 'op@roligt.local', permissions: [] }
 const suppliersClerk: Caller = { email: 'supplies@roligt.local', permissions: ['page.vendors'] }
 
 const GRN_DOC = { id: 'GRN-1', status: 'Posted', total: 100 }
+const BATCH_DOC = { id: 'BAT-2026-0001', status: 'Pending', outputLines: [] }
 const LEDGER_ROW = {
   id: 'L1', type: 'GRN', doc: 'GRN-1', item: 'Tender Coconut', item_type: 'Raw Material', lot: 'LOT-1',
   location: 'Cold Room', status: 'In Stock', qty_in: 90, qty_out: 0, uom: 'Piece', unit_cost: 35, at: '2026-09-21T08:00:00Z',
@@ -150,6 +151,7 @@ describe('readSnapshotD1 / readRevisionD1', () => {
       d1,
       [
         { collection: 'grns', id: 'GRN-1', json: GRN_DOC },
+        { collection: 'batches', id: 'BAT-2026-0001', json: BATCH_DOC },
         { collection: 'ledger', id: 'L1', json: LEDGER_ROW },
         { collection: 'audits', id: 'A-old', json: { ...AUDIT_ROW, id: 'A-old', at: '2026-09-20T08:00:00Z' } },
         { collection: 'audits', id: 'A1', json: AUDIT_ROW },
@@ -160,16 +162,18 @@ describe('readSnapshotD1 / readRevisionD1', () => {
     const snap = await readSnapshotD1(d1 as unknown as D1Client)
     expect(snap.revision).toBe('0')
     expect(snap.everWritten).toBe(true)
-    // grns carry the row's CAS version as a read-only ride-along (v1.6) —
-    // the grading form's expectedVersion; every other collection stays bare
+    // grns and batches carry the row's CAS version as a read-only ride-along
+    // (v1.6/v1.7) — the grading and run-close forms' expectedVersion; every
+    // other collection stays bare
     expect(snap.state?.grns).toEqual([{ ...GRN_DOC, version: 1 }])
+    expect(snap.state?.batches).toEqual([{ ...BATCH_DOC, version: 1 }])
     expect(snap.state?.ledger?.[0]).toMatchObject({ id: 'L1', qtyIn: 90, item: 'Tender Coconut' })
     expect(snap.state?.audits?.map((a) => a.id)).toEqual(['A1', 'A-old']) // newest first
     expect(snap.state?.counters).toEqual({ grn: 7 })
     expect(snap.state?.config).toEqual({ tolerances: { lab: 5 } })
   })
 
-  it('rides the grns row version as the CAS token, and the COLUMN overwrites a stale embedded one', async () => {
+  it('rides the grns and batches row version as the CAS token, and the COLUMN overwrites a stale embedded one', async () => {
     const d1 = fresh()
     seed(
       d1,
@@ -177,12 +181,14 @@ describe('readSnapshotD1 / readRevisionD1', () => {
         // a round-tripped document could embed the version it was read at — the
         // column is the truth, and the snapshot parse must say so
         { collection: 'grns', id: 'GRN-1', json: { ...GRN_DOC, version: 3 }, version: 7 },
+        { collection: 'batches', id: 'BAT-2026-0001', json: { ...BATCH_DOC, version: 2 }, version: 5 },
         { collection: 'vendors', id: 'V1', json: { id: 'V1', name: 'Ravi' }, version: 9 },
       ],
     )
     const snap = await readSnapshotD1(d1 as unknown as D1Client)
     expect(snap.state?.grns).toEqual([{ ...GRN_DOC, version: 7 }])
-    // only grns ride a version — no other collection's shape moves
+    expect(snap.state?.batches).toEqual([{ ...BATCH_DOC, version: 5 }])
+    // only grns and batches ride a version — no other collection's shape moves
     expect(snap.state?.vendors).toEqual([{ id: 'V1', name: 'Ravi' }])
   })
 

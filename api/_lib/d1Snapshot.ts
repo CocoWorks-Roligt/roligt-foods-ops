@@ -85,11 +85,12 @@ function parseD1Rows(tables: Record<string, DocRow[]>, counterRows: BatchRow[], 
               const doc = JSON.parse(r.json) as unknown
               if (!doc || typeof doc !== 'object') return null // parses, but is no document (rowToDoc's null contract)
               const out = fromRow ? fromRow(doc as Record<string, unknown>) : (doc as Record<string, unknown>)
-              // grns carry the row's CAS version as a read-only ride-along
-              // (contracts v1.6): the grading form's expectedVersion reads it.
-              // The COLUMN is the truth — the spread order overwrites any stale
-              // version a round-tripped document embedded in its json.
-              return key === 'grns' ? { ...out, version: r.version } : out
+              // grns and batches carry the row's CAS version as a read-only
+              // ride-along (contracts v1.6/v1.7): the grading and run-close
+              // forms' expectedVersion read it. The COLUMN is the truth — the
+              // spread order overwrites any stale version a round-tripped
+              // document embedded in its json.
+              return key === 'grns' || key === 'batches' ? { ...out, version: r.version } : out
             } catch {
               return null // a hand-written row no engine path can produce — skipped, never fatal
             }

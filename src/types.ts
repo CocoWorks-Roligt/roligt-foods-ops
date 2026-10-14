@@ -535,6 +535,13 @@ export interface Batch {
   qcId: string
   /** One QC record per bulk this batch produced, in the order the outputs were booked. */
   qcIds?: string[]
+  /**
+   * The documents row's version, read-only, attached when the D1 snapshot is
+   * parsed (contracts v1.7) — the CAS token the Extraction stage form sends as
+   * POST /api/transformations/close's expectedVersion. Same discipline as
+   * Grn.version: never written back, the column over any stale embedded value.
+   */
+  version?: number
 }
 
 export interface PackingLine {

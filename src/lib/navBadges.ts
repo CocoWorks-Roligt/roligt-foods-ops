@@ -21,8 +21,9 @@ import type { AppState, ViewId } from '../types.ts'
 
 export type NavBadges = Partial<Record<ViewId, number>>
 
-/** Batch statuses that mean the run is finished — everything else is open work. */
-const CLOSED_BATCH = new Set(['Released', 'Rejected'])
+/** Batch statuses that mean the run is finished — everything else is open work.
+ *  'Closed' is what the run-close endpoint stamps (W8's form). */
+const CLOSED_BATCH = new Set(['Released', 'Rejected', 'Closed'])
 
 export function navBadges(state: AppState, today = toDateKey()): NavBadges {
   const out: NavBadges = {}

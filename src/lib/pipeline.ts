@@ -60,7 +60,7 @@ export interface PipelineStage {
 }
 
 /** Batch statuses that mean the run is finished — everything else is open work. */
-const CLOSED_BATCH = new Set(['Released', 'Rejected'])
+const CLOSED_BATCH = new Set(['Released', 'Rejected', 'Closed'])
 
 /** Calendar days between two yyyy-mm-dd keys, negative when `from` is later. */
 const ageDays = (from: string, today: string) =>
@@ -173,7 +173,9 @@ export function pipelineStages(state: AppState, today = toDateKey()): PipelineSt
       label: 'Extraction',
       queue: true,
       count: extraction.length,
-      rows: stageRows(extraction),
+      // rows land on the Extraction stage form with the run picked — the close
+      // (spoilage filed, balance stamped) is the action a waiting run owes
+      rows: stageRows(extraction).map((r) => ({ ...r, href: `/production?stage=run&run=${r.id}` })),
       flag: stuckNote(extraction),
     },
     {

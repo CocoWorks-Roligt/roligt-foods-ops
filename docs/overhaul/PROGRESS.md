@@ -1,5 +1,5 @@
 # PROGRESS — Beverage Ops Platform Overhaul
-Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b
+Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW through W8
 
 | Task | Agent | Status | Files | Next action |
 |---|---|---|---|---|
@@ -27,6 +27,7 @@ Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b
 | P3/W5: GRN↔PO linkage endpoint (contracts v1.5) | WORKFLOW | done | api/_lib/purchaseOrders.ts (+receive, po.test), api/purchase-orders/[id]/receive.ts, contracts.ts, RBAC §c | 1014 tests; W6 Receipt stage form next |
 | P3/W6: Receipt stage form (×3 by procurement form + staged grading) | WORKFLOW | done | src/pages/ReceiptTab.tsx, Procurement.tsx (4th tab), src/lib/receiptStage.*(+test), grn.ts(+test), context/domains/procurement.ts(+test), poApi.ts (receivePurchaseOrderCall), types.ts (Grn.poId), api/_lib/gradingPost.ts (gradedOn fix, b3.test) | 1032 tests; W7 Coconut Grading form next |
 | P3/W7: Coconut Grading form (staged lots; contracts v1.6) | WORKFLOW | done | src/pages/GradingTab.tsx, Procurement.tsx (5th tab), src/lib/gradingStage.*(+test), gradingApi.ts, poApi.ts (shared helpers exported), pipeline.ts (Grading rows → form), api/_lib/d1Snapshot.ts (grn version ride-along), contracts.ts v1.6, types.ts (Grn.version), d1Engine.test, b3.test | 1041 tests; W8 Extraction stage form next |
+| P3/W8: Extraction stage form (press & close; contracts v1.7) | WORKFLOW | done | src/pages/ExtractionTab.tsx, Production.tsx (3rd card, pipeline), src/lib/extractionStage.*(+test), extractionApi.ts, api/_lib/d1Snapshot.ts (batch version ride-along), contracts.ts v1.7, types.ts (Batch.version), pipeline.ts+navBadges.ts (Closed status), ExtractionBatches.tsx (filter option), index.css | 1047 tests; W9 Coconut Milk batch form next |
 
 ## Log
 - 2026-10-13 Phase 0 complete. Baseline green (745 tests, tsc -b, lint, build @ de4c13b). DB target confirmed:
@@ -150,3 +151,30 @@ Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b
   lines are never re-derived client-side. cas_version surfaces as "changed after you read it";
   already_graded drops the lot from the queue. Pipeline's Grading tile rows now href
   /procurement?tab=grading. Gates: tsc -b, 1041 passed (+9), lint 10 (baseline), build pass.
+- 2026-10-14 WORKFLOW W8. The Extraction stage form — a third Production card ("Run a pressing",
+  pipeline flag, lazy chunk; ?stage=run, the pipeline Extraction tile's rows link in with
+  ?run=<id> pre-picked). Two writes through machinery that already exists: the run posts
+  through the SAME Classic createBatch path the old form used (checkBatch answers first, in its
+  own words; stock moves; one QC record per output), then POST /api/transformations/close files
+  the mandatory spoilage and stamps the server-computed mass balance. Contracts v1.7: the v1.6
+  snapshot version ride-along now covers batches too (Batch.version read-only, column over any
+  stale embed; d1Engine.test pins both) — the close's expectedVersion reads it, and the form
+  NEVER guesses version 1: after createBatch it waits for the snapshot copy that carries the
+  version (the commit's own revision bump wakes the feed — a tick, not a poll), with a "Leave
+  it open" escape if the wait stalls. extractionStage.ts folds: pressableLots (the Classic
+  rmLots rule verbatim — Available-only, NOT canConsumeLot, because that guard answers
+  blend/pack/dispatch while checkBatch judges sources against ['Available']; quarantined raw
+  would be offered then refused), extractionReasonCodes (frozen DECISIONS #3 seeds,
+  extraction+any stages; the server's editable spoilage_reasons stays the authority and the
+  422 is its word), massBalanceItemsOf (the close endpoint's own items fold), openExtractionRuns
+  (the pipeline tile's predicate + 'Closed', pinned to pipelineStages' count under test),
+  runMassLines (client mirror of rulesGate.batchLines incl. the waterLitres/malaiKg fallback).
+  ExtractionTab: graded-lot select + ScanInput (pooled by lot), outputs prefilled off the
+  picked lot via bulksFrom (water main, malai by-product — numbers confirmed, not named),
+  cost-seat select, mandatory spoilage (spoiled-at-press count + reason, optional kg/L loss
+  lines), MassBalanceBar live over the same items fold (built on the SHELL primitive — the
+  balance is never re-derived), useDraft remembering the cold room + usual reason. Queue mode:
+  an already-open run reads its inputs/outputs back read-only and closes with only the spoilage
+  asked. Vocabulary: pipeline.ts + navBadges.ts CLOSED_BATCH gain 'Closed' (what the close
+  stamps) and the Classic register filter offers it — otherwise a closed run would still count
+  as open work. Gates: tsc -b, 1047 passed (+6), lint 10 (baseline), build pass.

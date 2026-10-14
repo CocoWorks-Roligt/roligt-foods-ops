@@ -4030,6 +4030,12 @@ table tbody tr.subrow > td {
   max-width: 640px;
 }
 
+/* The pipeline flag's third card — the Extraction stage form (WORKFLOW W8). */
+.stage-picker-3 {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  max-width: 980px;
+}
+
 /* The melange page's "no recipes yet" prompt: one line of explanation and the button
    that fixes it, side by side, wrapping to two rows on a phone. */
 .melange-setup-note {
