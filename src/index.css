@@ -4042,6 +4042,12 @@ table tbody tr.subrow > td {
   max-width: 980px;
 }
 
+/* …and its fifth — the Packing stage form (WORKFLOW W10). */
+.stage-picker-5 {
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  max-width: 1220px;
+}
+
 /* The melange page's "no recipes yet" prompt: one line of explanation and the button
    that fixes it, side by side, wrapping to two rows on a phone. */
 .melange-setup-note {

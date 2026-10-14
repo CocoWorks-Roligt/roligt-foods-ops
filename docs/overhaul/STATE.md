@@ -1,5 +1,5 @@
 # STATE — Beverage Ops Platform Overhaul
-Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W9 done (Pipeline Home, Batch Detail, PO endpoints, PO form, GRN↔PO linkage, Receipt stage form, Coconut Grading form, Extraction stage form, Blend stage form); W10 Packing stage form next | Branch: dev | Base: de4c13b
+Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W10 done (Pipeline Home, Batch Detail, PO endpoints, PO form, GRN↔PO linkage, Receipt stage form, Coconut Grading form, Extraction stage form, Blend stage form, Packing stage form); W11 QC test entry next | Branch: dev | Base: de4c13b
 
 ## Contracts
 - v1.7 (2026-10-14, W8): +BatchVersionExtension — the snapshot's batches carry documents.version
@@ -23,17 +23,23 @@ Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W9 done (Pipeline H
 ## Locks
 - none
 
-## W10 design notes (next slice — Packing stage form, read before building)
-- Chain §3.3-6: glass bottles = the standard flow; BIB pouches (1L/2.5L/5L) are stored LOOSE
-  in the cold room and the POUCH is the finished-goods unit tracked by lot, size, location.
-  The carton decision is dispatch-time (§3.3-9, SHIPMENT-era) — packing never touches cartons.
-- CHECK FIRST what the Classic Packing page already writes (PackingRuns: bulkItem/medium,
-  packs, OutputLine {sku, packs, litres, unitCost, expiry}) and whether BIB SKUs / sizes /
-  loose-pouch storage exist as items+areas today. The stage form posts through the SAME
-  Classic packing path; only a real gap in that path is new backend.
-- Same pattern as W8/W9: pipeline flag, lazy chunk, pool = the lots the packing post itself
-  judges (W8's pressableLots lesson), prefill off the picked bulk, useDraft for the usual
-  room, plain-language refusals from the write path's own words.
+## W11 design notes (next slice — QC test entry, read before building)
+- CHECK FIRST what the Classic Quality page already writes (QC records: parameters vs
+  spec, disposition Pending→Hold/Released/Rejected/…, per-product verdicts) and how a
+  verdict moves stock (postPackingLines stamps packs with the bulk's own verdict;
+  qc_gate_v2's release arm — can.release_lot seam, DECISIONS — is server-side and
+  the flag stays OFF until #2 lands). §3.3-7 hard gate: unreleased lots cannot be
+  blended, packed or dispatched — enforcement exists; the stage form is the entry half.
+- Same pattern as W6–W10: pipeline flag, lazy chunk, queue = the pipeline QC tile's own
+  predicate (Pending, oldest first — qcAged), plain-language refusals from the write
+  path's own words. QC verdict posts through the SAME Classic path.
+
+## W10 notes (done 2026-10-14 — kept one line: see PROGRESS log)
+- Packing form = 5th Production card behind pipeline; ONE write through the SAME
+  createPackingRun (no close — a run posts complete, so no queue mode and the
+  pipeline Packing tile stays an activity tile); pools = the write path's own folds
+  (DRAWABLE bulk by batch, product master's packs); cartons never touched
+  (dispatch-time decision, §3.3-9).
 
 ## W9 notes (done 2026-10-14 — kept one line: see PROGRESS log)
 - Blend form = 4th Production card behind pipeline; offers every ACTIVE recipe (milk among
@@ -102,6 +108,13 @@ Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W9 done (Pipeline H
 - Stage forms offer spoilage reasons from the frozen SPOILAGE_REASON_SEEDS (their stage +
   'any'); the server's editable spoilage_reasons collection stays the authority and the
   close's 422 is its word — never read spoilage_reasons client-side.
+- The Packing stage form (PackingTab) posts through the SAME createPackingRun and has NO
+  close or queue mode: a packing run posts complete. The pipeline Packing tile stays an
+  activity tile (runs posted today) whose rows link the register — do not convert it to a
+  queue unless a close concept is added. packingStage.ts pools mirror the write path
+  (bulkByBatch = checkPacking's own DRAWABLE rows; packsForBulk hides retired packs while
+  fillableBulk keeps a retired-only bulk offered — Classic's own fold), and packing never
+  counts a carton: the carton decision is dispatch-time (§3.3-9, SHIPMENT-era).
 - If the split (multi-file) prompt version is adopted: do NOT copy its STATE/PROGRESS/DECISIONS
   templates over the live files, and rename its DOMAIN.md (business rules) before adding — the live
   DOMAIN.md is the current-state map and they collide.

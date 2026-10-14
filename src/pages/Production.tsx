@@ -9,9 +9,12 @@
  *
  * The pipeline flag adds a third card (WORKFLOW W8): the Extraction stage form,
  * where a pressing is posted AND closed — graded lots in, water and malai out,
- * spoilage said out loud — and a fourth (WORKFLOW W9): the Blend stage form,
- * where an intermediate run (coconut milk among them) is drawn off a recipe and
- * closed the same way. Each is its own lazy chunk; Classic never loads them.
+ * spoilage said out loud — a fourth (WORKFLOW W9): the Blend stage form, where
+ * an intermediate run (coconut milk among them) is drawn off a recipe and
+ * closed the same way, and a fifth (WORKFLOW W10): the Packing stage form,
+ * where bulk off a batch lot is filled into packs — bottles the standard flow,
+ * BiB pouches loose in the cold room. Each is its own lazy chunk; Classic never
+ * loads them.
  */
 
 import { Suspense, lazy, useEffect, useState } from 'react'
@@ -26,7 +29,10 @@ const ExtractionTab = lazy(() => import('./ExtractionTab').then((m) => ({ defaul
 /** The pipeline flag's Blend stage form — its own chunk, so Classic never loads it. */
 const BlendTab = lazy(() => import('./BlendTab').then((m) => ({ default: m.BlendTab })))
 
-type Stage = 'extraction' | 'melange' | 'run' | 'blend'
+/** The pipeline flag's Packing stage form — its own chunk, so Classic never loads it. */
+const PackingTab = lazy(() => import('./PackingTab').then((m) => ({ default: m.PackingTab })))
+
+type Stage = 'extraction' | 'melange' | 'run' | 'blend' | 'pack'
 
 export function Production() {
   const { flags } = useApp()
@@ -41,7 +47,9 @@ export function Production() {
         ? 'run'
         : params.get('stage') === 'blend'
           ? 'blend'
-          : 'extraction',
+          : params.get('stage') === 'pack'
+            ? 'pack'
+            : 'extraction',
   )
   // A link to a run lands here with ?stage=… while the page may already be open
   // on another stage, so the tab follows the address as well as the click.
@@ -50,6 +58,7 @@ export function Production() {
     if (linkedStage === 'melange' || linkedStage === 'extraction') setStage(linkedStage)
     else if (linkedStage === 'run' && flags.pipeline) setStage('run')
     else if (linkedStage === 'blend' && flags.pipeline) setStage('blend')
+    else if (linkedStage === 'pack' && flags.pipeline) setStage('pack')
   }, [linkedStage, flags.pipeline])
 
   const cards: { id: Stage; label: string; blurb: string }[] = [
@@ -59,6 +68,7 @@ export function Production() {
       ? [
           { id: 'run' as Stage, label: 'Run a pressing', blurb: 'Graded lots in, water and malai out, closed here' },
           { id: 'blend' as Stage, label: 'Run a blend', blurb: 'Recipe components in, a blend lot out, closed here' },
+          { id: 'pack' as Stage, label: 'Run a packing', blurb: 'Bulk off a batch lot into bottles or loose BiB pouches' },
         ]
       : []),
   ]
@@ -88,6 +98,10 @@ export function Production() {
       ) : stage === 'blend' ? (
         <Suspense fallback={<div className="note">Loading the blending form…</div>}>
           <BlendTab />
+        </Suspense>
+      ) : stage === 'pack' ? (
+        <Suspense fallback={<div className="note">Loading the packing form…</div>}>
+          <PackingTab />
         </Suspense>
       ) : (
         <ExtractionBatches />
