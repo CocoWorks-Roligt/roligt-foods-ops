@@ -1,5 +1,5 @@
 # STATE — Beverage Ops Platform Overhaul
-Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W11 done (Pipeline Home, Batch Detail, PO endpoints, PO form, GRN↔PO linkage, Receipt stage form, Coconut Grading form, Extraction stage form, Blend stage form, Packing stage form, QC test entry form); W12 Control Sample register next | Branch: dev | Base: de4c13b
+Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W12 done (Pipeline Home, Batch Detail, PO endpoints, PO form, GRN↔PO linkage, Receipt stage form, Coconut Grading form, Extraction stage form, Blend stage form, Packing stage form, QC test entry form, control sample destruction shelf); W13 Storage put-away next | Branch: dev | Base: de4c13b
 
 ## Contracts
 - v1.7 (2026-10-14, W8): +BatchVersionExtension — the snapshot's batches carry documents.version
@@ -23,15 +23,21 @@ Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W11 done (Pipeline 
 ## Locks
 - none
 
-## W12 design notes (next slice — Control Sample register, read before building)
-- CHECK FIRST what Classic ControlSamples.tsx already writes (sample rows linked to the
-  batch, storage bin, retention expiry, destruction) and the §3.3-7 sample rule: a
-  control sample links to its parent batch with timestamp, bin, retention expiry; the
-  stock-deduction question is DECISIONS' ASSUMPTION (default: yes, via explicit sample
-  movement — check what the write path actually does before assuming).
-- Same pattern as W6–W11: pipeline flag, lazy chunk, queue = the pipeline Control samples
-  tile's own predicate (controlSampleRows: kept, expiring within the 7-day horizon —
-  pipeline.ts), write through the SAME Classic path, refusals in its own words.
+## W13 design notes (next slice — Storage put-away, read before building)
+- CHECK FIRST what Classic Storage.tsx / Inventory.tsx already do (areas incl. cold room,
+  moves, put-away) and the §3.3-8 rule: zones Ambient, Cold Room, Quarantine, Dispatch
+  Staging as a cross-cutting layer, intermediates first-class stock. The Receipt form
+  (W6) and Packing form (W10) already choose a storage area on their own writes — this
+  form is for stock ALREADY booked that needs moving/putting away (the pipeline Stock
+  tile's held lots are the likely queue: quarantine/hold-area rows).
+- Same pattern as W6–W12: pipeline flag, lazy chunk, queue = the pipeline Stock tile's own
+  predicate where it fits, write through the SAME Classic move path, refusals in its own
+  words (hold-area rules in qcExempt.ts/saveQc are the constraint edges).
+
+## W12 notes (done 2026-10-14 — kept one line: see PROGRESS log)
+- Destruction shelf = "Destruction shelf" tab on Control Samples behind pipeline; posts
+  through the SAME updateControlSample; dueSamples pinned to the tile's kept-in-7-day
+  predicate, nearest expiry first; samples stay NEVER-stock (no inventory write exists).
 
 ## W11 notes (done 2026-10-14 — kept one line: see PROGRESS log)
 - QC test entry = "Test entry" tab on Quality behind pipeline; posts through the SAME
@@ -127,6 +133,12 @@ Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W11 done (Pipeline 
   /quality?tab=entry — keep the two in step if either is reworked. Lab reports and
   evaluations attach only from the register's Review, and startQc (raising records for
   pre-per-product batches) stays register-side.
+- Control samples are NEVER stock (controlSamples.ts's own law): they draw bulk and
+  packing material on the packing run and from then on are only a record — the
+  destruction shelf (SamplesTab) writes nothing but updateControlSample. dueSamples
+  (sampleStage.ts) is pinned to the pipeline samples tile's kept-in-7-days count and the
+  tile's rows link /control-samples?tab=shelf — keep the two in step. No sample move,
+  issue or dispatch path may ever exist.
 - If the split (multi-file) prompt version is adopted: do NOT copy its STATE/PROGRESS/DECISIONS
   templates over the live files, and rename its DOMAIN.md (business rules) before adding — the live
   DOMAIN.md is the current-state map and they collide.

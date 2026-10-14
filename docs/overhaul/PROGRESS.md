@@ -1,5 +1,5 @@
 # PROGRESS — Beverage Ops Platform Overhaul
-Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW through W11
+Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW through W12
 
 | Task | Agent | Status | Files | Next action |
 |---|---|---|---|---|
@@ -31,6 +31,7 @@ Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW thro
 | P3/W9: Blend stage form — intermediate runs incl. coconut milk | WORKFLOW | done | src/pages/BlendTab.tsx, Production.tsx (4th card, pipeline), src/lib/blendStage.*(+test), src/lib/extractionApi.ts→runCloseApi.ts (rename: shared close client), ExtractionTab.tsx (import), pipeline.ts (Blending rows → ?stage=blend), index.css (stage-picker-4) | 1051 tests (+4); contracts stay v1.7 (no new wire); W10 Packing stage form next |
 | P3/W10: Packing stage form (bottles + loose BIB pouches) | WORKFLOW | done | src/pages/PackingTab.tsx, Production.tsx (5th card, pipeline), src/lib/packingStage.*(+test), index.css (stage-picker-5) | 1056 tests (+5); contracts stay v1.7 (no new wire); W11 QC test entry next |
 | P3/W11: QC test entry form (bench queue) | WORKFLOW | done | src/pages/QcEntryTab.tsx, Quality.tsx (Test entry tab, pipeline), src/lib/qcStage.*(+test), pipeline.ts (QC rows → ?tab=entry) | 1059 tests (+3); contracts stay v1.7 (no new wire); W12 Control Sample register next |
+| P3/W12: Control sample destruction shelf | WORKFLOW | done | src/pages/SamplesTab.tsx, ControlSamples.tsx (Destruction shelf tab, pipeline), src/lib/sampleStage.*(+test), pipeline.ts (samples rows → ?tab=shelf) | 1061 tests (+2); contracts stay v1.7 (no new wire); W13 Storage put-away next |
 
 ## Log
 - 2026-10-13 Phase 0 complete. Baseline green (745 tests, tsc -b, lint, build @ de4c13b). DB target confirmed:
@@ -245,3 +246,20 @@ Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW thro
   pre-per-product batches stays on the register too (startQc) — every batch posted since
   gets its records on booking. Contracts stay v1.7 (no new wire). Gates: tsc -b, 1059
   passed (+3), lint 10 (baseline), build pass.
+- 2026-10-14 WORKFLOW W12. The Control Sample destruction shelf — a "Destruction shelf" tab
+  on Control Samples behind the pipeline flag (lazy chunk; Classic register untouched when
+  off; the pipeline Control samples tile's rows now link /control-samples?tab=shelf).
+  Samples are recorded on the packing run that kept them back (W10's form) and are NEVER
+  stock; the only thing a kept sample still owes is its destruction date, so that is the
+  form's one question. NO new write: it posts through the SAME updateControlSample the
+  register's Mark Destroyed uses (refusals are its own toasts — before the production day,
+  future day, clearing who collected them; the date input bounds itself exactly as the
+  register dialog does, min producedOn max today). sampleStage.ts is one fold: dueSamples —
+  the tile's own kept-and-inside-the-7-day-horizon predicate (controlSampleRows/sampleStatus,
+  never re-derived), ordered NEAREST EXPIRY FIRST (past-expiry first — the tile's expiry
+  flag names exactly them), count pinned to pipelineStages under test. The form: shelf
+  select + ScanInput (run or batch id), picked sample shows product/bottles/produced/expiry
+  with a past-expiry warning-note, destroyedOn defaults to TODAY on pick (the shelf's one
+  job starts filled), collectedBy/remark editable, and after a save the form advances to
+  the next sample. Contracts stay v1.7 (no new wire). Gates: tsc -b, 1061 passed (+2),
+  lint 10 (baseline), build pass.
