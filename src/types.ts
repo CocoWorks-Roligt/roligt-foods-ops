@@ -391,6 +391,14 @@ export interface Grn {
    *  Receipt form). The PO's own receivedGrnIds carries the same link on the
    *  server side; this is the receipt's answer to "which order called it in". */
   poId?: string
+  /**
+   * The documents row's version, read-only, attached when the D1 snapshot is
+   * parsed (contracts v1.6) — the CAS token the grading form sends as POST
+   * /api/grading's expectedVersion. Never written back: the write paths
+   * preflight their own versions server-side, and a value embedded in stored
+   * json would only go stale.
+   */
+  version?: number
 }
 
 export interface SourceLine {

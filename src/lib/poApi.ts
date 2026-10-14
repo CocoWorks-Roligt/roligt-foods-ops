@@ -4,6 +4,11 @@
  * origin cookie, one 401 is final and swaps in the login screen) plus the
  * Idempotency-Key every mutating call needs, so a double-tap or a flaky
  * connection can never mint two numbers or move a status twice.
+ *
+ * The call/read helpers and PoApiError below are the BFF client's shared
+ * plumbing — gradingApi.ts reuses them rather than growing a second copy of
+ * the same session semantics (the error class is shape-generic: message plus
+ * the guard's own code and field details).
  */
 import { notifyUnauthorized } from './authEvents'
 import { UnauthorizedError } from './dbApi'
@@ -30,7 +35,8 @@ export class PoApiError extends Error {
   }
 }
 
-async function call(path: string, init?: RequestInit & { idempotencyKey?: string }): Promise<Response> {
+/** The shared fetch wrapper: session cookie, JSON headers, 401 handling. */
+export async function call(path: string, init?: RequestInit & { idempotencyKey?: string }): Promise<Response> {
   const headers: Record<string, string> = { 'content-type': 'application/json' }
   if (init?.idempotencyKey) headers['Idempotency-Key'] = init.idempotencyKey
   const res = await fetch(path, {
@@ -46,7 +52,7 @@ async function call(path: string, init?: RequestInit & { idempotencyKey?: string
 }
 
 /** Reads the shared ApiError shape; only the ok arm returns. */
-async function read<T>(res: Response): Promise<T> {
+export async function read<T>(res: Response): Promise<T> {
   const j = (await res.json().catch(() => ({}))) as Record<string, unknown>
   if (!res.ok) {
     const e = j as { error?: string; code?: string; details?: Record<string, string> }

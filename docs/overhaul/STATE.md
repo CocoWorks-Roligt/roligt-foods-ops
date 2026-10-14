@@ -1,8 +1,10 @@
 # STATE — Beverage Ops Platform Overhaul
-Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W6 done (Pipeline Home, Batch Detail, PO endpoints, PO form, GRN↔PO linkage, Receipt stage form); W7 Coconut Grading form next | Branch: dev | Base: de4c13b
+Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W7 done (Pipeline Home, Batch Detail, PO endpoints, PO form, GRN↔PO linkage, Receipt stage form, Coconut Grading form); W8 Extraction stage form next | Branch: dev | Base: de4c13b
 
 ## Contracts
-- v1.5 (2026-10-13, W5): +POST /api/purchase-orders/:id/receive (GRN↔PO linkage);
+- v1.6 (2026-10-14, W7): +GrnVersionExtension — the D1 snapshot's grns carry documents.version
+  (read-only ride-along, attached at snapshot parse; POST /api/grading's expectedVersion reads it);
+  v1.5 (2026-10-13, W5): +POST /api/purchase-orders/:id/receive (GRN↔PO linkage);
   v1.4 (2026-10-13, W4): +PurchaseOrderVersionExtension (PO responses carry documents.version);
   v1.3 (2026-10-13, W3): +purchase-order wire shapes; v1.2 (2026-10-13, B4): +RevisionEvent (SSE); v1.1 (2026-10-13, LEAD): src/lib/contracts.ts — frozen v1 plus additive deltas (challan, recipeId, avgUnitWeight naming → file header + ARCHITECTURE.md §8). WORKFLOW builds against v1.5.
 
@@ -19,19 +21,24 @@ Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W6 done (Pipeline H
 ## Locks
 - none
 
-## W7 design notes (next slice — Coconut Grading form, read before building)
-- The client form for POST /api/grading (staged lots W6 now creates). Pipeline's Grading stage
-  tile (pipeline.ts id 'grading') currently hrefs '/procurement' — point its rows at the form.
-- OPEN QUESTION to solve first: the endpoint wants expectedVersion against the D1 documents
-  version, but client state carries no grn versions. Either ride versions on /api/snapshot's
-  grns (additive; check d1Snapshot.ts first) or add a GET. Prefer the snapshot ride-along —
-  one read, no new endpoint, matches how flags ride.
-- Form: pick a pending staged lot (gradingMode 'staged', !gradedOn), grades a/b/c/reject must
-  sum to the counted total (same QTY_EPSILON wording as priceGrn), optional free override.
-  After 200 the lot leaves the Grading queue (gradedOn) — the ledger's paired Grading lines
-  (Quarantine→Available/Rejected) are the server's, never re-derived client-side.
-- If the PO link from W6 is still pending on a lot (GRN has poId but the PO lacks it),
-  the ReceiptTab sweep heals it on next visit — no grading-form involvement needed.
+## W8 design notes (next slice — Extraction stage form, read before building)
+- The client form for the extraction run: multi-output (water/malai/by-product) + MANDATORY
+  spoilage, posting through the B3 close machinery (POST /api/transformations/close; contracts
+  §-transformation). The SHELL TransformationForm primitive (live computeMassBalance) already
+  exists — build the page on it, do not re-derive mass balance.
+- batch_v2 stays OFF (DECISIONS #2: 3/14 historical batches close at 2%; the decision on
+  unaccounted-loss/per-material tolerance/warn-first is open). Whatever form is built must run
+  under the pipeline flag and read the CURRENT vocabulary (Classic Extraction batches +
+  rulesGate close answers), exactly as W1/W2 did — the v2 run machine waits for the flag.
+- Inputs: graded coconut lots (the Grading form's output — Available stock rows via
+  canConsumeLot per lot, as W2's QC gate reads). Recipe/BOM templates are versioned plain data
+  (ARCHITECTURE) — check what B1 stamped on items/melanges before wiring recipe variance.
+- Spoilage reason codes are per-stage editable reference data (spoilage_reasons collection,
+  B3 tests seed them) — offer the extraction stage's own codes only.
+
+## W7 notes (done 2026-10-14 — kept one line: see PROGRESS log)
+- Grading form = 5th Procurement tab behind pipeline; grn version rides the snapshot (v1.6);
+  queue = same predicate as the pipeline tile; costs/ledger stay the server's.
 
 ## W6 notes (done 2026-10-14 — kept one line: see PROGRESS log)
 - Receipt form = 4th Procurement tab behind pipeline; variants per item procurementForm;
@@ -62,6 +69,11 @@ Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W6 done (Pipeline H
 - ReceiptTab's PO link must stay GRN-first, link-second (poId rides the GRN doc; the sweep effect
   links any poId-carrying GRN the PO's receivedGrnIds lacks — do not swap in createGrn's return
   value as the grnId; it is 'ok' whenever the setState updater does not run eagerly).
+- The grn version ride-along (v1.6) is READ-ONLY: attached at snapshot parse for grns only, the
+  documents.version COLUMN overwrites any stale embedded value, and no write path consults the
+  field (client writes preflight their own versions server-side). Keep it that way if the
+  snapshot or grading paths are reworked; and the grading form never derives costs or ledger
+  lines client-side — priceGrn is a preview, the endpoint's math is the record.
 - If the split (multi-file) prompt version is adopted: do NOT copy its STATE/PROGRESS/DECISIONS
   templates over the live files, and rename its DOMAIN.md (business rules) before adding — the live
   DOMAIN.md is the current-state map and they collide.

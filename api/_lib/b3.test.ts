@@ -19,6 +19,7 @@ import type { Batch, BulkOutputLine, Dispatch, Grn, Order, PackingRun } from '..
 import type { StagedGradingResponse } from '../../src/lib/contracts.js'
 import { closeTransformation } from './closeRun.js'
 import { stagedGrading } from './gradingPost.js'
+import { readSnapshotD1, resetD1Caches } from './d1Snapshot.js'
 import { confirmDispatch } from './dispatchConfirm.js'
 import { genealogyOf, searchFor } from './traceSearch.js'
 import { IDEMPOTENCY_TTL_MS, bodyHashOf, findReceipt, requireIdempotencyKey, replayOf } from './idempotency.js'
@@ -673,6 +674,19 @@ describe('POST /api/grading', () => {
     const d1 = new FakeD1()
     gradingBase(d1)
     await expectRefusal(grade(d1, procurement, gradeReq({ expectedVersion: 0 }), 'k1'), 409, 'cas_version')
+  })
+
+  it('W7: the version the SNAPSHOT rides on the grn satisfies the endpoint\'s CAS', async () => {
+    const d1 = new FakeD1()
+    gradingBase(d1)
+    resetD1Caches() // the snapshot reader's memos are module state — read THIS database fresh
+    const snap = await readSnapshotD1(client(d1))
+    const ridden = (snap.state?.grns ?? []).find((g) => (g as { id?: string }).id === 'GRN-C1') as
+      | { version?: number }
+      | undefined
+    expect(ridden?.version).toBe(d1.doc('grns', 'GRN-C1')!.version) // the column, on the wire
+    const out = await grade(d1, procurement, gradeReq({ expectedVersion: ridden!.version }), 'k1')
+    expect(out.status).toBe(200)
   })
 
   it('replay: same key+body → the stored response, no second write; changed body → 422', async () => {

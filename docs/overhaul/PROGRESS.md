@@ -26,6 +26,7 @@ Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b
 | P3/W4: PO form + register (contracts v1.4) | WORKFLOW | done | src/lib/poApi.ts, src/pages/PurchaseOrdersTab.tsx, Procurement.tsx tab, contracts.ts, index.css | 1008 tests; W5 Receipt forms next |
 | P3/W5: GRN↔PO linkage endpoint (contracts v1.5) | WORKFLOW | done | api/_lib/purchaseOrders.ts (+receive, po.test), api/purchase-orders/[id]/receive.ts, contracts.ts, RBAC §c | 1014 tests; W6 Receipt stage form next |
 | P3/W6: Receipt stage form (×3 by procurement form + staged grading) | WORKFLOW | done | src/pages/ReceiptTab.tsx, Procurement.tsx (4th tab), src/lib/receiptStage.*(+test), grn.ts(+test), context/domains/procurement.ts(+test), poApi.ts (receivePurchaseOrderCall), types.ts (Grn.poId), api/_lib/gradingPost.ts (gradedOn fix, b3.test) | 1032 tests; W7 Coconut Grading form next |
+| P3/W7: Coconut Grading form (staged lots; contracts v1.6) | WORKFLOW | done | src/pages/GradingTab.tsx, Procurement.tsx (5th tab), src/lib/gradingStage.*(+test), gradingApi.ts, poApi.ts (shared helpers exported), pipeline.ts (Grading rows → form), api/_lib/d1Snapshot.ts (grn version ride-along), contracts.ts v1.6, types.ts (Grn.version), d1Engine.test, b3.test | 1041 tests; W8 Extraction stage form next |
 
 ## Log
 - 2026-10-13 Phase 0 complete. Baseline green (745 tests, tsc -b, lint, build @ de4c13b). DB target confirmed:
@@ -134,3 +135,18 @@ Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b
   Link failure surfaces a note; the receipt is never lost (append-once linkage). useDraft
   remembers last vendor + storage area. Gates: tsc -b, 1032 passed (+18), lint 10 (baseline),
   build pass.
+- 2026-10-14 WORKFLOW W7. The Coconut Grading form — a fifth Procurement tab ("Grade coconuts",
+  pipeline flag, lazy chunk) and the client half of POST /api/grading, which existed since B3
+  with no form to call it. OPEN QUESTION from STATE solved by the snapshot ride-along (contracts
+  v1.6): d1Snapshot now selects the documents version column and attaches it onto grns at parse
+  time (grns only; the COLUMN overwrites any stale round-tripped embed; Grn.version is read-only,
+  the write paths preflight their own versions) — the grading form's expectedVersion reads
+  grn.version, no new GET. gradingStage.ts: pendingGrading (same predicate as the pipeline tile,
+  oldest first), gradingInput (the staged lot re-priced as a gate-graded GrnInput) so the form's
+  whole client check is priceGrn with the write path's own words and QTY_EPSILON; remainingToSort
+  live hint. GradingTab: queue select + lot-number ScanInput, a/b/c/reject + free override
+  (defaults to the gate's count, as the endpoint does), priced preview; after 200 the lot is
+  hidden locally and the snapshot's gradedOn confirms it — the server's paired Grading ledger
+  lines are never re-derived client-side. cas_version surfaces as "changed after you read it";
+  already_graded drops the lot from the queue. Pipeline's Grading tile rows now href
+  /procurement?tab=grading. Gates: tsc -b, 1041 passed (+9), lint 10 (baseline), build pass.

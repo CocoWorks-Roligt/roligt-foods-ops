@@ -48,6 +48,9 @@ const PurchaseOrdersTab = lazy(() =>
 /** The pipeline flag's Receipt stage form — its own chunk for the same reason. */
 const ReceiptTab = lazy(() => import('./ReceiptTab').then((m) => ({ default: m.ReceiptTab })))
 
+/** The pipeline flag's Coconut Grading form (WORKFLOW W7) — its own chunk too. */
+const GradingTab = lazy(() => import('./GradingTab').then((m) => ({ default: m.GradingTab })))
+
 /** Line under the source name: the grower when a vendor is named above it, plus the area. */
 function sourceNote(g: Grn) {
   return [g.farmerName ? g.farmer : 'Direct farmer purchase', g.area].filter(Boolean).join(' · ')
@@ -144,17 +147,18 @@ export function Procurement() {
   /**
    * Which sort of receipt is on screen. Held in the URL so the Packing Materials page
    * can link straight to the one it means, and so a reload does not drop back to
-   * produce with a half-typed form behind it. The PO register and the Receipt
-   * stage form ride the pipeline flag (WORKFLOW W4/W6): without it neither tab
-   * is offered at all.
+   * produce with a half-typed form behind it. The PO register, the Receipt stage
+   * form and the Coconut Grading form ride the pipeline flag (WORKFLOW W4/W6/W7):
+   * without it none of those tabs is offered at all.
    */
   const tab =
-    (params.get('tab') === 'orders' || params.get('tab') === 'receive') && flags.pipeline
-      ? (params.get('tab') as 'orders' | 'receive')
+    (params.get('tab') === 'orders' || params.get('tab') === 'receive' || params.get('tab') === 'grading') &&
+    flags.pipeline
+      ? (params.get('tab') as 'orders' | 'receive' | 'grading')
       : params.get('tab') === 'packing'
         ? 'packing'
         : 'produce'
-  const setTab = (next: 'produce' | 'packing' | 'orders' | 'receive') =>
+  const setTab = (next: 'produce' | 'packing' | 'orders' | 'receive' | 'grading') =>
     setParams(next === 'produce' ? {} : { tab: next }, { replace: true })
 
   const rows = useMemo(() => filterGrnRows(state.grns, search, status), [search, state.grns, status])
@@ -461,7 +465,7 @@ export function Procurement() {
           </span>
         </div>
         <div className="section-head-actions">
-          {tab === 'orders' || tab === 'receive' ? null : (
+          {tab === 'orders' || tab === 'receive' || tab === 'grading' ? null : (
             <button
               className="btn btn-primary"
               onClick={tab === 'packing' ? openPmNew : openNew}
@@ -502,6 +506,13 @@ export function Procurement() {
               onClick={() => setTab('receive')}
             >
               Receive goods
+            </button>
+            <button
+              type="button"
+              className={`type-tab ${tab === 'grading' ? 'active' : ''}`}
+              onClick={() => setTab('grading')}
+            >
+              Grade coconuts
             </button>
           </>
         ) : null}
@@ -652,6 +663,10 @@ export function Procurement() {
       ) : tab === 'receive' ? (
         <Suspense fallback={<div className="note">Loading the receipt form…</div>}>
           <ReceiptTab />
+        </Suspense>
+      ) : tab === 'grading' ? (
+        <Suspense fallback={<div className="note">Loading the grading form…</div>}>
+          <GradingTab />
         </Suspense>
       ) : (
         <>

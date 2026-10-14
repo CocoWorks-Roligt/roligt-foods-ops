@@ -32,12 +32,15 @@ import { assembleState, type Assembled, type ParsedSnapshot } from './snapshot.j
 interface DocRow {
   id: string
   json: string
+  /** The CAS column — read for the grns' ride-along (contracts v1.6). */
+  version: number
 }
 
 /** The batch's per-statement rows, loosely typed — each SELECT fills its own columns. */
 interface BatchRow {
   id?: unknown
   json?: unknown
+  version?: unknown
   series?: unknown
   next?: unknown
   setting?: unknown
@@ -47,10 +50,15 @@ interface BatchRow {
 /** Page size per collection — 10k rows plus one overflow sentinel. */
 const PAGE = 10_000
 
-const SELECT_PAGE = 'SELECT id, json FROM documents WHERE collection = ? ORDER BY id LIMIT '
-const SELECT_AFTER = 'SELECT id, json FROM documents WHERE collection = ? AND id > ? ORDER BY id LIMIT '
+const SELECT_PAGE = 'SELECT id, json, version FROM documents WHERE collection = ? ORDER BY id LIMIT '
+const SELECT_AFTER =
+  'SELECT id, json, version FROM documents WHERE collection = ? AND id > ? ORDER BY id LIMIT '
 
-const docRowOf = (r: BatchRow): DocRow => ({ id: String(r.id ?? ''), json: typeof r.json === 'string' ? r.json : '' })
+const docRowOf = (r: BatchRow): DocRow => ({
+  id: String(r.id ?? ''),
+  json: typeof r.json === 'string' ? r.json : '',
+  version: Number(r.version) || 0,
+})
 
 /**
  * The documents/counters/meta rows → ParsedSnapshot, mirroring parseZohoRows
@@ -76,7 +84,12 @@ function parseD1Rows(tables: Record<string, DocRow[]>, counterRows: BatchRow[], 
             try {
               const doc = JSON.parse(r.json) as unknown
               if (!doc || typeof doc !== 'object') return null // parses, but is no document (rowToDoc's null contract)
-              return fromRow ? fromRow(doc as Record<string, unknown>) : (doc as Record<string, unknown>)
+              const out = fromRow ? fromRow(doc as Record<string, unknown>) : (doc as Record<string, unknown>)
+              // grns carry the row's CAS version as a read-only ride-along
+              // (contracts v1.6): the grading form's expectedVersion reads it.
+              // The COLUMN is the truth — the spread order overwrites any stale
+              // version a round-tripped document embedded in its json.
+              return key === 'grns' ? { ...out, version: r.version } : out
             } catch {
               return null // a hand-written row no engine path can produce — skipped, never fatal
             }

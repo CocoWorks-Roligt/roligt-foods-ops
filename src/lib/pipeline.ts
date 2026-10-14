@@ -6,9 +6,9 @@
  *
  * Same contract as navBadges: pure over the plant the tab already holds, every
  * count in each stage's own existing vocabulary, never a rule invented for the
- * board. A stage whose waiting-state has no vocabulary yet (Grading before
- * staged grading ships) honestly reads zero. Bottleneck notes are sentences,
- * not codes — they go on screen as written.
+ * board. A stage whose waiting-state has no vocabulary yet honestly reads
+ * zero. Bottleneck notes are sentences, not codes — they go on screen as
+ * written.
  */
 import { lowStockItems } from './alerts.ts'
 import { addDays, controlSampleRows } from './controlSamples.ts'
@@ -166,7 +166,7 @@ export function pipelineStages(state: AppState, today = toDateKey()): PipelineSt
       label: 'Grading',
       queue: true,
       count: grading.length,
-      rows: grading.map((g) => ({ id: g.id, label: g.lot, detail: g.farmerName, status: 'Pending', date: g.date, href: '/procurement' })),
+      rows: grading.map((g) => ({ id: g.id, label: g.lot, detail: g.farmerName, status: 'Pending', date: g.date, href: '/procurement?tab=grading' })),
     },
     {
       id: 'extraction',

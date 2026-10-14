@@ -7,6 +7,14 @@
  * neither changes it — a change after freeze needs LEAD approval and a minor
  * version bump, recorded in ARCHITECTURE.md.
  *
+ * v1.6 (2026-10-14, LEAD-approved additive delta — WORKFLOW W7):
+ * - GrnVersionExtension — the D1 snapshot's grns carry their documents.version
+ *   as a read-only ride-along, so the grading form's POST /api/grading can read
+ *   the expectedVersion it must send (the client state carried no versions; a
+ *   GET was the alternative, but one snapshot read already answers). The column
+ *   stays the only truth: the value is attached at snapshot-parse time and
+ *   overwrites whatever a round-tripped document embedded, and the stored json
+ *   never needs it.
  * v1.5 (2026-10-13, LEAD-approved additive delta — WORKFLOW W5):
  * - POST /api/purchase-orders/:id/receive — the Receipt form books a GRN
  *   against its PO: PurchaseOrderReceiveRequest / PurchaseOrderReceiveResponse.
@@ -689,6 +697,16 @@ export interface ItemExtension {
 /** grns + grading mode (staged mode arrives with the pipeline flag). */
 export interface GrnExtension {
   gradingMode?: GradingMode
+}
+
+/**
+ * grns + the documents.version the snapshot rides (v1.6): POST /api/grading's
+ * expectedVersion reads it. Attached by the D1 snapshot parse — never stored in
+ * the document json, and absent on the Zoho arm's grns (there the pipeline flag
+ * is off and the grading form is unreachable, so the field is optional).
+ */
+export interface GrnVersionExtension {
+  version: number
 }
 
 /** batches + recipe stamp and stage clock. */
