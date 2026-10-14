@@ -1,5 +1,5 @@
 # STATE — Beverage Ops Platform Overhaul
-Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W13 done (Pipeline Home, Batch Detail, PO endpoints, PO form, GRN↔PO linkage, Receipt stage form, Coconut Grading form, Extraction stage form, Blend stage form, Packing stage form, QC test entry form, control sample destruction shelf, Storage put-away queue); W14 Order stage form next | Branch: dev | Base: de4c13b
+Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W14 done (Pipeline Home, Batch Detail, PO endpoints, PO form, GRN↔PO linkage, Receipt stage form, Coconut Grading form, Extraction stage form, Blend stage form, Packing stage form, QC test entry form, control sample destruction shelf, Storage put-away queue, Order desk); W15 Dispatch stage form next | Branch: dev | Base: de4c13b
 
 ## Contracts
 - v1.7 (2026-10-14, W8): +BatchVersionExtension — the snapshot's batches carry documents.version
@@ -23,14 +23,20 @@ Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W13 done (Pipeline 
 ## Locks
 - none
 
-## W14 design notes (next slice — Order stage form, read before building)
-- CHECK FIRST what Classic Orders.tsx already does (create/edit order, lines, due date,
-  customer packaging default BOXED|LOOSE|ASK per §3.3-9 — the carton machinery is
-  SHIPMENT/dispatch-era, NOT this form's) and src/lib/ordersView.ts's pools.
-- Same pattern as W6–W13: pipeline flag, lazy chunk, queue/write through the SAME Classic
-  createOrder path; refusals in its own words. The pipeline Orders tile's rows link
-  /orders today — re-point at the new form's tab once it exists, keeping the tile's
-  count predicate in step.
+## W15 design notes (next slice — Dispatch stage form, read before building)
+- CHECK FIRST the Classic dispatch modal in Orders.tsx (allocations via seedAllocations,
+  vehicle, checkOrderDispatch's all-or-nothing) and Dispatch.tsx (the register). §3.3-9
+  packaging decision (BOXED/LOOSE/ASK, carton suggestion) is SHIPMENT-era where a carton
+  master exists — none does yet (AUDIT: PARTIAL), so W15 stays on the existing
+  dispatchOrder write and defers cartons.
+- Same pattern: pipeline flag, lazy chunk, queue = open orders (the desk's own
+  openOrderRows), write through the SAME dispatchOrder; refusals in its own words.
+
+## W14 notes (done 2026-10-14 — kept one line: see PROGRESS log)
+- Order desk = "Order desk" tab on Orders behind pipeline; open orders in ship-by order
+  (overdue first) each line vs releasedPacksBySku as a guide; raise/edit through the SAME
+  saveOrder; draftFromOrder/linesFromDraft extracted to ordersView (Classic modal shares
+  them); the Orders tile's rows link /orders?tab=desk.
 
 ## W13 notes (done 2026-10-14 — kept one line: see PROGRESS log)
 - Put-away = "Put away" tab on Inventory behind pipeline; posts through the SAME moveStock;
@@ -150,6 +156,11 @@ Updated: 2026-10-14 | Phase: 3 WORKFLOW in progress — W1–W13 done (Pipeline 
   (PutAwayTab) posts through the SAME moveStock with destinations from areaChoices
   verbatim — do not add a stricter placement rule client-side, and do not re-point the
   Stock tile's held rows at it.
+- draftFromOrder/linesFromDraft (ordersView.ts) are the ONE order-draft rebuild/flatten —
+  the Classic raise/edit modal and the Order desk both call them; keep them in step if
+  either form is reworked. The desk's fill preview is releasedPacksBySku (the dispatch
+  path's own pool) as a guide only — never a reservation; openOrderRows stays pinned to
+  the pipeline Orders tile's Open count, and the tile's rows link /orders?tab=desk.
 - If the split (multi-file) prompt version is adopted: do NOT copy its STATE/PROGRESS/DECISIONS
   templates over the live files, and rename its DOMAIN.md (business rules) before adding — the live
   DOMAIN.md is the current-state map and they collide.

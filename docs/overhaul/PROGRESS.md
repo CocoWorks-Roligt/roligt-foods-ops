@@ -1,5 +1,5 @@
 # PROGRESS — Beverage Ops Platform Overhaul
-Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW through W13
+Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW through W14
 
 | Task | Agent | Status | Files | Next action |
 |---|---|---|---|---|
@@ -33,6 +33,7 @@ Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW thro
 | P3/W11: QC test entry form (bench queue) | WORKFLOW | done | src/pages/QcEntryTab.tsx, Quality.tsx (Test entry tab, pipeline), src/lib/qcStage.*(+test), pipeline.ts (QC rows → ?tab=entry) | 1059 tests (+3); contracts stay v1.7 (no new wire); W12 Control Sample register next |
 | P3/W12: Control sample destruction shelf | WORKFLOW | done | src/pages/SamplesTab.tsx, ControlSamples.tsx (Destruction shelf tab, pipeline), src/lib/sampleStage.*(+test), pipeline.ts (samples rows → ?tab=shelf) | 1061 tests (+2); contracts stay v1.7 (no new wire); W13 Storage put-away next |
 | P3/W13: Storage put-away queue | WORKFLOW | done | src/pages/PutAwayTab.tsx, Inventory.tsx (Put away tab, pipeline), src/lib/storageStage.*(+test) | 1065 tests (+4); contracts stay v1.7 (no new wire); W14 Order stage form next |
+| P3/W14: Order desk | WORKFLOW | done | src/pages/OrderDeskTab.tsx, Orders.tsx (Order desk tab, pipeline), src/lib/orderStage.*(+test), ordersView.ts (draftFromOrder/linesFromDraft extracted), pipeline.ts (orders rows → ?tab=desk) | 1069 tests (+4); contracts stay v1.7 (no new wire); W15 Dispatch stage form next |
 
 ## Log
 - 2026-10-13 Phase 0 complete. Baseline green (745 tests, tsc -b, lint, build @ de4c13b). DB target confirmed:
@@ -282,3 +283,19 @@ Updated: 2026-10-14 | Branch: dev | Base commit: de4c13b | Phase 3 WORKFLOW thro
   pipeline.ts untouched: the Stock tile's held rows keep href /inventory — re-pointing them
   at a move form would lie about what they owe. Contracts stay v1.7 (no new wire). Gates:
   tsc -b, 1065 passed (+4), lint 10 (baseline), build pass.
+- 2026-10-14 WORKFLOW W14. The Order stage form — an "Order desk" tab on Orders behind the
+  pipeline flag (lazy chunk; Classic register untouched when off; the pipeline Orders tile's
+  rows now link /orders?tab=desk). orderStage.openOrderRows = the tile's own Open predicate,
+  soonest ship-by first with overdue (the tile's flag) at the head and undated last, count
+  pinned to pipelineStages under test; each line is held against releasedPacksBySku — the
+  dispatch path's own pool (Released, hold areas unofferable) — as a GUIDE, never a
+  reservation, with the register modal's own all-or-nothing words. NO new write: raise and
+  edit both post through the SAME saveOrder; its refusals are its own toasts. The draft
+  rebuild and flatten (openEdit's inline picked/formats/qtys + the onSave flatten loop) were
+  EXTRACTED into ordersView.ts as draftFromOrder/linesFromDraft — one implementation, the
+  Classic modal and the desk both call them now. The desk's form mirrors the modal's own
+  drinks/formats/qtys blocks (drinkCatalog + resolveBlocks, orphan blocks included), the
+  client checks ask saveOrder's own questions (customer, ship-by, ≥1 line), and useDraft
+  remembers the last customer. Dispatch itself is NOT here — it is W15's form (with the
+  §3.3-9 packaging step). Contracts stay v1.7 (no new wire). Gates: tsc -b, 1069 passed
+  (+4), lint 10 (baseline), build pass.
