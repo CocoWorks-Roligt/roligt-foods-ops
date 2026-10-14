@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { failOnPageErrors, dismissTour } from './helpers'
+import { failOnPageErrors } from './helpers'
 
 /**
  * Boot — the harness's own smoke, and W16's onboarding contract: a fresh

@@ -8,14 +8,27 @@ import type { Page } from '@playwright/test'
  * (boot.spec additionally asserts it offered itself).
  */
 
-/** Fails the test on uncaught page errors; /api/events 404 is by design
- * (the node harness serves no SSE; the client's designed fallback is the
- * /api/revision poll — exactly what the journey exercises). */
+/** Fails the test on uncaught page errors. Two console errors are by design,
+ * not defects: /api/events 404 (the node harness serves no SSE; the client's
+ * designed fallback is the /api/revision poll — exactly what the journey
+ * exercises) and 429s from the commit/snapshot throttles (Retry-After flow
+ * control — the device keeps the change local and the next poll retries it,
+ * so a journey's quick legs are EXPECTED to be throttled sometimes). */
 export function failOnPageErrors(page: Page, errors: string[]) {
   page.on('pageerror', (err) => errors.push(`pageerror: ${err}`))
   page.on('console', (msg) => {
-    if (msg.type() === 'error' && !msg.text().includes('/api/events')) {
-      errors.push(msg.text())
+    const text = msg.text()
+    // 429 is the commit throttle the client queues behind, 409 its CAS
+    // conflict path (refused whole, winners adopted, re-saved) — both are
+    // protocol events the sync engine owns, though the browser still logs
+    // the failed fetch itself. Everything else is the page failing.
+    if (
+      msg.type() === 'error' &&
+      !text.includes('/api/events') &&
+      !text.includes('429') &&
+      !text.includes('409 (Conflict)')
+    ) {
+      errors.push(text)
     }
   })
 }

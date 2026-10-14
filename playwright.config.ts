@@ -25,7 +25,10 @@ export default defineConfig({
   webServer: {
     command: 'node scripts/e2e/up.mjs',
     url: 'http://localhost:3000/api/revision',
-    reuseExistingServer: true,
+    // Never: a run must always rebuild the DB (up.mjs prepares it fresh) and
+    // boot its own harness. Reusing a stray server silently ran the journey
+    // against whatever state the last debug session left in it.
+    reuseExistingServer: false,
     timeout: 180_000,
   },
   projects: [

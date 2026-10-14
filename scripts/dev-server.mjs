@@ -210,7 +210,10 @@ const server = createServer(async (req, res) => {
         log(404)
         return
       }
-      const body = req.method === 'POST' || req.method === 'PUT' ? await readBody(req) : undefined
+      const body =
+        req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH'
+          ? await readBody(req)
+          : undefined
       if (path === '/api/commit' && body) {
         // Keep the exact commit payload on disk — the diff engine is client-side, so
         // this is the only place the wire truth of "what changed" exists.
