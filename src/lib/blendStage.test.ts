@@ -74,13 +74,13 @@ describe('blendReasonCodes', () => {
 })
 
 describe('activeRecipes', () => {
-  it('offers the plant\'s active recipes — retired ones are not offered', () => {
+  it("offers active recipes in BOTH spellings — the backfill's 'active' must not vanish them", () => {
     const melanges = [
-      { id: 'M-1', name: 'Coconut Milk', status: 'Active' },
+      { id: 'M-1', name: 'Coconut Milk', status: 'Active' }, // legacy/live spelling
+      { id: 'M-3', name: 'Iced Tea', status: 'active' }, // the backfill's contract spelling
       { id: 'M-2', name: 'Old Smoothie', status: 'Retired' },
-      { id: 'M-3', name: 'Iced Tea', status: 'active' }, // case matters: only the stamped word counts
     ] as AppState['melanges']
-    expect(activeRecipes(melanges).map((m) => m.id)).toEqual(['M-1'])
+    expect(activeRecipes(melanges).map((m) => m.id)).toEqual(['M-1', 'M-3'])
   })
 })
 

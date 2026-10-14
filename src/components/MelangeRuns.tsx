@@ -91,7 +91,9 @@ export function MelangeRuns() {
     )
   }, [bulks, formRows])
 
-  const activeRecipes = state.melanges.filter((m) => m.status === 'Active')
+  // Both spellings are live: legacy 'Active', the backfill's contract lowercase
+  // 'active' — see blendStage.activeRecipes for the vocabulary note.
+  const activeRecipes = state.melanges.filter((m) => m.status?.toLowerCase() === 'active')
   const selected = state.melanges.find((m) => m.id === melangeId)
   /**
    * A blend can never be one of its own components — `checkBatch` refuses it — so the

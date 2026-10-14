@@ -70,7 +70,12 @@ export function openBlendRuns(batches: readonly Batch[]): Batch[] {
     .sort((x, y) => x.date.localeCompare(y.date) || x.id.localeCompare(y.id))
 }
 
-/** The recipes the form offers: active melanges, the milk recipe among them. */
+/**
+ * The recipes the form offers: active melanges, the milk recipe among them.
+ * Both spellings are live — legacy rows say 'Active', the Phase-2 backfill
+ * normalises onto the contract's lowercase 'active' (RECIPE_STATUSES) — so the
+ * filter is case-insensitive; a backfilled recipe must not vanish from the form.
+ */
 export function activeRecipes(melanges: readonly Melange[]): Melange[] {
-  return melanges.filter((m) => m.status === 'Active')
+  return melanges.filter((m) => m.status?.toLowerCase() === 'active')
 }
