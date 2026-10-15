@@ -6,7 +6,9 @@
 import { describe, expect, it } from 'vitest'
 import { procurementKpis } from './procurement.ts'
 import { gradingExtractionKpis } from './gradingExtraction.ts'
-import type { AppState, Batch, Grn } from '../../types.ts'
+import { intermediatesBlendingKpis } from './intermediatesBlending.ts'
+import { packingKpis } from './packing.ts'
+import type { AppState, Batch, Grn, Product } from '../../types.ts'
 import type { PurchaseOrder } from '../contracts.ts'
 
 const W = { from: '2026-07-01', to: '2026-10-15' }
@@ -152,5 +154,180 @@ describe('gradingExtractionKpis', () => {
     expect(variance?.rows).toEqual([{ label: 'BAT-2026-0001', value: -3 }])
     const cycle = out.charts.find((c) => c.key === 'ge-cycle-time')
     expect(cycle?.rows?.[0]?.value).toBe(4)
+  })
+})
+
+describe('intermediatesBlendingKpis', () => {
+  const run = (over: Record<string, unknown>): Batch =>
+    ({ id: 'BAT-2026-0002', date: '2026-09-02', kind: 'Melange', blendLines: [], outputLines: [], ...over }) as unknown as Batch
+  const led = (over: Record<string, unknown>) =>
+    ({ id: 'LED-1', doc: 'D-1', type: 'Batch', qtyIn: 0, qtyOut: 0, unitCost: 1, ...over })
+
+  it('counts net-new output (outputs − drawn), splits open vs closed, windows runs', () => {
+    const state = {
+      batches: [
+      run({ blendLines: [{ item: 'SF-A', lot: 'BAT-1', qty: 100, uom: 'Litre' }], outputLines: [{ item: 'SF-ABC', qty: 120, uom: 'Litre', costShare: 100 }], status: 'Released' }),
+      run({ blendLines: [{ item: 'SF-A', lot: 'BAT-1', qty: 50, uom: 'Litre' }], outputLines: [{ item: 'SF-ABC', qty: 50, uom: 'Litre', costShare: 100 }], status: 'Awaiting QC' }),
+      run({ date: '2026-04-01', status: 'Closed', outputLines: [{ item: 'SF-ABC', qty: 999, uom: 'Litre', costShare: 100 }] }),
+      ],
+      items: [{ id: 'SF-ABC', name: 'ABC Blend', uom: 'Litre' }],
+      melanges: [],
+      productionPlans: [],
+      ledger: [],
+    } as unknown as Partial<AppState>
+    const out = intermediatesBlendingKpis(state, W, '2026-10-15')
+    const trend = out.charts.find((c) => c.key === 'ib-blend-output-trend')
+    expect(trend?.rows).toEqual([{ series: 'Net new (L)', label: '2026-09', value: 20 }]) // (120−100) + (50−50)
+    expect(out.cards.find((c) => c.key === 'ib-blend-runs')?.value).toBe(2)
+    expect(out.cards.find((c) => c.key === 'ib-blend-net-new')?.value).toBe(20)
+    expect(out.cards.find((c) => c.key === 'ib-open-blends')?.value).toBe(1) // Awaiting QC open; Released closed
+    expect(out.charts.find((c) => c.key === 'ib-runs-by-status')?.rows).toEqual([
+      { label: 'Open', value: 1 },
+      { label: 'Closed', value: 2 }, // the April run is closed too — the queue is a position
+    ])
+  })
+
+  it('recipe variance is the drawn share minus the recipe share, absent components included', () => {
+    const state = {
+      batches: [
+      run({ melangeId: 'MEL-1', blendLines: [{ item: 'SF-A', lot: 'BAT-1', qty: 100, uom: 'Litre' }] }),
+      ],
+      items: [{ id: 'SF-A', name: 'Water' }, { id: 'SF-B', name: 'Malai' }],
+      melanges: [{ id: 'MEL-1', name: 'ABC', outputItem: 'SF-ABC', uom: 'Litre', components: [{ item: 'SF-A', share: 60 }, { item: 'SF-B', share: 40 }], description: '', status: 'active' }],
+      productionPlans: [],
+      ledger: [],
+    } as unknown as Partial<AppState>
+    const out = intermediatesBlendingKpis(state, W, '2026-10-15')
+    expect(out.charts.find((c) => c.key === 'ib-recipe-variance')?.rows).toEqual([
+      { label: 'Malai', value: -40 }, // recipe lists it, the run drew none
+      { label: 'Water', value: 40 }, // drew 100%, recipe says 60
+    ])
+  })
+
+  it('intermediate stock is a position off the ledger, near-expiry counts ≤30d and past', () => {
+    const state = {
+      batches: [],
+      items: [{ id: 'SF-ABC', name: 'ABC Blend', uom: 'Litre' }],
+      melanges: [],
+      productionPlans: [],
+      ledger: [
+      led({ item: 'SF-ABC', itemType: 'Semi Finished', lot: 'BAT-1', location: 'Cold Room', status: 'Released', uom: 'Litre', qtyIn: 120, expiry: '2026-10-20' }),
+      led({ item: 'SF-ABC', itemType: 'Semi Finished', lot: 'BAT-2', location: 'Cold Room', status: 'Released', uom: 'Litre', qtyIn: 80, expiry: '2026-12-15' }),
+      led({ item: 'SF-ABC', itemType: 'Semi Finished', lot: 'BAT-3', location: 'Cold Room', status: 'Released', uom: 'Litre', qtyIn: 10, expiry: '2026-10-01' }),
+      led({ item: 'FG-X', itemType: 'Finished Goods', lot: 'PKG-1', location: 'Cold Room', status: 'Released', uom: 'Packs', qtyIn: 500, expiry: '2026-10-20' }),
+      ],
+    } as unknown as Partial<AppState>
+    const out = intermediatesBlendingKpis(state, W, '2026-10-15')
+    expect(out.charts.find((c) => c.key === 'ib-intermediate-stock')?.rows).toEqual([
+      { label: 'ABC Blend (L)', value: 210 },
+    ])
+    expect(out.cards.find((c) => c.key === 'ib-near-expiry')?.value).toBe(2) // 10-20 and already-expired; FG never counts
+  })
+
+  it('planned vs made totals by month and uom; other stages and cancellations never answer', () => {
+    const state = {
+      batches: [run({ blendLines: [], outputLines: [{ item: 'SF-ABC', qty: 120, uom: 'Litre', costShare: 100 }] })],
+      items: [],
+      melanges: [],
+      productionPlans: [
+      { id: 'P-1', date: '2026-09-02', stage: 'Melange', product: 'ABC', qty: 500, uom: 'Litre', status: 'Planned', createdOn: '2026-09-01' },
+      { id: 'P-2', date: '2026-09-03', stage: 'Melange', product: 'ABC', qty: 99, uom: 'Litre', status: 'Cancelled', createdOn: '2026-09-01' },
+      { id: 'P-3', date: '2026-09-04', stage: 'Packing', product: 'ABC', qty: 70, uom: 'Packs', status: 'Planned', createdOn: '2026-09-01' },
+      ],
+      ledger: [],
+    } as unknown as Partial<AppState>
+    const out = intermediatesBlendingKpis(state, W, '2026-10-15')
+    expect(out.charts.find((c) => c.key === 'ib-plan-vs-actual')?.rows).toEqual([
+      { series: 'Planned (L)', label: '2026-09', value: 500 },
+      { series: 'Made (L)', label: '2026-09', value: 120 },
+    ])
+  })
+})
+
+describe('packingKpis', () => {
+  const product = (over: Record<string,unknown>): Product =>
+    ({ id: 'FG-1', name: 'TCW 250ml', type: 'Glass Bottle', size: 250, unit: 'ml', packVolume: 0.25, shelfLifeDays: 30, bom: [], ...over }) as unknown as Product
+  const runIn = (over: Record<string, unknown>) =>
+    ({ id: 'PKG-2026-0001', date: '2026-09-05', batchId: 'BAT-1', medium: 'Water', lines: [], drawn: 0, pmCost: 0, bulkCost: 0, status: 'Posted', ...over })
+
+  it('throughput and packed-vs-planned count Packs-uom packing plans only', () => {
+    const state = {
+      packingRuns: [
+      runIn({ lines: [{ sku: 'FG-1', packs: 30, drawn: 7.5, qty: 30, unitCost: 10, expiry: '2026-11-05' }] }),
+      runIn({ id: 'PKG-2026-0002', date: '2026-08-02', lines: [{ sku: 'FG-1', packs: 10, drawn: 2.5, qty: 10, unitCost: 10, expiry: '2026-10-02' }] }),
+      runIn({ id: 'PKG-2026-0003', date: '2026-04-01', lines: [{ sku: 'FG-1', packs: 99, drawn: 9, qty: 99, unitCost: 10, expiry: '2026-10-02' }] }),
+      ],
+      productionPlans: [
+      { id: 'P-1', date: '2026-09-01', stage: 'Packing', product: 'TCW 250ml', qty: 100, uom: 'Packs', status: 'Planned', createdOn: '2026-08-30' },
+      { id: 'P-2', date: '2026-09-02', stage: 'Packing', product: 'TCW', qty: 400, uom: 'Litre', status: 'Planned', createdOn: '2026-08-30' },
+      { id: 'P-3', date: '2026-09-03', stage: 'Packing', product: 'TCW 250ml', qty: 50, uom: 'Packs', status: 'Cancelled', createdOn: '2026-08-30' },
+      { id: 'P-4', date: '2026-09-04', stage: 'Melange', product: 'ABC', qty: 70, uom: 'Packs', status: 'Planned', createdOn: '2026-08-30' },
+      ],
+      products: [product({})],
+      spoilage_records: [],
+    } as unknown as Partial<AppState>
+    const out = packingKpis(state, W, '2026-10-15')
+    expect(out.charts.find((c) => c.key === 'pk-throughput')?.rows).toEqual([
+      { label: '2026-08', value: 10 },
+      { label: '2026-09', value: 30 },
+    ])
+    expect(out.charts.find((c) => c.key === 'pk-packed-vs-planned')?.rows).toEqual([
+      { series: 'Planned', label: '2026-08', value: 0 },
+      { series: 'Packed', label: '2026-08', value: 10 },
+      { series: 'Planned', label: '2026-09', value: 100 },
+      { series: 'Packed', label: '2026-09', value: 30 },
+    ])
+    expect(out.cards.find((c) => c.key === 'pk-packs')?.value).toBe(40)
+  })
+
+  it('format mix reads a stamped packFormat first, else the backfill derivation; size mix uses packLabel', () => {
+    const state = {
+      packingRuns: [
+      runIn({ lines: [
+        { sku: 'FG-BIB', packs: 40, drawn: 200, qty: 40, unitCost: 10, expiry: '2026-11-05' },
+        { sku: 'FG-BOX', packs: 60, drawn: 300, qty: 60, unitCost: 10, expiry: '2026-11-05' },
+        { sku: 'FG-GLASS', packs: 100, drawn: 25, qty: 100, unitCost: 10, expiry: '2026-11-05' },
+      ] }),
+      ],
+      productionPlans: [],
+      products: [
+      product({ id: 'FG-BIB', name: 'TCW 5L', type: 'BiB', size: 5, unit: 'L', packVolume: 5, packName: '5 L BiB' }),
+      // Stamped field wins even where the name would derive the other way.
+      product({ id: 'FG-BOX', name: 'TCW 5L C-Box', type: 'C-Box', size: 5, unit: 'L', packVolume: 5, packFormat: 'bib' as const }),
+      product({ id: 'FG-GLASS', name: 'TCW 250ml', type: 'Glass Bottle' }),
+      ],
+      spoilage_records: [],
+    } as unknown as Partial<AppState>
+    const out = packingKpis(state, W, '2026-10-15')
+    expect(out.charts.find((c) => c.key === 'pk-format-mix')?.rows).toEqual([
+      { label: 'bib', value: 100 }, // 40 stamped-none-derived + 60 stamped packFormat
+      { label: 'glass', value: 100 },
+    ])
+    expect(out.cards.find((c) => c.key === 'pk-bib-share')?.value).toBe(50)
+    expect(out.charts.find((c) => c.key === 'pk-size-mix')?.rows).toEqual([
+      { label: '250 ml Glass Bottle', value: 100 },
+      { label: '5 L C-Box', value: 60 },
+      { label: '5 L BiB', value: 40 },
+    ])
+  })
+
+  it('fill-stage spoilage pareto sorts desc, other stages and windows stay out', () => {
+    const state = {
+      packingRuns: [],
+      productionPlans: [],
+      products: [],
+      spoilage_records: [
+      { id: 'SP-1', batchId: 'B-1', stage: 'fill', qty: 3, uom: 'L', reasonCode: 'spillage', at: '2026-09-02T06:00:00Z', actor: 'a' },
+      { id: 'SP-2', batchId: 'B-1', stage: 'fill', qty: 7, uom: 'L', reasonCode: 'burst_pouch', at: '2026-09-03T06:00:00Z', actor: 'a' },
+      { id: 'SP-3', batchId: 'B-1', stage: 'blend', qty: 99, uom: 'L', reasonCode: 'spillage', at: '2026-09-03T06:00:00Z', actor: 'a' },
+      { id: 'SP-4', batchId: 'B-1', stage: 'fill', qty: 50, uom: 'L', reasonCode: 'spillage', at: '2026-04-01T06:00:00Z', actor: 'a' },
+      ],
+    } as unknown as Partial<AppState>
+    const out = packingKpis(state, W, '2026-10-15')
+    expect(out.charts.find((c) => c.key === 'pk-fill-spoilage')?.rows).toEqual([
+      { label: 'burst_pouch', value: 7 },
+      { label: 'spillage', value: 3 },
+    ])
+    expect(out.cards.find((c) => c.key === 'pk-fill-spoilage')?.value).toBe(2)
   })
 })

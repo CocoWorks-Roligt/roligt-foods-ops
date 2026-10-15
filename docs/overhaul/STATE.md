@@ -1,5 +1,5 @@
 # STATE — Beverage Ops Platform Overhaul
-Updated: 2026-10-15 | Phase: 5 DASHBOARDS in session — D1b done (modules 1-2 complete: dashboards UI on /reports/live behind flags.dashboards.*, module registers, export client; QA LIGHT green); next D2a: Intermediates & Blending + Packing KPI folds (BACKEND first) | Branch: dev | Base: de4c13b
+Updated: 2026-10-16 | Phase: 5 DASHBOARDS in session — D2a done (Intermediates & Blending + Packing KPI folds; modules 1-2 complete with QA LIGHT green); next D2b: those two modules' dashboards + export registers, then QA LIGHT (4-module gate) | Branch: dev | Base: de4c13b
 
 ## Contracts
 - v1.9 (2026-10-15, P4): +shipment/challan/return wire — ShipmentVersionExtension (documents.version
@@ -26,6 +26,15 @@ Updated: 2026-10-15 | Phase: 5 DASHBOARDS in session — D1b done (modules 1-2 c
 
 ## Locks
 - none
+
+## P5 D2a invariants (2026-10-16)
+- intermediates-blending's blend output IS netNewOutputs (production.ts's one rule) and its
+  open count IS openBlendRuns (blendStage's export — the pipeline tile's predicate): never
+  re-derive either in the fold or a register; run uoms key NORMALIZED ('L'/'Litre' one
+  bucket, kg its own — litres and kilograms never sum).
+- packing's fill-stage spoilage chart has NO writer by design (a packing run posts
+  complete; no close exists to file one). Do not invent a writer to fill the chart —
+  that is a DECISIONS decision. Same for shiftId on runs (per-shift throughput).
 
 ## P5 D1b invariants (2026-10-15)
 - The dashboards catalog's gate is ONE rule in ONE place: visibleDashboards (src/lib/dashboards.ts) folds

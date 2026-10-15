@@ -24,6 +24,8 @@ import { ordersDispatchKpis } from './ordersDispatch.ts'
 import { shipmentTrackingKpis } from './shipmentTracking.ts'
 import { procurementKpis } from './procurement.ts'
 import { gradingExtractionKpis } from './gradingExtraction.ts'
+import { intermediatesBlendingKpis } from './intermediatesBlending.ts'
+import { packingKpis } from './packing.ts'
 
 export type { KpiPayload }
 
@@ -56,13 +58,18 @@ export const KPI_SPECS: Record<KpiModule, KpiSpec> = {
     collections: ['grns', 'batches', 'items', 'melanges', 'spoilage_records'],
     fold: gradingExtractionKpis,
   },
+  // P5 D2a: folds live. intermediates-blending reads the ledger for the
+  // intermediate-stock position; packing reads spoilage_records for the
+  // fill-stage pareto (empty until a writer exists — DECISIONS P5 D2a).
   'intermediates-blending': {
     pages: ['production'],
-    collections: ['batches', 'items', 'melanges', 'productionPlans'],
+    collections: ['batches', 'items', 'melanges', 'productionPlans', 'ledger'],
+    fold: intermediatesBlendingKpis,
   },
   packing: {
     pages: ['packing'],
-    collections: ['packingRuns', 'productionPlans', 'products', 'batches', 'items'],
+    collections: ['packingRuns', 'productionPlans', 'products', 'spoilage_records'],
+    fold: packingKpis,
   },
   qc: { pages: ['quality'], collections: ['qcs', 'batches', 'items'], fold: qcKpis },
   'control-samples': { pages: ['control-samples'], collections: ['packingRuns'] },

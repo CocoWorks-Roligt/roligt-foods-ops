@@ -1,5 +1,5 @@
 # PROGRESS — Beverage Ops Platform Overhaul
-Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS in session — D0 export engine, D1a folds, D1b dashboards UI + module registers done (modules 1-2 complete, QA LIGHT green); next D2a: Intermediates & Blending + Packing folds (BACKEND first)
+Updated: 2026-10-16 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS in session — D0 export engine, D1a folds, D1b dashboards UI + module registers, D2a Intermediates & Blending + Packing folds done (modules 1-2 complete, QA LIGHT green); next D2b: their dashboards UI + module export registers, then QA LIGHT (4-module gate)
 
 | Task | Agent | Status | Files | Next action |
 |---|---|---|---|---|
@@ -49,6 +49,7 @@ Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS in
 | P5/D1a: KPI folds live — Procurement + Grading-Extraction | BACKEND | done | src/lib/kpis/{procurement.ts,gradingExtraction.ts,p5.test.ts}, src/lib/kpis/index.ts (specs: folds + collections) | 1155 tests (+6); tsc -b, lint 10, build green; honest gaps logged DECISIONS P5; D1b = dashboards UI + module export specs |
 | P5/D1b: dashboards UI (all 10 modules catalogued; flags per module) + module registers (purchase-orders, spoilage) + export client | DASHBOARDS+BACKEND | done | src/lib/{dashboards.ts(+test), exportJob.ts}, src/components/reports/ModuleDashboard.tsx, src/pages/LiveReports.tsx (branch + Dashboards family), src/lib/exports/index.ts (+2 specs), api/_lib/exports.test.ts (+4), src/index.css | 1169 tests (+14); tsc -b, lint 10, build + build:e2e green; modules 1-2 COMPLETE — QA LIGHT green (2-module gate); next D2a BACKEND folds |
 | P5: QA LIGHT (2-module gate) | QA | done | — | tsc -b clean · 1169 passed/7 skipped · lint 10 baseline · build + build:e2e + assert-no-apptics clean (113 dist files) |
+| P5/D2a: KPI folds live — Intermediates & Blending + Packing | BACKEND | done | src/lib/kpis/{intermediatesBlending.ts,packing.ts,p5.test.ts}, src/lib/kpis/index.ts (folds + collections: +ledger / spoilage_records, narrowed) | 1176 tests (+7); tsc -b, lint 10, build green; honest gaps logged DECISIONS P5; D2b = dashboards UI + module export registers |
 
 ## Log
 - 2026-10-13 Phase 0 complete. Baseline green (745 tests, tsc -b, lint, build @ de4c13b). DB target confirmed:
@@ -566,3 +567,30 @@ Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS in
   (Procurement, Grading & Extraction) COMPLETE per the acceptance bar — dashboard + live report + exports off
   the same fold. Next D2a: BACKEND folds for Intermediates & Blending + Packing, then D2b their dashboards +
   registers, QA LIGHT again.
+- 2026-10-16 P5 D2a — the next two module folds (BACKEND). intermediates-blending
+  (src/lib/kpis/intermediatesBlending.ts): blend output as NET-NEW bulk by month
+  (production.ts's own netNewOutputs — a blend's output minus the bulk it drew, or
+  the same litres print twice; run uoms key NORMALIZED, 'L'/'Litre' one bucket, kg
+  its own, never summed), recipe-vs-actual as mean (drawn share − recipe share) in
+  percentage points over runs whose recipe resolves — recipe-listed-but-undrawn
+  components included at −share — components drawn by month (grouped bar, malai kg
+  and water L never stack), intermediate stock as a POSITION (stockRows Semi
+  Finished, unwindowed; near-expiry card counts lots ≤30 d incl. already-expired),
+  open-vs-closed off openBlendRuns (the pipeline Blending tile's own predicate —
+  one implementation, imported not re-derived), planned-vs-made totals by month+uom
+  (stage-Melange plans; no per-product name matching — the HEAVY lesson). packing
+  (src/lib/kpis/packing.ts): packs by month (per-SHIFT needs a shiftId no run
+  carries — logged), packed-vs-planned counting stage-Packing plans in Packs only
+  (a Litre plan doesn't convert without an untrustworthy name join — logged), glass
+  vs BIB off a stamped packFormat first then the B1 backfill's own derivation (W6
+  precedent), pack sizes as packLabel (the pack catalog's own label), fill-stage
+  spoilage pareto — which has NO writer today (a packing run posts complete, no
+  close exists to file one) and renders empty honestly until a writer is designed.
+  Spec collections updated to what each fold reads: intermediates-blending gains
+  ledger (the stock position); packing narrows to packingRuns/productionPlans/
+  products/spoilage_records. +7 tests in p5.test.ts (net-new arithmetic + open/
+  closed split, absent-component deviation, stock position + near-expiry incl.
+  expired, plan totals stage/uom filters, throughput + Packs-only plans, stamped-
+  format-first + packLabel sizes, fill pareto stage+window). Gates: tsc -b clean,
+  1176 passed (+7), oxlint 10 baseline, build green. Next D2b: the two modules'
+  dashboards + export registers, then QA LIGHT (4-module gate).
