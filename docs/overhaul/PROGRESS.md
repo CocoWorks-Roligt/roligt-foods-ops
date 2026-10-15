@@ -1,5 +1,5 @@
 # PROGRESS — Beverage Ops Platform Overhaul
-Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 4 SHIPMENT code-complete (H1, B5, S1, S2, docs, QA LIGHT); HEAVY (Journey A through delivery) next session
+Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 4 SHIPMENT CLOSED — QA HEAVY green (Journey A 14/14 through delivery + challan PDF); next: /clear, Phase 5 DASHBOARDS in a fresh session
 
 | Task | Agent | Status | Files | Next action |
 |---|---|---|---|---|
@@ -44,6 +44,7 @@ Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 4 SHIPMENT code
 | P4/S2: delivery-agent PWA — My Deliveries + offline outbox | SHIPMENT | done @ 6ec38f4 | src/pages/MyDeliveries.tsx, src/lib/shipmentOutbox.ts(+test), src/lib/deliveryDraft.ts(+test), src/lib/shipmentApi.ts (submit), src/lib/attachmentRules.ts (delivery area, grammar off AREAS), src/App.tsx, src/index.css | 1138 tests (+11); docs slice next |
 | P4: docs slice — STATE v1.9 + header, DECISIONS P4 section, RBAC §d as-built, live delivery-agent cheat sheet | LEAD | done | docs/overhaul/{STATE,DECISIONS,RBAC}.md, cheatsheets/delivery-agent.md | — |
 | P4: QA LIGHT | QA | done | — | tsc -b clean · 1138 passed/7 skipped · lint 10 baseline · build + build:e2e + assert-no-apptics clean; HEAVY (Journey A through delivery) next session |
+| P4: QA HEAVY — Journey A extended through delivery (phase close) | QA | done | e2e/journey-a.spec.ts (legs 11–13), e2e/boot.spec.ts, e2e/helpers.ts, playwright.config.ts (E2E_PORT), scripts/dev-server.mjs (P4 routes + decoded params), scripts/e2e/{up,prepare-db,r2-shim}.mjs, api/_lib/r2.ts(+r2.test), .artifacts/qa-screens.mjs, .artifacts/qa-p4-visual-checks.mjs, QA_REPORT.md | 14/14; LIGHT gates re-green (1139 tests); Lighthouse a11y 98 both new screens; §6 45 shots + programmatic checklist PASS; Phase 4 CLOSED — Phase 5 DASHBOARDS next |
 
 ## Log
 - 2026-10-13 Phase 0 complete. Baseline green (745 tests, tsc -b, lint, build @ de4c13b). DB target confirmed:
@@ -469,3 +470,34 @@ Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 4 SHIPMENT code
   npm run build green; npm run build:e2e green, [assert-no-apptics] clean (no marker in 109 dist
   files). Phase 4 SHIPMENT code-complete on dev; HEAVY (Journey A extended through delivery) runs
   next session per one-phase-one-session. Phase 5 DASHBOARDS follows.
+
+- **P4 QA HEAVY — phase closed** (2026-10-15): Journey A extended through delivery, 14/14 (boot
+  smoke + 13 legs). Trip boarded off leg 9's OWN order id (the dump's old undelivered Fernandez
+  orders carry empty vehicles — name-matching boards the wrong one; FEFO may split the 8 BiBs
+  across lots, so the leg boards every dispatch row and pins no count); `started` walks
+  Created→Dispatched→Out for Delivery; per-line confirms speak the dispatch row's vocabulary
+  (lot + qty out); the signature is real ink (mouse-dragged strokes, accessible name flips to
+  "signed"); the one idempotent submit mints challan DC0017/2026; the board reads Delivered; the
+  LAZY challan PDF is fetched through its probe→render→PUT→302-presigned path against the new
+  r2-shim (`%PDF` verified). Harness grew the r2-shim (:8112, in-memory S3-compatible stand-in)
+  + `R2_ENDPOINT` presign override in r2.ts (unset = R2 byte-for-byte, unit-pinned) so signature/
+  photo/receipt uploads and the challan PDF exercise the real presigned-PUT flow locally;
+  dev-server registered the 10 Phase-4 routes and now delivers param segments DECODED (a challan
+  id IS its DC number, 'DC0017/2026', and arrives %2F-encoded); playwright + the screenshot walk
+  take E2E_PORT (:3000 is the user's own unrelated server — the first walk photographed it by
+  mistake and reported a plausible 'no horizontal scroll' for the wrong site; caught via the CDN
+  image viewer, BASE now derives from E2E_PORT); boot.spec's samples census unpinned (the count
+  is horizon-based and grows as the dump ages, 7→8 in a day). helpers' failOnPageErrors
+  exclusion now matches by msg.location().url too — a URL-less "Failed to load resource" 404
+  elsewhere still fails, which is exactly how the missing /api/shipments route surfaced.
+  §5: a11y 98 / desktop perf 95 on shipments-board AND my-deliveries (only failing audit:
+  heading-order — the same standing flag Pipeline Home carries; Phase-6). Mobile-sim perf 65 =
+  the known snapshot-size Phase-6 item (TBT 0, CLS 0). §6: 45 screenshots (15 screens × 3
+  widths, post-journey DB) + programmatic checklist PASS (no horizontal scroll anywhere; status
+  text never color-only; challan link in the Delivered row; New trip 45px on tablet/phone — 41px
+  desktop is a mouse context, WCAG AA 24 applies and index.css grants 44 under ≤900px). LIGHT
+  re-run on the final diff: tsc -b clean; vitest 1139 passed | 7 skipped (+1: R2_ENDPOINT pin);
+  oxlint 10 warnings baseline; npm run build green; build:e2e + assert-no-apptics clean (no
+  marker in 109 dist files). Zero app-source changes beyond the additive R2_ENDPOINT branch +
+  its test — every defect this run was harness-side (4 found, 4 fixed, re-run green). Phase 4
+  CLOSED. Next: /clear, Phase 5 DASHBOARDS in a fresh session.

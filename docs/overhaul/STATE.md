@@ -1,5 +1,5 @@
 # STATE — Beverage Ops Platform Overhaul
-Updated: 2026-10-15 | Phase: 4 SHIPMENT in flight — H1 (delivery-agent scoping), B5a-c (shipments service, submit + challan, returns), S1 (board page), S2 (delivery PWA) done; next: QA LIGHT + HEAVY once (Journey A through delivery) | Branch: dev | Base: de4c13b
+Updated: 2026-10-15 | Phase: 4 SHIPMENT CLOSED (H1, B5a-c, S1, S2, docs, QA LIGHT + HEAVY — Journey A 14/14 through delivery + challan PDF); next: Phase 5 DASHBOARDS in a FRESH session | Branch: dev | Base: de4c13b
 
 ## Contracts
 - v1.9 (2026-10-15, P4): +shipment/challan/return wire — ShipmentVersionExtension (documents.version
@@ -211,4 +211,25 @@ Updated: 2026-10-15 | Phase: 4 SHIPMENT in flight — H1 (delivery-agent scoping
   clean-tab-only). failOnPageErrors exempts 429 (commit throttle) and 409 (CAS
   refuse/adopt/re-save) — both are sync-protocol events the client owns, though the
   browser logs the failed fetch. Batch ids are BAT-YYYY-NNNN: `\d+` cannot span the
-  inner hyphen in text matchers.
+  inner hyphen in text matchers — and the trap generalizes: ORDER ids are
+  ORD-YYYY-NNNN (capture with `ORD-[\d-]+`, expect `ORD-\d+-\d+`), and a challan id
+  IS its DC number with a real `/` (`DC0017/2026`), so it arrives %2F-encoded on the
+  wire and must reach the handler DECODED.
+- The e2e harness is THREE servers now: SPA+BFF on E2E_PORT (playwright.config AND
+  .artifacts/qa-screens.mjs derive from it — :3000 is often the user's own unrelated
+  server; hardwiring BASE there once photographed the wrong site green), d1-shim :8111,
+  r2-shim :8112 (in-memory S3-compatible bucket; signatures ignored — SigV4 itself is
+  unit-pinned in api/_lib/r2.test.ts). R2_ENDPOINT in api/_lib/r2.ts repoints every
+  presign at any S3-compatible endpoint (signed host header follows it); unset = R2's
+  cloudflarestorage.com URL byte for byte — pinned by test, do not regress.
+- scripts/dev-server.mjs keeps an EXPLICIT route table: every new api route must be
+  registered (API_ROUTES / PARAM_API_ROUTES) or the harness 404s a route prod serves —
+  the missing /api/shipments route hid behind a too-broad console-error exclusion until
+  the filter learned to read msg.location().url. Param segments arrive DECODED there
+  (Vercel file-router parity).
+- Smoke specs pin LIVE FACTS, never censuses that age: navBadges' samples count is
+  horizon-based (`expiresOn <= horizon`) and grows as the dump ages (7→8 within a day)
+  — assert a digit, not a number.
+- Delivery-touch targets: the 44px bar is the TOUCH standard (DESIGN_SYSTEM.md;
+  index.css enforces `.btn` min-height 44 under ≤900px) — on a desktop mouse viewport
+  WCAG AA's 24px is the applicable minimum. Measure at the width the bar applies to.

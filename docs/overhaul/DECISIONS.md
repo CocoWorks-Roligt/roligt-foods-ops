@@ -82,6 +82,15 @@ Verdicts from audit slice 2 (2026-10-13). RULE: ASSUMED/PARTIAL items are built 
   and Rescheduled→Out for Delivery; the four outcomes of Out for Delivery are the submit's alone.
 - Append-only delivery events (line_confirm/arrived/otp/signature) leave the trip doc's version
   alone — every reader's CAS token stays stable through an agent's round.
+- (QA 2026-10-15) R2_ENDPOINT env override in api/_lib/r2.ts: when set, replaces the scheme+host
+  of every presigned URL (any S3-compatible endpoint — the e2e r2-shim on :8112, or a MinIO box);
+  unset = R2's own cloudflarestorage.com URL byte for byte. Unit-pinned (shape + signed host
+  header follow the override). The e2e r2-shim is a bucket, not a verifier — SigV4 stays pinned
+  by r2.test.ts.
+- (QA 2026-10-15) The e2e stack runs on E2E_PORT (playwright.config webServer + qa-screens walk):
+  :3000 belongs to the user's own unrelated server, and pointing a QA walk at it once produced a
+  fully green run for the wrong site — caught only via the CDN image viewer. Harness ports
+  (3100/8111/8112) are killed and verified free after every run.
 
 ## Blocked
 - batch_v2 enablement — blocked on the DECISIONS #2 mass-balance resolution (3/14 pass; extractions cannot close under enforcement).
