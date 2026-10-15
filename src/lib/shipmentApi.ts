@@ -23,6 +23,8 @@ import type {
   ShipmentEventsResponse,
   ShipmentListResponse,
   ShipmentVersionExtension,
+  SubmitDeliveryRequest,
+  SubmitDeliveryResponse,
 } from './contracts'
 import type { Shipment } from './contracts'
 
@@ -98,6 +100,21 @@ export async function correctChallanCall(
   })
   const j = await read<ChallanCorrectResponse>(res)
   return j.challan
+}
+
+/** The delivery's outcome in one idempotent write: signature, status, the
+ *  challan, any returns. The PWA's submit — the ONE call that closes a trip. */
+export async function submitDeliveryCall(
+  id: string,
+  body: SubmitDeliveryRequest,
+  key = newIdempotencyKey(),
+): Promise<SubmitDeliveryResponse> {
+  const res = await call(`/api/shipments/${encodeURIComponent(id)}/submit`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+    idempotencyKey: key,
+  })
+  return read<SubmitDeliveryResponse>(res)
 }
 
 /** The rendered PDF answers here — a redirect, so a plain link target works. */

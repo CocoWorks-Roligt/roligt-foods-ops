@@ -15,6 +15,12 @@ describe('attachment keys', () => {
     expect(attachmentAreaOf(key)).toBe('qc')
   })
 
+  it('carries the delivery PWA area under the agent page\'s permission', () => {
+    const key = mintAttachmentKey('delivery', 'S-1.rejected', 'cartons.jpg', 1_700_000_000_000, 'ab12cd')
+    expect(attachmentAreaOf(key)).toBe('delivery')
+    expect(attachmentPermissionFor(key)).toBe('page.my-deliveries')
+  })
+
   it('caps the context at 60 and the name at 80 characters and never leaves either empty', () => {
     const key = mintAttachmentKey('pod', 'D'.repeat(200), `${'x'.repeat(200)}.jpg`, 1, 'zzzzzz')
     const tail = key.slice('attachments/pod/'.length)

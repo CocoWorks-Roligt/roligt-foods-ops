@@ -34,6 +34,7 @@ const Packing = lazy(() => import('./pages/Packing').then((m) => ({ default: m.P
 const PackingMaterials = lazy(() => import('./pages/PackingMaterials').then((m) => ({ default: m.PackingMaterials })))
 const Pipeline = lazy(() => import('./pages/Pipeline').then((m) => ({ default: m.Pipeline })))
 const Shipments = lazy(() => import('./pages/Shipments').then((m) => ({ default: m.Shipments })))
+const MyDeliveries = lazy(() => import('./pages/MyDeliveries').then((m) => ({ default: m.MyDeliveries })))
 const Procurement = lazy(() => import('./pages/Procurement').then((m) => ({ default: m.Procurement })))
 const ProductionPlanning = lazy(() => import('./pages/ProductionPlanning').then((m) => ({ default: m.ProductionPlanning })))
 const Roster = lazy(() => import('./pages/Roster').then((m) => ({ default: m.Roster })))
@@ -169,6 +170,14 @@ function AuthGate() {
             <Route index element={<RequirePage viewId="dashboard"><HomeRoute /></RequirePage>} />
             <Route path="pipeline" element={<PipelineRoute />} />
             <Route path="shipments" element={<ShipmentsRoute />} />
+            <Route
+              path="my-deliveries"
+              element={
+                <RequirePage viewId="my-deliveries">
+                  <MyDeliveries />
+                </RequirePage>
+              }
+            />
             <Route path="batch/:id" element={<BatchRoute />} />
             <Route path="procurement" element={<RequirePage viewId="procurement"><Procurement /></RequirePage>} />
             <Route path="roster" element={<RequirePage viewId="roster"><Roster /></RequirePage>} />

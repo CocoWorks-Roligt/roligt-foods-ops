@@ -21,6 +21,9 @@ export const ATTACHMENTS_PATH_PREFIX = 'attachments/'
 export const ATTACHMENT_AREAS = {
   qc: 'page.quality',
   pod: 'page.dispatch',
+  /** The delivery PWA's own area (SHIPMENT S2): rejection photos at the door
+   *  and the signature slip beside it. */
+  delivery: 'page.my-deliveries',
 } as const
 
 export type AttachmentArea = keyof typeof ATTACHMENT_AREAS
@@ -57,7 +60,7 @@ export function mintAttachmentKey(
   return `${ATTACHMENTS_PATH_PREFIX}${area}/${ctx}-${now.toString(36)}-${safeAttachmentName(rand).slice(0, 6)}-${name}`
 }
 
-const KEY_GRAMMAR = /^attachments\/(qc|pod)\/[A-Za-z0-9._-]{1,200}$/
+const KEY_GRAMMAR = new RegExp(`^attachments\\/(${Object.keys(ATTACHMENT_AREAS).join('|')})\\/[A-Za-z0-9._-]{1,200}$`)
 
 /** The area a key belongs to, or null when it is not one of ours. */
 export function attachmentAreaOf(path: string): AttachmentArea | null {
