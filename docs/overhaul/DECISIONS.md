@@ -54,6 +54,35 @@ Verdicts from audit slice 2 (2026-10-13). RULE: ASSUMED/PARTIAL items are built 
 - Tour "seen" mark is one device-local key (roligt_tour_done_v1) — first run only, "?" in
   the topbar replays. No server state, no per-account tracking.
 
+## P4 decisions (2026-10-15, SHIPMENT)
+- Challan numbering (#10): the counter series KEY is `challan` — the same forward-only belt the
+  client's `nextId(draft,'challan')` pre-mints from (default format `{P}{N}/{YYYY}`, 4-digit pad →
+  `DC0201/2026`); numbering.ts stays the one definition. Submit ADOPTS the member dispatches'
+  shared Classic DC number when exactly one distinct non-empty number exists and no challan doc
+  already holds it (two trips off one wave would collide) — mints fresh from the counter otherwise,
+  so an adoption never consumes a number and a collision never overwrites.
+- Challan tax fields (#11): printed only when `app_config.challanTax` is configured, and ALWAYS
+  caveated "Tax details pending accountant sign-off — not valid for filing" (printed on the PDF).
+  The business/accountant validation gate stays until they sign off.
+- Packaging mode: reads 'LOOSE' until dispatch_v2 stamps real per-line packaging decisions — a
+  MIXED roll-up today would lie. Revisit at dispatch_v2.
+- Return decision ledger mapping: coldroom → ONE qtyIn line per return line, status Released, at
+  the first ACTIVE Cold Room location's NAME (the ledger key); quarantine → Quarantine, writeoff →
+  the terminal Written Off balance, both at the Hold Area. Missing location = honest 422
+  (`location_missing`), never a silent post. unit_cost/expiry copied off the trip's own type-
+  'Dispatch' ledger line when found (match doc ∈ dispatchIds + item + lot), else 0 — the return
+  never invents a cost the dispatch did not carry.
+- OTP at delivery (#12): presence of `signature.otp` in the submit IS what `otpVerified: true`
+  means (server-side verification of a code channel does not exist — nothing to verify against
+  yet). The PWA field is folded away and optional; per-customer flagging lands when a channel does.
+- 404-never-403 for foreign shipment/challan ids read by agents — an external user must not learn
+  that another id exists (RBAC §d).
+- Shipment statuses vs PATCH: PATCH owns exactly Created→Dispatched (stamps times.dispatched) and
+  Failed→Rescheduled; `started` walks Created→Dispatched→Out for Delivery (agent never stranded)
+  and Rescheduled→Out for Delivery; the four outcomes of Out for Delivery are the submit's alone.
+- Append-only delivery events (line_confirm/arrived/otp/signature) leave the trip doc's version
+  alone — every reader's CAS token stays stable through an agent's round.
+
 ## Blocked
 - batch_v2 enablement — blocked on the DECISIONS #2 mass-balance resolution (3/14 pass; extractions cannot close under enforcement).
 - can.* action slugs not yet issued by any role seed (release arm runs on the page.quality proxy).

@@ -70,13 +70,14 @@ Model: permissions are page slugs `page.<id>` (28 today, src/lib/pages.ts) + NEW
 | POST /api/returns/:id/decision | can.decide_return | coldroom\|quarantine\|writeoff + ledger post; audit |
 
 ## (d) delivery_agent scoping (server-enforced)
-- Shipments list/get: WHERE agentUserId = self — DB filter on every query, never a UI filter. Unassigned id → 404 (no existence leak).
-- Own challans only (challans.agentId = self); create only via submit; correct_challan denied.
-- Snapshot projection: MUST be an ALLOWLIST (shipments slice only) before page.my-deliveries goes live. As built today the projection is a withhold list over page-carrying collections — page-less keys (items, products, melanges, vendors, …) reach ANY signed-in caller, so the §(d) withholding below is the TARGET, not current behaviour (verified 2026-10-13, DECISIONS).
-- Target withholding: ledger, items, products, grns, batches, orders, qcs, dispatches withheld entirely; shipment payload strips unit costs, other customers, other agents.
-- No access to: KPIs, search (403 as built), genealogy, inventory, masters, audit log.
-- Default-deny: an external account with no explicit delivery_agent role sees NOTHING (not the Operator open tier) — required before the PWA ships.
-- Offline queue replay keeps scoping: events/submit re-validated against assignment at drain time.
+- Shipments list/get: WHERE agentUserId = self — DB filter on every query, never a UI filter. Foreign id → 404, never 403 (no existence leak; as built in getShipment, submitShipment, challanFileUrl and the returns create, 2026-10-15).
+- Own challans only (challans.agentId = self); create only via submit; correct_challan denied (board only); PATCH denied (403); KPIs denied (403).
+- Snapshot projection AS BUILT (H1, 2026-10-15): an agent's snapshot is the empty allowlist — state {}, every collection key withheld, revision still live. The PWA reads /api/shipments (agent-filtered server-side), never the snapshot, so nothing else reaches the device.
+- Withheld outright: ledger, items, products, grns, batches, orders, qcs, dispatches (and everything else — the empty allowlist withholds by construction).
+- No access to: KPIs, search, genealogy, inventory, masters, audit log (403s and empty projections as built).
+- Default-deny: an external account with no explicit delivery_agent role sees NOTHING (not the Operator open tier) — as built (isDeliveryAgent = holds page.my-deliveries AND no admin permissions; seed `scripts/workos/seed-rbac.mjs --env-file=.env` role `delivery_agent`).
+- Offline queue replay keeps scoping: events/submit re-validated against assignment at drain time (the server re-gates every replayed intent by session + agentUserId, 2026-10-15).
+- The delivery attachments area (`attachments/delivery/…`) is gated by page.my-deliveries — the agent uploads rejection photos and signatures; nobody else may open that area's objects.
 
 ## Exports & file URLs (all roles)
 - Every export gated by the report's page slug and audited (who/what/when/filters).

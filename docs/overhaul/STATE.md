@@ -1,8 +1,12 @@
 # STATE — Beverage Ops Platform Overhaul
-Updated: 2026-10-14 | Phase: 3 WORKFLOW COMPLETE — W1–W16 done (Pipeline Home, Batch Detail, PO endpoints, PO form, GRN↔PO linkage, Receipt stage form, Coconut Grading form, Extraction stage form, Blend stage form, Packing stage form, QC test entry form, control sample destruction shelf, Storage put-away queue, Order desk, Dispatch stage form, Onboarding); next: Phase 3 QA LIGHT re-run + HEAVY once (Journey A through dispatch) | Branch: dev | Base: de4c13b
+Updated: 2026-10-15 | Phase: 4 SHIPMENT in flight — H1 (delivery-agent scoping), B5a-c (shipments service, submit + challan, returns), S1 (board page), S2 (delivery PWA) done; next: QA LIGHT + HEAVY once (Journey A through delivery) | Branch: dev | Base: de4c13b
 
 ## Contracts
-- v1.7 (2026-10-14, W8): +BatchVersionExtension — the snapshot's batches carry documents.version
+- v1.9 (2026-10-15, P4): +shipment/challan/return wire — ShipmentVersionExtension (documents.version
+  ride-along, PO v1.4 rules), ShipmentLine/ShipmentChallanLink/ShipmentDetail/List/EventsResponse,
+  PatchShipmentRequest/Response, ChallanListResponse, ChallanCorrectRequest/Response,
+  ReturnDecisionRequest/Response; CreateShipmentResponse.shipment and SubmitDeliveryResponse.shipment
+  now carry the version ride-along. v1.7 (2026-10-14, W8): +BatchVersionExtension — the snapshot's batches carry documents.version
   too (read-only ride-along, column over stale embed; the close form's expectedVersion reads it);
   v1.6 (2026-10-14, W7): +GrnVersionExtension — the D1 snapshot's grns carry documents.version
   (read-only ride-along, attached at snapshot parse; POST /api/grading's expectedVersion reads it);
