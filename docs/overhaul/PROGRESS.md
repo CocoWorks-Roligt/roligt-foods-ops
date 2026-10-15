@@ -1,5 +1,5 @@
 # PROGRESS — Beverage Ops Platform Overhaul
-Updated: 2026-10-16 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS in session — D0 export engine, D1a folds, D1b dashboards UI + module registers, D2a Intermediates & Blending + Packing folds done (modules 1-2 complete, QA LIGHT green); next D2b: their dashboards UI + module export registers, then QA LIGHT (4-module gate)
+Updated: 2026-10-16 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS in session — D0 export engine, D1a/D1b + D2a/D2b done (modules 1-4 COMPLETE: Procurement, Grading & Extraction, Intermediates & Blending, Packing — each with fold + dashboard + register; QA LIGHT green at 2- and 4-module gates); next D3a: QC + Control Samples folds (BACKEND first)
 
 | Task | Agent | Status | Files | Next action |
 |---|---|---|---|---|
@@ -50,6 +50,8 @@ Updated: 2026-10-16 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS in
 | P5/D1b: dashboards UI (all 10 modules catalogued; flags per module) + module registers (purchase-orders, spoilage) + export client | DASHBOARDS+BACKEND | done | src/lib/{dashboards.ts(+test), exportJob.ts}, src/components/reports/ModuleDashboard.tsx, src/pages/LiveReports.tsx (branch + Dashboards family), src/lib/exports/index.ts (+2 specs), api/_lib/exports.test.ts (+4), src/index.css | 1169 tests (+14); tsc -b, lint 10, build + build:e2e green; modules 1-2 COMPLETE — QA LIGHT green (2-module gate); next D2a BACKEND folds |
 | P5: QA LIGHT (2-module gate) | QA | done | — | tsc -b clean · 1169 passed/7 skipped · lint 10 baseline · build + build:e2e + assert-no-apptics clean (113 dist files) |
 | P5/D2a: KPI folds live — Intermediates & Blending + Packing | BACKEND | done | src/lib/kpis/{intermediatesBlending.ts,packing.ts,p5.test.ts}, src/lib/kpis/index.ts (folds + collections: +ledger / spoilage_records, narrowed) | 1176 tests (+7); tsc -b, lint 10, build green; honest gaps logged DECISIONS P5; D2b = dashboards UI + module export registers |
+| P5/D2b: module registers (blend-runs, packing-runs) + catalog wiring | BACKEND | done | src/lib/exports/index.ts (+2 specs), src/lib/kpis/packing.ts (packFormatOf exported), src/lib/dashboards.ts (exports wired), api/_lib/exports.test.ts (+4) | 1180 tests (+4); QA LIGHT (4-module gate) green below; modules 3-4 COMPLETE |
+| P5: QA LIGHT (4-module gate) | QA | done | — | tsc -b clean · 1180 passed/7 skipped · lint 10 baseline · build + build:e2e + assert-no-apptics clean (114 dist files); next D3a: QC + Control Samples folds (BACKEND first) |
 
 ## Log
 - 2026-10-13 Phase 0 complete. Baseline green (745 tests, tsc -b, lint, build @ de4c13b). DB target confirmed:
@@ -594,3 +596,22 @@ Updated: 2026-10-16 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS in
   format-first + packLabel sizes, fill pareto stage+window). Gates: tsc -b clean,
   1176 passed (+7), oxlint 10 baseline, build green. Next D2b: the two modules'
   dashboards + export registers, then QA LIGHT (4-module gate).
+- 2026-10-16 P5 D2b — the modules 3-4 export registers (+QA LIGHT, 4-module gate). The
+  dashboards UI needed NOTHING new (D1b built it generic — a module's dashboard lights
+  up when its fold lands); what D2b adds is the Export rows: `blend-runs` (pages
+  live-reports+production) windows by the FOLD's own rule (a blend run rides its batch
+  date), Status prints Open/Closed off openBlendRuns (the runs-by-status chart's own
+  word), net-new output column IS netNewOutputs (the output trend's own arithmetic);
+  `packing-runs` (pages live-reports+packing) rides its run date, line summary and
+  BIB-packs column read packFormatOf — now EXPORTED from the fold so one implementation
+  decides BIB everywhere (format chart, share card, register). Wired into the
+  DASHBOARDS catalog (dashboards.ts exports arrays). Known edge, kept and logged: a
+  live-reports-only holder streams an EMPTY register (the module's collections are
+  page-withheld — B4's read-withholding rule, same as every classic report); holding
+  the module's page fills it. +4 tests (blend net-new/status/window + RBAC pair,
+  packing window/BIB count + RBAC pair — seeds on the WIRE collection names:
+  packing_runs, not packingRuns). QA LIGHT (4-module gate): tsc -b clean; 1180 passed |
+  7 skipped; oxlint 10 baseline; build + build:e2e + assert-no-apptics clean (114 dist
+  files). Modules 3-4 (Intermediates & Blending, Packing) COMPLETE per the acceptance
+  bar — dashboard + live report + exports off the same fold. Next D3a: BACKEND folds
+  for QC + Control Samples, then D3b registers, QA LIGHT (6-module gate).

@@ -32,8 +32,9 @@ type ProductDoc = Product & Partial<ProductExtension>
 /** The backfill's own rule (backfillPhase2.inferPackFormat, verbatim in
  *  spirit — W6 receiptStage precedent): a stamped packFormat answers first;
  *  an unstamped product derives off its name and admin-named type, so the
- *  chart and the eventual stamp can never disagree. */
-const packFormatOf = (p: ProductDoc): 'bib' | 'glass' =>
+ *  chart and the eventual stamp can never disagree. Exported for the packing
+ *  register — one implementation decides BIB everywhere. */
+export const packFormatOf = (p: ProductDoc): 'bib' | 'glass' =>
   p.packFormat ?? (`${p.name} ${p.type}`.toLowerCase().includes('bib') ? 'bib' : 'glass')
 
 export function packingKpis(state: Partial<AppState>, w: ReportWindow, _today: string): KpiPayload {

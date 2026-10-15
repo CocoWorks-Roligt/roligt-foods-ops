@@ -58,7 +58,7 @@ export const DASHBOARDS: readonly DashboardDef[] = [
     blurb: 'Blend runs, recipe variance, intermediate stock and expiry, output vs plan.',
     sources: 'Production batches + recipes + plans',
     reports: ['production', 'batch-wise'],
-    exports: [],
+    exports: ['blend-runs'],
   },
   {
     module: 'packing',
@@ -66,7 +66,7 @@ export const DASHBOARDS: readonly DashboardDef[] = [
     blurb: 'Throughput per shift, packed vs planned, glass vs BIB mix, fill wastage.',
     sources: 'Packing runs + plans',
     reports: ['production'],
-    exports: [],
+    exports: ['packing-runs'],
   },
   {
     module: 'qc',

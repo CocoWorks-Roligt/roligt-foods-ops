@@ -301,3 +301,94 @@ describe('D1b module registers', () => {
     expect(v.kind).toBe('stream')
   })
 })
+
+describe('D2b module registers', () => {
+  const seedBlends = (d1: FakeD1): void => {
+    put(d1, 'melanges', 'MEL-1', {
+      id: 'MEL-1', name: 'ABC Blend', outputItem: 'SF-ABC', uom: 'Litre',
+      components: [{ item: 'SF-A', share: 60 }, { item: 'SF-B', share: 40 }], description: '', status: 'active',
+    })
+    put(d1, 'items', 'SF-A', { id: 'SF-A', name: 'Coconut Water', type: 'Semi Finished', uom: 'Litre' })
+    put(d1, 'batches', 'BAT-2026-0005', {
+      id: 'BAT-2026-0005', date: '2026-09-02', kind: 'Melange', melangeId: 'MEL-1', status: 'Awaiting QC',
+      blendLines: [{ item: 'SF-A', lot: 'BAT-2026-0001', qty: 100, uom: 'Litre', unitCost: 20 }],
+      outputLines: [{ item: 'SF-ABC', qty: 120, uom: 'Litre', costShare: 100 }],
+      spoiled: 0, rmCost: 2000, pmCost: 0, directCost: 100, costPerL: 17.5, outputs: [], outputLitres: 120,
+    })
+    // Out of window — the fold's own rule (batch date) keeps it out.
+    put(d1, 'batches', 'BAT-2026-0006', {
+      id: 'BAT-2026-0006', date: '2026-04-01', kind: 'Melange', status: 'Closed', blendLines: [], outputLines: [],
+    })
+  }
+
+  it('blend register: net-new arithmetic, the fold own status vocabulary, batch-date window', async () => {
+    const d1 = new FakeD1()
+    seedBlends(d1)
+    const v = await exportFor(d1, { ...OPS, permissions: ['page.live-reports', 'page.production'] }, 'blend-runs', { format: 'csv' })
+    if (v.kind !== 'stream') throw new Error('expected a stream')
+    const text = v.file.bytes.toString('utf8')
+    expect(text).toContain('BAT-2026-0005')
+    expect(text).toContain('ABC Blend')
+    expect(text).toContain('Coconut Water · 100 Litre')
+    expect(text).toContain('20 Litre') // net new: 120 output − 100 drawn
+    expect(text).toContain('Open') // Awaiting QC is open — the chart's own word
+    expect(text).toContain('2100') // rm + direct total cost
+    expect(text).not.toContain('BAT-2026-0006')
+  })
+
+  it('blend register: a production-page caller may run it, a packing-only caller may not', async () => {
+    const d1 = new FakeD1()
+    seedBlends(d1)
+    const productionOnly = { email: 'line@roligt.local', permissions: ['page.production'] }
+    const v = await exportFor(d1, productionOnly, 'blend-runs', { format: 'csv' })
+    expect(v.kind).toBe('stream')
+    await expect(
+      exportFor(d1, { ...OPS, permissions: ['page.packing'] }, 'blend-runs', { format: 'csv' }),
+    ).rejects.toMatchObject({ status: 403, code: 'role_allowed' })
+  })
+
+  const seedPacking = (d1: FakeD1): void => {
+    put(d1, 'products', 'FG-BIB', {
+      id: 'FG-BIB', name: 'TCW 5L', type: 'BiB', size: 5, unit: 'L', packVolume: 5, shelfLifeDays: 60, bom: [], packName: '5 L BiB',
+    })
+    put(d1, 'products', 'FG-GLASS', {
+      id: 'FG-GLASS', name: 'TCW 250ml', type: 'Glass Bottle', size: 250, unit: 'ml', packVolume: 0.25, shelfLifeDays: 30, bom: [],
+    })
+    put(d1, 'packing_runs', 'PKG-2026-0009', {
+      id: 'PKG-2026-0009', date: '2026-09-05', batchId: 'BAT-2026-0001', bulkItem: 'SF-ABC', medium: 'Water',
+      lines: [
+        { sku: 'FG-BIB', packs: 30, perPack: 5, drawn: 150, qty: 30, unitCost: 823.85, expiry: '2026-10-30' },
+        { sku: 'FG-GLASS', packs: 100, perPack: 0.25, drawn: 25, qty: 100, unitCost: 90, expiry: '2026-10-30' },
+      ],
+      drawn: 175, pmCost: 3000, bulkCost: 14558.5, status: 'Posted',
+    })
+    put(d1, 'packing_runs', 'PKG-2026-0010', {
+      id: 'PKG-2026-0010', date: '2026-04-01', batchId: 'BAT-2026-0002', medium: 'Water', lines: [], drawn: 0, status: 'Posted',
+    })
+  }
+
+  it('packing register: run-date window, BIB count off the fold own packFormatOf', async () => {
+    const d1 = new FakeD1()
+    seedPacking(d1)
+    const v = await exportFor(d1, { ...OPS, permissions: ['page.live-reports', 'page.packing'] }, 'packing-runs', { format: 'csv' })
+    if (v.kind !== 'stream') throw new Error('expected a stream')
+    const text = v.file.bytes.toString('utf8')
+    expect(text).toContain('PKG-2026-0009')
+    expect(text).toContain('bib · 30 × 5 L BiB')
+    expect(text).toContain('glass · 100 × TCW 250ml')
+    expect(text).toContain('130') // packs total
+    expect(text).toContain('30') // BIB packs — the card's share numerator
+    expect(text).not.toContain('PKG-2026-0010')
+  })
+
+  it('packing register: a packing-page caller may run it, a production-only caller may not', async () => {
+    const d1 = new FakeD1()
+    seedPacking(d1)
+    const packingOnly = { email: 'fill@roligt.local', permissions: ['page.packing'] }
+    const v = await exportFor(d1, packingOnly, 'packing-runs', { format: 'csv' })
+    expect(v.kind).toBe('stream')
+    await expect(
+      exportFor(d1, { ...OPS, permissions: ['page.production'] }, 'packing-runs', { format: 'csv' }),
+    ).rejects.toMatchObject({ status: 403, code: 'role_allowed' })
+  })
+})

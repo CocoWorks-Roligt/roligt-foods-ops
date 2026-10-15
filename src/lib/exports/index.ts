@@ -18,6 +18,9 @@ import { inWindow } from '../reports/params.ts'
 import type { ExportColumn } from './csv.ts'
 import { procurementLotRows, type ProcurementLotRow } from '../reports/procurement.ts'
 import { qualityReport } from '../reports/qualityReport.ts'
+import { netNewOutputs } from '../reports/production.ts'
+import { openBlendRuns } from '../blendStage.ts'
+import { packFormatOf } from '../kpis/packing.ts'
 import type { PurchaseOrder, SpoilageRecord } from '../contracts.ts'
 
 export type { ExportColumn }
@@ -222,6 +225,93 @@ export const EXPORT_SPECS = {
       { header: 'Unit', value: (r) => r.uom },
       { header: 'Recorded at', value: (r) => r.at },
       { header: 'By', value: (r) => r.by },
+    ],
+  }),
+  // ── P5 module registers (D2b): the Intermediates & Blending and Packing
+  // dashboards' Export rows fold these — windowed the same way their KPI folds
+  // window (blend runs by batch date, packing runs by run date), so the file
+  // and the chart cannot disagree.
+  'blend-runs': spec({
+    key: 'blend-runs',
+    title: 'Blend run register',
+    pages: ['live-reports', 'production'],
+    collections: ['batches', 'melanges', 'items'],
+    // The fold's own window rule: a blend run rides its batch date. Status is
+    // the fold's own vocabulary — openBlendRuns' predicate decides Open/Closed,
+    // the same word the dashboard's runs-by-status chart prints.
+    rows: (state, w) => {
+      const itemName = (id: string): string => state.items?.find((i) => i.id === id)?.name || id
+      const runs = (state.batches ?? [])
+        .filter((b) => b.kind === 'Melange' && inWindow(b.date, w))
+        .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
+      const open = new Set(openBlendRuns(state.batches ?? []).map((b) => b.id))
+      return runs.map((b) => ({
+        batch: b.id,
+        date: b.date,
+        recipe: state.melanges?.find((m) => m.id === b.melangeId)?.name || itemName(b.blendLines?.[0]?.item ?? '') || b.id,
+        status: open.has(b.id) ? 'Open' : 'Closed',
+        drawn: (b.blendLines ?? []).map((l) => `${itemName(l.item)} · ${l.qty} ${l.uom ?? ''}`.trim()).join('; '),
+        netNew: netNewOutputs(b).map((o) => `${o.qty} ${o.uom}`).join(' · '),
+        spoiled: b.spoiled || 0,
+        cost: (b.rmCost || 0) + (b.pmCost || 0) + (b.directCost || 0),
+        costPerUnit: b.costPerL || 0,
+      }))
+    },
+    columns: [
+      { header: 'Batch', value: (r) => r.batch },
+      { header: 'Date', value: (r) => r.date },
+      { header: 'Recipe', value: (r) => r.recipe },
+      { header: 'Status', value: (r) => r.status },
+      { header: 'Components drawn', value: (r) => r.drawn },
+      { header: 'Net-new output', value: (r) => r.netNew },
+      { header: 'Spoiled', value: (r) => r.spoiled },
+      { header: 'Total cost', value: (r) => num(r.cost, 2) },
+      { header: 'Cost per unit', value: (r) => num(r.costPerUnit, 2) },
+    ],
+  }),
+  'packing-runs': spec({
+    key: 'packing-runs',
+    title: 'Packing run register',
+    pages: ['live-reports', 'packing'],
+    collections: ['packingRuns', 'products'],
+    // The fold's own window rule: a packing run rides its run date. The line
+    // summary and the BIB count read the product master with the fold's own
+    // packFormatOf, so the register's BIB share reconciles with the card's.
+    rows: (state, w) => {
+      const runs = (state.packingRuns ?? [])
+        .filter((r) => inWindow(r.date, w))
+        .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
+      return runs.map((r) => {
+        const lines = r.lines.map((l) => {
+          const p = state.products?.find((x) => x.id === l.sku)
+          return `${p ? packFormatOf(p) : l.sku} · ${l.packs} × ${p?.packName || p?.name || l.sku}`
+        })
+        return {
+          run: r.id,
+          date: r.date,
+          batch: r.batchId,
+          bulk: r.bulkItem || r.medium,
+          packs: r.lines.reduce((a, l) => a + (l.packs || 0), 0),
+          bibPacks: r.lines.reduce((a, l) => {
+            const p = state.products?.find((x) => x.id === l.sku)
+            return a + (p && packFormatOf(p) === 'bib' ? l.packs || 0 : 0)
+          }, 0),
+          lines: lines.join('; '),
+          drawn: r.drawn,
+          status: r.status,
+        }
+      })
+    },
+    columns: [
+      { header: 'Run', value: (r) => r.run },
+      { header: 'Date', value: (r) => r.date },
+      { header: 'Batch', value: (r) => r.batch },
+      { header: 'Bulk', value: (r) => r.bulk },
+      { header: 'Packs', value: (r) => r.packs },
+      { header: 'BIB packs', value: (r) => r.bibPacks },
+      { header: 'Lines', value: (r) => r.lines },
+      { header: 'Bulk drawn', value: (r) => r.drawn },
+      { header: 'Status', value: (r) => r.status },
     ],
   }),
 } satisfies Record<string, RegisteredExportSpec>

@@ -1,5 +1,5 @@
 # STATE — Beverage Ops Platform Overhaul
-Updated: 2026-10-16 | Phase: 5 DASHBOARDS in session — D2a done (Intermediates & Blending + Packing KPI folds; modules 1-2 complete with QA LIGHT green); next D2b: those two modules' dashboards + export registers, then QA LIGHT (4-module gate) | Branch: dev | Base: de4c13b
+Updated: 2026-10-16 | Phase: 5 DASHBOARDS in session — D2b done, modules 1-4 COMPLETE (folds + dashboards + registers; QA LIGHT green at 2- and 4-module gates); next D3a: QC + Control Samples KPI folds (BACKEND first) | Branch: dev | Base: de4c13b
 
 ## Contracts
 - v1.9 (2026-10-15, P4): +shipment/challan/return wire — ShipmentVersionExtension (documents.version
