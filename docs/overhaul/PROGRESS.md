@@ -1,5 +1,5 @@
 # PROGRESS — Beverage Ops Platform Overhaul
-Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 4 SHIPMENT in flight (H1, B5, S1, S2 done)
+Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 4 SHIPMENT code-complete (H1, B5, S1, S2, docs, QA LIGHT); HEAVY (Journey A through delivery) next session
 
 | Task | Agent | Status | Files | Next action |
 |---|---|---|---|---|
@@ -42,6 +42,8 @@ Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 4 SHIPMENT in f
 | P4/B5c: returns — record + QC decision (ledger 'Return' lines) | BACKEND | done @ 9222476 | api/_lib/returns.ts(+test), api/returns.ts, api/returns/[id]/decision.ts, src/lib/contracts.ts (ReturnDecisionRequest/Response) | 1122 tests (+14); S1 board page next |
 | P4/S1: shipment board page + route + store badge | SHIPMENT | done @ 2bbe7a7 | src/pages/Shipments.tsx, src/lib/shipmentApi.ts, src/lib/shipmentView.ts(+test), src/lib/shipmentStore.ts, src/App.tsx (ShipmentsRoute), src/components/Layout.tsx (badge off the module store), src/index.css | 1127 tests (+5); S2 delivery PWA next |
 | P4/S2: delivery-agent PWA — My Deliveries + offline outbox | SHIPMENT | done @ 6ec38f4 | src/pages/MyDeliveries.tsx, src/lib/shipmentOutbox.ts(+test), src/lib/deliveryDraft.ts(+test), src/lib/shipmentApi.ts (submit), src/lib/attachmentRules.ts (delivery area, grammar off AREAS), src/App.tsx, src/index.css | 1138 tests (+11); docs slice next |
+| P4: docs slice — STATE v1.9 + header, DECISIONS P4 section, RBAC §d as-built, live delivery-agent cheat sheet | LEAD | done | docs/overhaul/{STATE,DECISIONS,RBAC}.md, cheatsheets/delivery-agent.md | — |
+| P4: QA LIGHT | QA | done | — | tsc -b clean · 1138 passed/7 skipped · lint 10 baseline · build + build:e2e + assert-no-apptics clean; HEAVY (Journey A through delivery) next session |
 
 ## Log
 - 2026-10-13 Phase 0 complete. Baseline green (745 tests, tsc -b, lint, build @ de4c13b). DB target confirmed:
@@ -461,3 +463,9 @@ Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 4 SHIPMENT in f
   redirect — the page is the tier's only landing. Suite 1138 (+11: outbox 6, draft 4,
   delivery area 1), tsc -b clean, lint 10 baseline, build green. Committed 6ec38f4.
   Next: docs slice + QA LIGHT.
+
+- **P4 QA LIGHT** (2026-10-15): gates on the whole phase diff (de4c13b → dev, 78348c2 … 6ec38f4 +
+  docs) — tsc -b clean; vitest 1138 passed | 7 skipped; oxlint 10 warnings / 0 errors (baseline);
+  npm run build green; npm run build:e2e green, [assert-no-apptics] clean (no marker in 109 dist
+  files). Phase 4 SHIPMENT code-complete on dev; HEAVY (Journey A extended through delivery) runs
+  next session per one-phase-one-session. Phase 5 DASHBOARDS follows.
