@@ -65,6 +65,8 @@ const purchaseOrderItemHandler = (await import('../api/purchase-orders/[id].ts')
 const purchaseOrderReceiveHandler = (await import('../api/purchase-orders/[id]/receive.ts')).default
 const closeRunHandler = (await import('../api/transformations/close.ts')).default
 const kpisModuleHandler = (await import('../api/kpis/[module].ts')).default
+const exportsReportHandler = (await import('../api/exports/[report].ts')).default
+const exportsJobHandler = (await import('../api/exports/jobs/[id].ts')).default
 const searchHandler = (await import('../api/search.ts')).default
 const genealogyHandler = (await import('../api/genealogy.ts')).default
 const dispatchConfirmHandler = (await import('../api/dispatch/confirm.ts')).default
@@ -115,6 +117,8 @@ const PARAM_API_ROUTES = [
   { pattern: '/api/purchase-orders/:id/receive', handler: purchaseOrderReceiveHandler },
   { pattern: '/api/purchase-orders/:id', handler: purchaseOrderItemHandler },
   { pattern: '/api/kpis/:module', handler: kpisModuleHandler },
+  { pattern: '/api/exports/jobs/:id', handler: exportsJobHandler },
+  { pattern: '/api/exports/:report', handler: exportsReportHandler },
   { pattern: '/api/shipments/:id/submit', handler: shipmentSubmitHandler },
   { pattern: '/api/shipments/:id/events', handler: shipmentEventsHandler },
   { pattern: '/api/shipments/:id', handler: shipmentItemHandler },

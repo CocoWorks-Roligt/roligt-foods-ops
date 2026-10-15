@@ -1,5 +1,5 @@
 # PROGRESS — Beverage Ops Platform Overhaul
-Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 4 SHIPMENT CLOSED — QA HEAVY green (Journey A 14/14 through delivery + challan PDF); next: /clear, Phase 5 DASHBOARDS in a fresh session
+Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS in session — D0 export engine done (3 specs, jobs, audit); next: D1 dashboards UI + Procurement & Grading-Extraction folds
 
 | Task | Agent | Status | Files | Next action |
 |---|---|---|---|---|
@@ -45,6 +45,7 @@ Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 4 SHIPMENT CLOS
 | P4: docs slice — STATE v1.9 + header, DECISIONS P4 section, RBAC §d as-built, live delivery-agent cheat sheet | LEAD | done | docs/overhaul/{STATE,DECISIONS,RBAC}.md, cheatsheets/delivery-agent.md | — |
 | P4: QA LIGHT | QA | done | — | tsc -b clean · 1138 passed/7 skipped · lint 10 baseline · build + build:e2e + assert-no-apptics clean; HEAVY (Journey A through delivery) next session |
 | P4: QA HEAVY — Journey A extended through delivery (phase close) | QA | done | e2e/journey-a.spec.ts (legs 11–13), e2e/boot.spec.ts, e2e/helpers.ts, playwright.config.ts (E2E_PORT), scripts/dev-server.mjs (P4 routes + decoded params), scripts/e2e/{up,prepare-db,r2-shim}.mjs, api/_lib/r2.ts(+r2.test), .artifacts/qa-screens.mjs, .artifacts/qa-p4-visual-checks.mjs, QA_REPORT.md | 14/14; LIGHT gates re-green (1139 tests); Lighthouse a11y 98 both new screens; §6 45 shots + programmatic checklist PASS; Phase 4 CLOSED — Phase 5 DASHBOARDS next |
+| P5/D0: export engine — /api/exports/:report + jobs, registry (3 specs), formats, audit | BACKEND | done | src/lib/exports/{csv.ts,index.ts}, src/lib/export.ts (re-exports shared guard), api/_lib/{exports.ts,exportFormats.ts, exports.test.ts}, api/exports/[report].ts, api/exports/jobs/[id].ts, scripts/dev-server.mjs (routes) | 1149 tests (+10); tsc -b, lint 10 baseline, build green; module report specs land per module D1+ |
 
 ## Log
 - 2026-10-13 Phase 0 complete. Baseline green (745 tests, tsc -b, lint, build @ de4c13b). DB target confirmed:
@@ -501,3 +502,23 @@ Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 4 SHIPMENT CLOS
   marker in 109 dist files). Zero app-source changes beyond the additive R2_ENDPOINT branch +
   its test — every defect this run was harness-side (4 found, 4 fixed, re-run green). Phase 4
   CLOSED. Next: /clear, Phase 5 DASHBOARDS in a fresh session.
+- 2026-10-15 P5 D0 — the export engine (BACKEND, first Phase-5 slice; decisions in DECISIONS P5
+  section). ONE registry (src/lib/exports) whose specs fold rows through the SAME
+  src/lib/reports derivations the screens read; api/_lib/exports.ts owns RBAC
+  (page.live-reports for the classic reports — visibility exactly what Classic allows;
+  agents 403), per-collection read withholding (the KPI layer's own readModuleState, now
+  shared), the §6 header block (window, filters, generated-by, IST stamp), the ONE injection
+  guard (guardCell shared client+server; the XLSX pass re-implements the same class on cells),
+  audit rows (report.export), and the stream-vs-job verdict: ≤4000 rows stream with
+  X-Last-Updated/X-Stale-After headers; over that a 202 + meta job `export:<id>` whose FIRST
+  POLL computes, uploads R2 exports/<id>.<ext>, presigns a 10-min download (jobs REQUIRE R2,
+  streams never touch it; foreign job reads 404 never 403). Formats: CSV (BOM + # meta
+  lines), XLSX (exceljs, dep logged), PDF (jspdf+autotable, ₹→Rs. Latin-1). Routes
+  api/exports/[report].ts + api/exports/jobs/[id].ts, both registered in dev-server (5-segment
+  jobs pattern can't collide with the 4-segment report one). 10 tests: RBAC pair, unknown
+  report, CSV guard/window/header/filename, XLSX zip magic, PDF %PDF, audit row, job
+  mint→poll→ready with a live local S3 stand-in (presign URL + stored bytes), foreign-caller
+  404 + honest R2-less failure, threshold pin. Gates: tsc -b clean, 1149 passed (+10), lint 10
+  baseline, build green. Opening specs: procurement-lots, fruits (shared LOT_COLUMNS — the
+  fruits export IS the lot report filtered to fruit), quality. Per-module specs + KPI folds +
+  the Dashboards UI start at D1.

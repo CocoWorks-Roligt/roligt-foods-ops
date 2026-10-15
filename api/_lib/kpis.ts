@@ -144,8 +144,10 @@ const cacheFresh = (row: CacheRow, revision: string, from: string, to: string, t
 // ── the fold ────────────────────────────────────────────────────────────────
 
 /** The module's documents, minus what the caller's page-based read withholding
- *  drops — the same collections /api/snapshot projects. */
-async function readModuleState(
+ *  drops — the same collections /api/snapshot projects. Shared with the export
+ *  engine (api/_lib/exports.ts), so a withheld collection is withheld from
+ *  every fold, not just the KPI one. */
+export async function readModuleState(
   d1: KpiStore,
   caller: Caller,
   collections: readonly string[],
@@ -166,7 +168,7 @@ async function readModuleState(
 
 /** max(documents.updated_at) over the collections actually folded — the
  *  payload's last_updated, recomputed only per revision. */
-async function readLastUpdated(d1: KpiStore, wire: readonly string[]): Promise<string> {
+export async function readLastUpdated(d1: KpiStore, wire: readonly string[]): Promise<string> {
   if (!wire.length) return ''
   const rows = await d1.query<{ m: string | null }>(
     `SELECT MAX(updated_at) AS m FROM documents WHERE collection IN (${wire.map(() => '?').join(',')})`,

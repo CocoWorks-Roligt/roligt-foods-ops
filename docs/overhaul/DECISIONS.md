@@ -22,6 +22,7 @@ Verdicts from audit slice 2 (2026-10-13). RULE: ASSUMED/PARTIAL items are built 
 | 16 | Pipeline "stuck" threshold | MISSING | ASSUMED a stage row is stuck after 2 days waiting (config `app_config.pipelineStuckDays`, default 2 — src/lib/pipeline.ts); bottleneck notes on Pipeline Home flag stuck/hold/expiry/overdue |
 
 ## Dependency log (one line each; UI deps pre-approved, guardrails: ONE component lib + ONE chart lib, permissive license, no framework migration)
+- exceljs@4.4.0 (P5 D0): XLSX export renderer, server-side only — SheetJS's npm build is stale/advisory-flagged, exceljs is the maintained MIT option.
 - (SHELL 2026-10-13) echarts ^6 (Apache-2.0) — the ONE chart library; only it covers all six wire kinds (line/bar/stacked/treemap/heatmap/control); tree-shaken via src/components/shell/echartsChunk.ts, lazy chunk.
 - (SHELL 2026-10-13) NO component library added — the existing hand-rolled set (Modal/Select/dropdown positioning/Toast) IS the one component system; a headless lib would duplicate patterns the codebase already owns and owns well.
 - (SHELL 2026-10-13) SignaturePad hand-rolled (pointer events + canvas) — `signature-pad` is unpublished from npm (404), `react-signature-canvas` is alpha on old React peers; ~100 lines beats a bet on a small personal lib.
@@ -91,6 +92,26 @@ Verdicts from audit slice 2 (2026-10-13). RULE: ASSUMED/PARTIAL items are built 
   :3000 belongs to the user's own unrelated server, and pointing a QA walk at it once produced a
   fully green run for the wrong site — caught only via the CDN image viewer. Harness ports
   (3100/8111/8112) are killed and verified free after every run.
+
+## P5 decisions (2026-10-15, DASHBOARDS)
+- D0 export engine (BACKEND, first Phase-5 slice): GET /api/exports/:report?format=csv|xlsx|pdf folds rows through the
+  SAME src/lib/reports derivations the on-screen tables read (registry src/lib/exports/index.ts) — the file cannot
+  disagree with the screen. Classic reports gate on page.live-reports (their open-tier Classic visibility, exactly);
+  delivery agents 403 on all exports; read withholding per-collection rides the KPI layer's readModuleState.
+- Stream-vs-job: ≤ 4000 rows (EXPORT_STREAM_MAX_ROWS) streams bytes with X-Last-Updated/X-Stale-After headers
+  (contracts' streamed-file freshness rule); over it answers 202 + a meta row `export:<id>` whose FIRST POLL computes
+  (serverless-honest: nothing idles), uploads to R2 exports/<id>.<ext> and presigns a 10-min download. Job files
+  REQUIRE R2 (honest failure otherwise); stream files never touch it. Foreign/failing job reads 404, never 403.
+- CSV header block = `# `-prefixed lines before the RFC-4180 table (title is the route's title, lines carry window +
+  filters + generated-by + IST timestamp); a parser keyed on the header row skips them. XLSX renders the same block as
+  bold lead rows; PDF as the title block. PDF text is Latin-1 (challanPdf constraint): ₹ prints as "Rs."; CSV/XLSX
+  carry ₹ natively.
+- exceljs added (dependency log, §2 pre-approved UI/report dep): XLSX renderer, MIT, Node-runtime. PDF reuses the
+  in-tree jspdf + jspdf-autotable pair. exceljs hangs under vitest fake timers — the XLSX test runs real-time (pinned
+  in exports.test.ts).
+- Injection guard is ONE implementation (src/lib/exports/csv.ts guardCell + the XLSX eachCell pass in
+  exportFormats.ts): client table exports re-export the shared toCsv. Exports are AUDITED (report.export rows, one
+  per run, format + row count + window + job id).
 
 ## Blocked
 - batch_v2 enablement — blocked on the DECISIONS #2 mass-balance resolution (3/14 pass; extractions cannot close under enforcement).

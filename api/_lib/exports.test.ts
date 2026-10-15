@@ -1,0 +1,221 @@
+/**
+ * D0 export-engine tests: RBAC (page gate, delivery agent), the stream verdict
+ * (guard, header block, window filter, all three formats' bytes), the job
+ * lifecycle (mint → first-poll compute → R2 upload → ready with a presigned
+ * URL; the R2-less branch's honest failure), and the audit row — over the same
+ * in-memory SQLite fake the B4 tests drive.
+ */
+import { readFileSync } from 'node:fs'
+import { createServer } from 'node:http'
+import Database from 'better-sqlite3'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { exportFor, getExportJob, EXPORT_STREAM_MAX_ROWS } from './exports.js'
+import { istStamp } from './exportFormats.js'
+
+type Stmt = { sql: string; params?: unknown[] }
+
+class FakeD1 {
+  readonly db: Database.Database
+  constructor() {
+    this.db = new Database(':memory:')
+    this.db.exec(readFileSync(new URL('../../scripts/d1/schema.sql', import.meta.url), 'utf8'))
+  }
+  private run(sql: string, params: unknown[]): { rows: unknown[]; changes: number } {
+    const stmt = this.db.prepare(sql)
+    if (stmt.reader) {
+      const rows = stmt.all(...(params as never[])) as unknown[]
+      return { rows, changes: rows.length }
+    }
+    const info = stmt.run(...(params as never[]))
+    return { rows: [], changes: info.changes }
+  }
+  async query<T>(sql: string, params: unknown[] = []): Promise<T[]> {
+    return this.run(sql, params).rows as T[]
+  }
+  async batch(stmts: Stmt[]): Promise<unknown[]> {
+    this.db.transaction(() => {
+      for (const s of stmts) this.run(s.sql, s.params ?? [])
+    })()
+    return []
+  }
+}
+
+type Caller = { email: string; permissions: string[] }
+
+const OPS: Caller = { email: 'ops@roligt.local', permissions: ['page.live-reports', 'page.procurement'] }
+const AGENT: Caller = { email: 'agent@ext', permissions: ['page.my-deliveries'] }
+const NOBODY: Caller = { email: 'x@roligt.local', permissions: ['page.my-deliveries'] }
+
+const NOW = '2026-10-15T09:00:00.000Z'
+
+function put(d1: FakeD1, collection: string, id: string, doc: unknown, updated_at = NOW): void {
+  d1.db
+    .prepare(
+      `INSERT INTO documents(collection, id, json, version, updated_at) VALUES (?, ?, ?, 1, ?)
+       ON CONFLICT(collection, id) DO UPDATE SET json = excluded.json, updated_at = excluded.updated_at`,
+    )
+    .run(collection, id, JSON.stringify(doc), updated_at)
+}
+
+/** The hostile name every injection test rides: opens as a formula in a sheet. */
+const POISON = '=HYPERLINK("http://evil", "click")'
+
+function seedGrns(d1: FakeD1): void {
+  put(d1, 'purchaseProducts', 'PP-1', { id: 'PP-1', name: 'Tender Coconut' })
+  put(d1, 'grns', 'GRN-1', {
+    id: 'GRN-1', lot: 'LOT-1', date: '2026-09-02', farmer: POISON, productName: 'Tender Coconut',
+    uom: 'Piece', total: 100, free: 0, a: 60, b: 20, c: 10, reject: 10, accepted: 90,
+    rate: 30, transport: 200, landed: 3200, usableCost: 3200,
+  })
+  put(d1, 'grns', 'GRN-2', {
+    id: 'GRN-2', lot: 'LOT-2', date: '2026-04-01', farmer: 'Old Crop', productName: 'Tender Coconut',
+    uom: 'Piece', total: 50, free: 0, a: 30, b: 10, c: 5, reject: 5, accepted: 45,
+    rate: 25, transport: 0, landed: 1125, usableCost: 1125,
+  })
+}
+
+beforeEach(() => {
+  // Fake timers only where a test pins the IST stamp — exceljs writes real
+  // timers and hangs under them (the XLSX timeout lesson).
+})
+
+afterEach(() => {
+  vi.useRealTimers()
+  for (const k of ['R2_ENDPOINT', 'R2_ACCOUNT_ID', 'R2_BUCKET', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY']) {
+    delete process.env[k]
+  }
+})
+
+describe('exportFor — gates', () => {
+  it('refuses a caller without the report page', async () => {
+    const d1 = new FakeD1()
+    seedGrns(d1)
+    await expect(exportFor(d1, { ...NOBODY, permissions: ['page.orders'] }, 'procurement-lots', {})).rejects.toMatchObject({ status: 403, code: 'role_allowed' })
+  })
+
+  it('refuses a delivery agent outright', async () => {
+    const d1 = new FakeD1()
+    seedGrns(d1)
+    await expect(exportFor(d1, AGENT, 'procurement-lots', {})).rejects.toMatchObject({ status: 403, code: 'role_allowed' })
+  })
+
+  it('404s an unknown report', async () => {
+    const d1 = new FakeD1()
+    await expect(exportFor(d1, OPS, 'no-such-report', {})).rejects.toMatchObject({ status: 404, code: 'invalid_report' })
+  })
+})
+
+describe('exportFor — the stream verdict', () => {
+  it('CSV: header block, window filter, and the injection guard', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(NOW))
+    try {
+      const d1 = new FakeD1()
+      seedGrns(d1)
+      const v = await exportFor(d1, OPS, 'procurement-lots', { format: 'csv' })
+      if (v.kind !== 'stream') throw new Error('expected a stream')
+      expect(v.file.contentType).toContain('text/csv')
+      // BOM first, then the # meta block, then the guarded table.
+      const text = v.file.bytes.toString('utf8')
+      expect(v.file.bytes[0]).toBe(0xef)
+      expect(text).toContain(`# Window: 2026-04-15 to 2026-10-15`)
+      expect(text).toContain(`# Generated by ops@roligt.local at ${istStamp(NOW)}`)
+      // The hostile name arrives guarded and RFC-4180-quoted (inner quotes doubled).
+      expect(text).toContain(`'${POISON.replaceAll('"', '""')}`)
+      expect(text).toContain('GRN-1')
+      expect(text).not.toContain('GRN-2') // April receipt, outside the default six-month window
+      expect(v.filename).toMatch(/^procurement-lot-report-\d{4}-\d{2}-\d{2}\.csv$/)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('XLSX: a real workbook (zip magic) with the guarded cell', async () => {
+    const d1 = new FakeD1()
+    seedGrns(d1)
+    const v = await exportFor(d1, OPS, 'procurement-lots', { format: 'xlsx' })
+    if (v.kind !== 'stream') throw new Error('expected a stream')
+    expect(v.file.ext).toBe('xlsx')
+    expect(v.file.bytes.subarray(0, 2).toString()).toBe('PK')
+  })
+
+  it('PDF: %PDF bytes', async () => {
+    const d1 = new FakeD1()
+    seedGrns(d1)
+    const v = await exportFor(d1, OPS, 'quality', { format: 'pdf' })
+    if (v.kind !== 'stream') throw new Error('expected a stream')
+    expect(v.file.bytes.subarray(0, 4).toString()).toBe('%PDF')
+  })
+
+  it('writes the audit row', async () => {
+    const d1 = new FakeD1()
+    seedGrns(d1)
+    await exportFor(d1, OPS, 'procurement-lots', { format: 'csv' })
+    const rows = d1.db.prepare(`SELECT json FROM documents WHERE collection = 'audits'`).all() as { json: string }[]
+    expect(rows).toHaveLength(1)
+    expect(JSON.parse(rows[0].json)).toMatchObject({ action: 'report.export', doc: 'procurement-lots', actor: OPS.email })
+  })
+})
+
+describe('the job lifecycle', () => {
+  it('mints a queued job past the threshold and computes it on first poll (R2 up)', async () => {
+    const d1 = new FakeD1()
+    seedGrns(d1)
+    // A local S3 stand-in: every PUT is a 200, the object is remembered.
+    const objects = new Map<string, Buffer>()
+    const srv = createServer((req, res) => {
+      if (req.method === 'PUT') {
+        const chunks: Buffer[] = []
+        req.on('data', (c: Buffer) => chunks.push(c))
+        req.on('end', () => {
+          objects.set(req.url ?? '', Buffer.concat(chunks))
+          res.writeHead(200).end()
+        })
+        return
+      }
+      res.writeHead(404).end()
+    })
+    await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r))
+    const port = (srv.address() as { port: number }).port
+    Object.assign(process.env, {
+      R2_ENDPOINT: `http://127.0.0.1:${port}`,
+      R2_ACCOUNT_ID: 'test', R2_BUCKET: 'bucket', R2_ACCESS_KEY_ID: 'k', R2_SECRET_ACCESS_KEY: 's',
+    })
+
+    try {
+      const minted = await exportFor(d1, OPS, 'procurement-lots', { format: 'csv' }, { maxRows: 0 })
+      if (minted.kind !== 'job') throw new Error('expected a job')
+      expect(minted.status).toBe(202)
+      expect(minted.job.status).toBe('queued')
+
+      const ready = await getExportJob(d1, OPS, minted.job.id)
+      expect(ready.status).toBe('ready')
+      expect(ready.downloadUrl).toContain(`http://127.0.0.1:${port}/`)
+      expect(ready.downloadUrl).toContain('X-Amz-Signature=')
+      const stored = [...objects.values()][0]
+      expect(stored?.toString('utf8')).toContain('GRN-1')
+      // Second poll: still ready, same key.
+      const again = await getExportJob(d1, OPS, minted.job.id)
+      expect(again.status).toBe('ready')
+    } finally {
+      await new Promise<void>((r) => srv.close(() => r()))
+    }
+  })
+
+  it('another caller learns nothing (404), and the job-less R2 answer fails honestly', async () => {
+    const d1 = new FakeD1()
+    seedGrns(d1)
+    const minted = await exportFor(d1, OPS, 'procurement-lots', { format: 'csv' }, { maxRows: 0 })
+    if (minted.kind !== 'job') throw new Error('expected a job')
+    await expect(getExportJob(d1, AGENT, minted.job.id)).rejects.toMatchObject({ status: 404, code: 'export_not_found' })
+    await expect(getExportJob(d1, { ...OPS, email: 'other@roligt.local' }, minted.job.id)).rejects.toMatchObject({ status: 404, code: 'export_not_found' })
+
+    const failed = await getExportJob(d1, OPS, minted.job.id) // R2 env unset
+    expect(failed.status).toBe('failed')
+    expect(failed.error).toContain('file storage')
+  })
+
+  it('the threshold default is the documented constant', () => {
+    expect(EXPORT_STREAM_MAX_ROWS).toBe(4000)
+  })
+})
