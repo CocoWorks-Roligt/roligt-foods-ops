@@ -14,9 +14,11 @@
 
 import type { AppState, ViewId } from '../../types.ts'
 import type { ReportWindow } from '../reports/params.ts'
+import { inWindow } from '../reports/params.ts'
 import type { ExportColumn } from './csv.ts'
 import { procurementLotRows, type ProcurementLotRow } from '../reports/procurement.ts'
 import { qualityReport } from '../reports/qualityReport.ts'
+import type { PurchaseOrder, SpoilageRecord } from '../contracts.ts'
 
 export type { ExportColumn }
 
@@ -82,6 +84,15 @@ const lotState = (state: Partial<AppState>): Parameters<typeof procurementLotRow
 const num = (n: number | undefined | null, digits = 0): number =>
   n == null ? 0 : Number(n.toFixed(digits))
 
+/** The documents collections the module registers read — same shape as the
+ *  lot report's adapter above. */
+type WithDocs = Partial<AppState> & {
+  purchase_orders?: PurchaseOrder[]
+  spoilage_records?: SpoilageRecord[]
+}
+
+const docsState = (state: Partial<AppState>): WithDocs => state as WithDocs
+
 export const EXPORT_SPECS = {
   'procurement-lots': spec({
     key: 'procurement-lots',
@@ -133,6 +144,84 @@ export const EXPORT_SPECS = {
       { header: 'Pending', value: (r) => r.pending },
       { header: 'Release rate %', value: (r) => r.releaseRate ?? '—' },
       { header: 'Reject rate %', value: (r) => r.rejectRate ?? '—' },
+    ],
+  }),
+  // ── P5 module registers (D1b): the Procurement and Grading & Extraction
+  // dashboards' Export row folds these — windowed the same way their KPI folds
+  // window, so the file and the chart cannot disagree.
+  'purchase-orders': spec({
+    key: 'purchase-orders',
+    title: 'Purchase order register',
+    pages: ['live-reports', 'procurement'],
+    collections: ['purchase_orders', 'vendors'],
+    // The funnel's own window rule: a PO with a promised day sits in its day's
+    // window; an un-promised PO (a draft, usually) counts in whatever window is
+    // open — hiding it would make the register shorter than the funnel's total.
+    rows: (state, w) => {
+      const s = docsState(state)
+      const pos = (s.purchase_orders ?? []).filter((p) => !p.expectedOn || inWindow(p.expectedOn, w))
+      const vendorName = (id: string): string => s.vendors?.find((v) => v.id === id)?.name || id || '—'
+      return pos
+        .sort((a, b) => a.number.localeCompare(b.number))
+        .map((p) => ({
+          number: p.number,
+          vendor: vendorName(p.vendorId),
+          // The funnel's own spelling — 'Sent', not 'sent' — so the register
+          // and the chart it sits beside read the same word.
+          status: p.status[0].toUpperCase() + p.status.slice(1),
+          expectedOn: p.expectedOn ?? '',
+          items: p.lines.map((l) => `${l.item} · ${l.qty} ${l.uom}`).join('; '),
+          lines: p.lines.length,
+          value: p.lines.reduce((t, l) => t + l.qty * l.rate, 0),
+          receipts: p.receivedGrnIds.length,
+        }))
+    },
+    columns: [
+      { header: 'PO', value: (r) => r.number },
+      { header: 'Vendor', value: (r) => r.vendor },
+      { header: 'Status', value: (r) => r.status },
+      { header: 'Expected on', value: (r) => r.expectedOn || '—' },
+      { header: 'Items', value: (r) => r.items },
+      { header: 'Lines', value: (r) => r.lines },
+      { header: 'Ordered value', value: (r) => num(r.value, 2) },
+      { header: 'Receipts linked', value: (r) => r.receipts },
+    ],
+  }),
+  spoilage: spec({
+    key: 'spoilage',
+    title: 'Spoilage register',
+    pages: ['live-reports', 'production'],
+    collections: ['spoilage_records', 'batches'],
+    // The pareto's own join: a record rides the window its BATCH sits in (the
+    // close stamps both together), so the register and the chart count the same
+    // records against the same window.
+    rows: (state, w) => {
+      const s = docsState(state)
+      const batches = (state.batches ?? []).filter((b) => inWindow(b.date, w))
+      const kindOf = new Map(batches.map((b) => [b.id, b.kind] as const))
+      return (s.spoilage_records ?? [])
+        .filter((r) => kindOf.has(r.batchId))
+        .sort((a, b) => b.at.localeCompare(a.at))
+        .map((r) => ({
+          batch: r.batchId,
+          kind: kindOf.get(r.batchId) ?? '',
+          stage: r.stage,
+          reason: r.reasonCode,
+          qty: r.qty,
+          uom: r.uom,
+          at: r.at,
+          by: r.actor,
+        }))
+    },
+    columns: [
+      { header: 'Batch', value: (r) => r.batch },
+      { header: 'Kind', value: (r) => r.kind },
+      { header: 'Stage', value: (r) => r.stage },
+      { header: 'Reason', value: (r) => r.reason },
+      { header: 'Qty', value: (r) => r.qty },
+      { header: 'Unit', value: (r) => r.uom },
+      { header: 'Recorded at', value: (r) => r.at },
+      { header: 'By', value: (r) => r.by },
     ],
   }),
 } satisfies Record<string, RegisteredExportSpec>

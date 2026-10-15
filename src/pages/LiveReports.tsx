@@ -9,6 +9,9 @@ import { EmptyState } from '../components/EmptyState'
 import { Select } from '../components/Select'
 import { SortHeader, SortSelect, sortRows, useTableSort, type SortAccessors } from '../components/tableSort'
 import { useApp } from '../context/AppContext'
+import { useSessionPermissions } from '../lib/sessionPermissions'
+import { dashboardDef, visibleDashboards } from '../lib/dashboards'
+import { ModuleDashboard } from '../components/reports/ModuleDashboard'
 import type { ExportColumn } from '../lib/export'
 import {
   REPORTS,
@@ -66,7 +69,17 @@ const pct = (n: number | null) => (n === null ? '—' : `${n}%`)
 
 export function LiveReports() {
   const [params] = useSearchParams()
+  const { flags } = useApp()
+  const permissions = useSessionPermissions()
+  // The P5 dashboards ride the same URL (?dashboard=<module>&from=&to=), so a
+  // dashboard view is as linkable as a report view. Flag + page gated in the
+  // catalog; an unknown/off module falls through to the report catalog rather
+  // than erroring — a stale link should land somewhere useful.
+  const dash = dashboardDef(params.get('dashboard') || '')
   const def = reportDef(params.get('type') || '')
+  if (dash && visibleDashboards(flags, permissions).some((d) => d.module === dash.module)) {
+    return <ModuleDashboard def={dash} />
+  }
   if (!def) return <Catalog />
   switch (def.key) {
     case 'procurement-lots':
@@ -92,8 +105,12 @@ export function LiveReports() {
   }
 }
 
-/** The catalog the page opens on: every report, grouped the way the plant thinks. */
+/** The catalog the page opens on: every report, grouped the way the plant thinks —
+ *  and, when a module's dashboards flag is on, its dashboard above them. */
 function Catalog() {
+  const { flags } = useApp()
+  const permissions = useSessionPermissions()
+  const dashboards = visibleDashboards(flags, permissions)
   return (
     <div className="card">
       <div className="section-head">
@@ -106,6 +123,20 @@ function Catalog() {
           </span>
         </div>
       </div>
+      {dashboards.length ? (
+        <div className="report-catalog-family">
+          <h4>Dashboards</h4>
+          <div className="grid grid-2">
+            {dashboards.map((d) => (
+              <Link className="report-card" key={d.module} to={`/reports/live?dashboard=${d.module}`}>
+                <b>{d.title} dashboard</b>
+                <span>{d.blurb}</span>
+                <small>Reads: {d.sources}</small>
+              </Link>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {REPORT_FAMILIES.map((family) => (
         <div className="report-catalog-family" key={family}>
           <h4>{family}</h4>

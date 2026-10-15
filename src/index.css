@@ -4735,6 +4735,69 @@ table tbody tr.subrow > td {
   padding: 20px;
 }
 
+/* Module dashboard (P5): charts two-up on a desk, one-up on the tablet/phone;
+   the reports + export row sits under them, hint last. */
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.module-dashboard .kpi-row {
+  margin-top: 12px;
+}
+.module-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.module-under {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--hair-soft);
+}
+.module-under h4 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+.module-reports,
+.module-export {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.module-reports {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.module-reports h4,
+.module-export h4 {
+  align-self: center;
+}
+.module-export {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.module-export .ui-select {
+  min-width: 220px;
+}
+.module-hint {
+  margin: 14px 0 0;
+  font-size: 12px;
+  color: var(--ink-mute);
+}
+
 /* Screen-reader-only text (freshness sentences and filter labels). */
 .visually-hidden {
   position: absolute;

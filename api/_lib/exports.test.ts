@@ -219,3 +219,85 @@ describe('the job lifecycle', () => {
     expect(EXPORT_STREAM_MAX_ROWS).toBe(4000)
   })
 })
+
+describe('D1b module registers', () => {
+  const seedPos = (d1: FakeD1): void => {
+    put(d1, 'vendors', 'V-1', { id: 'V-1', name: 'Green Farms' })
+    put(d1, 'purchase_orders', 'PO-1', {
+      id: 'PO-1', number: 'PO/2026/0001', vendorId: 'V-1', status: 'sent',
+      expectedOn: '2026-09-01', receivedGrnIds: [],
+      lines: [{ item: 'Tender Coconut', qty: 100, uom: 'Piece', rate: 30 }],
+    })
+    // Un-promised (a draft) — rides every window, or the register totals less
+    // than the funnel it sits beside.
+    put(d1, 'purchase_orders', 'PO-2', {
+      id: 'PO-2', number: 'PO/2026/0002', vendorId: 'V-1', status: 'draft', receivedGrnIds: [], lines: [],
+    })
+    // Promised outside the default six-month window — stays out.
+    put(d1, 'purchase_orders', 'PO-3', {
+      id: 'PO-3', number: 'PO/2026/0003', vendorId: 'V-1', status: 'closed',
+      expectedOn: '2026-04-01', receivedGrnIds: ['GRN-1'], lines: [],
+    })
+  }
+
+  it("PO register: statuses in the funnel's own spelling, drafts ride every window", async () => {
+    const d1 = new FakeD1()
+    seedPos(d1)
+    const v = await exportFor(d1, OPS, 'purchase-orders', { format: 'csv' })
+    if (v.kind !== 'stream') throw new Error('expected a stream')
+    const text = v.file.bytes.toString('utf8')
+    expect(text).toContain('PO/2026/0001')
+    expect(text).toContain('Green Farms')
+    expect(text).toContain('Sent')
+    expect(text).toContain('PO/2026/0002') // the un-promised draft
+    expect(text).toContain('Draft')
+    expect(text).toContain('3000') // 100 × 30 ordered value
+    expect(text).not.toContain('PO/2026/0003') // April promise, outside the window
+  })
+
+  it('PO register: a procurement-page caller may run it, an orders-only caller may not', async () => {
+    const d1 = new FakeD1()
+    seedPos(d1)
+    const procurementOnly = { email: 'buy@roligt.local', permissions: ['page.procurement'] }
+    const v = await exportFor(d1, procurementOnly, 'purchase-orders', { format: 'csv' })
+    expect(v.kind).toBe('stream')
+    await expect(
+      exportFor(d1, { ...OPS, permissions: ['page.orders'] }, 'purchase-orders', { format: 'csv' }),
+    ).rejects.toMatchObject({ status: 403, code: 'role_allowed' })
+  })
+
+  const seedSpoilage = (d1: FakeD1): void => {
+    put(d1, 'batches', 'BAT-2026-0001', { id: 'BAT-2026-0001', date: '2026-09-02', kind: 'Extraction' })
+    put(d1, 'batches', 'BAT-2026-0002', { id: 'BAT-2026-0002', date: '2026-04-01', kind: 'Extraction' })
+    put(d1, 'spoilage_records', 'SR-1', {
+      id: 'SR-1', batchId: 'BAT-2026-0001', stage: 'extraction', qty: 12, uom: 'Piece',
+      reasonCode: 'rotten', at: '2026-09-02T10:00:00.000Z', actor: 'op@roligt.local',
+    })
+    // Joined to the OUT-of-window batch — the pareto's own join keeps it out.
+    put(d1, 'spoilage_records', 'SR-2', {
+      id: 'SR-2', batchId: 'BAT-2026-0002', stage: 'extraction', qty: 99, uom: 'Piece',
+      reasonCode: 'cracked', at: '2026-04-01T10:00:00.000Z', actor: 'op@roligt.local',
+    })
+  }
+
+  it('spoilage register: rides the window its BATCH sits in (pareto join)', async () => {
+    const d1 = new FakeD1()
+    seedSpoilage(d1)
+    const v = await exportFor(d1, { ...OPS, permissions: ['page.live-reports', 'page.production'] }, 'spoilage', { format: 'csv' })
+    if (v.kind !== 'stream') throw new Error('expected a stream')
+    const text = v.file.bytes.toString('utf8')
+    expect(text).toContain('BAT-2026-0001')
+    expect(text).toContain('rotten')
+    expect(text).toContain('Extraction')
+    expect(text).not.toContain('BAT-2026-0002')
+    expect(text).not.toContain('SR-2')
+  })
+
+  it('spoilage register: a production-page caller may run it', async () => {
+    const d1 = new FakeD1()
+    seedSpoilage(d1)
+    const productionOnly = { email: 'line@roligt.local', permissions: ['page.production'] }
+    const v = await exportFor(d1, productionOnly, 'spoilage', { format: 'csv' })
+    expect(v.kind).toBe('stream')
+  })
+})
