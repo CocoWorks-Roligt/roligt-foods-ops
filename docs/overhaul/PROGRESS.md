@@ -1,5 +1,5 @@
 # PROGRESS — Beverage Ops Platform Overhaul
-Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS in session — D0 export engine done (3 specs, jobs, audit); next: D1 dashboards UI + Procurement & Grading-Extraction folds
+Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS in session — D0 export engine done (3 specs, jobs, audit); D1a Procurement + Grading-Extraction folds done; next D1b: dashboards UI + module specs
 
 | Task | Agent | Status | Files | Next action |
 |---|---|---|---|---|
@@ -46,6 +46,7 @@ Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS in
 | P4: QA LIGHT | QA | done | — | tsc -b clean · 1138 passed/7 skipped · lint 10 baseline · build + build:e2e + assert-no-apptics clean; HEAVY (Journey A through delivery) next session |
 | P4: QA HEAVY — Journey A extended through delivery (phase close) | QA | done | e2e/journey-a.spec.ts (legs 11–13), e2e/boot.spec.ts, e2e/helpers.ts, playwright.config.ts (E2E_PORT), scripts/dev-server.mjs (P4 routes + decoded params), scripts/e2e/{up,prepare-db,r2-shim}.mjs, api/_lib/r2.ts(+r2.test), .artifacts/qa-screens.mjs, .artifacts/qa-p4-visual-checks.mjs, QA_REPORT.md | 14/14; LIGHT gates re-green (1139 tests); Lighthouse a11y 98 both new screens; §6 45 shots + programmatic checklist PASS; Phase 4 CLOSED — Phase 5 DASHBOARDS next |
 | P5/D0: export engine — /api/exports/:report + jobs, registry (3 specs), formats, audit | BACKEND | done | src/lib/exports/{csv.ts,index.ts}, src/lib/export.ts (re-exports shared guard), api/_lib/{exports.ts,exportFormats.ts, exports.test.ts}, api/exports/[report].ts, api/exports/jobs/[id].ts, scripts/dev-server.mjs (routes) | 1149 tests (+10); tsc -b, lint 10 baseline, build green; module report specs land per module D1+ |
+| P5/D1a: KPI folds live — Procurement + Grading-Extraction | BACKEND | done | src/lib/kpis/{procurement.ts,gradingExtraction.ts,p5.test.ts}, src/lib/kpis/index.ts (specs: folds + collections) | 1155 tests (+6); tsc -b, lint 10, build green; honest gaps logged DECISIONS P5; D1b = dashboards UI + module export specs |
 
 ## Log
 - 2026-10-13 Phase 0 complete. Baseline green (745 tests, tsc -b, lint, build @ de4c13b). DB target confirmed:
@@ -522,3 +523,25 @@ Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS in
   baseline, build green. Opening specs: procurement-lots, fruits (shared LOT_COLUMNS — the
   fruits export IS the lot report filtered to fruit), quality. Per-module specs + KPI folds +
   the Dashboards UI start at D1.
+- 2026-10-15 P5 D1a — the first two module folds (BACKEND). procurement (src/lib/kpis/
+  procurement.ts): PO status funnel in the machine's own order (draft→closed, cancelled out),
+  open-POs card (draft/sent/acknowledged), pending-deliveries calendar by promised day, spend
+  by month over ALL receipts (fruit is procurement spend), supplier on-time % judged by the
+  FIRST linked receipt vs expectedOn (POs without a promised day never answer), coconut
+  intake by supplier over accepted nuts, coconut-only via isFruitReceipt, named by
+  receiptSupplier — the lot report's own supplier vocabulary (Grn carries farmer/farmerName,
+  NOT vendorId; the vendors join stays PO-side). Un-promised POs count in any open window
+  (hiding them would empty the funnel of drafts). grading-extraction (gradingExtraction.ts):
+  grade mix stacked by month + reject-% line + recent-10-lots distribution (coconut receipts
+  only), yield per 100 nuts (water L + malai kg series, uoms lowercased off the run's own
+  lines), spoilage pareto by reasonCode (records joined to window batches — closed runs
+  only), mass-balance variance % per closed run, cycle-time hours started→closed. Honest
+  gaps logged in DECISIONS P5: supplier lead time (no sentAt on the PO wire), days-of-stock
+  (Inventory build), yield target line (no seeded recipe targets), variance tolerance row
+  (tolerance is config not data). Registered in KPI_SPECS with collections narrowed to what
+  each fold reads (procurement: grns/vendors/purchase_orders; grading-extraction keeps its
+  registered set — items/melanges ride isFruitReceipt's defaults + future extension). 6
+  tests in p5.test.ts (funnel order, first-receipt on-time, window+fruit split, grade mix +
+  reject %, yield per 100 incl. malai Kg, pareto/variance/cycle). Gates: tsc -b clean, 1155
+  passed (+6), oxlint 10 baseline, build green. Next D1b: the dashboards UI on /reports/live
+  behind flags.dashboards.* + per-module export specs.

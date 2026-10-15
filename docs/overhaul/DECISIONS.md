@@ -112,6 +112,16 @@ Verdicts from audit slice 2 (2026-10-13). RULE: ASSUMED/PARTIAL items are built 
 - Injection guard is ONE implementation (src/lib/exports/csv.ts guardCell + the XLSX eachCell pass in
   exportFormats.ts): client table exports re-export the shared toCsv. Exports are AUDITED (report.export rows, one
   per run, format + row count + window + job id).
+- D1a fold honest gaps (declined, not missed): supplier LEAD TIME needs a sentAt the PO wire does not carry —
+  avg(expectedOn) would be a guess, not a lead time. DAYS-OF-STOCK-LEFT needs the ledger fold + per-material
+  conversions — lands with the Inventory module. Per-100 YIELD has no target line (batches carry recipeId but no
+  seeded numeric targets — a window average is not a target and is not drawn). Mass-balance VARIANCE is charted per
+  closed run with no tolerance row (tolerance is config, not data).
+- D1a vocabulary pins: coconut-intake-by-supplier names suppliers with the lot report's receiptSupplier (Grn's
+  farmer/farmerName — Grn has NO vendorId; the vendors join exists only PO-side). Un-promised POs count in any open
+  window — hiding them would empty the funnel of drafts. Supplier on-time = FIRST linked receipt ≤ expectedOn; POs
+  without a promised day never answer the question. Spend sums landed over ALL receipts (fruit included). Malai
+  books uom 'Kg', water 'L' — per-100 yield never sums across units.
 
 ## Blocked
 - batch_v2 enablement — blocked on the DECISIONS #2 mass-balance resolution (3/14 pass; extractions cannot close under enforcement).

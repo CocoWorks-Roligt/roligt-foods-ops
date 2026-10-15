@@ -22,6 +22,8 @@ import type { AppState } from '../../types.ts'
 import { qcKpis, type KpiPayload } from './qc.ts'
 import { ordersDispatchKpis } from './ordersDispatch.ts'
 import { shipmentTrackingKpis } from './shipmentTracking.ts'
+import { procurementKpis } from './procurement.ts'
+import { gradingExtractionKpis } from './gradingExtraction.ts'
 
 export type { KpiPayload }
 
@@ -41,12 +43,18 @@ export interface KpiSpec {
 }
 
 export const KPI_SPECS: Record<KpiModule, KpiSpec> = {
-  // PO metrics (funnel, on-time, lead time, calendar) are blocked on the
-  // purchase_orders entity + PO form (DECISIONS 2026-10-13) — fold lands with it.
-  procurement: { pages: ['procurement'], collections: ['grns', 'vendors', 'items'] },
+  // P5 D1: folds live. The documents wire names ('purchase_orders',
+  // 'spoilage_records') are their own collection keys — no tables-registry
+  // entry, so wireCollectionOf passes them through unchanged.
+  procurement: {
+    pages: ['procurement'],
+    collections: ['grns', 'vendors', 'purchase_orders'],
+    fold: procurementKpis,
+  },
   'grading-extraction': {
     pages: ['procurement', 'production'],
-    collections: ['grns', 'batches', 'items', 'melanges'],
+    collections: ['grns', 'batches', 'items', 'melanges', 'spoilage_records'],
+    fold: gradingExtractionKpis,
   },
   'intermediates-blending': {
     pages: ['production'],

@@ -1,5 +1,5 @@
 # STATE — Beverage Ops Platform Overhaul
-Updated: 2026-10-15 | Phase: 5 DASHBOARDS in session — D0 export engine done (routes, registry, jobs, audit; 3 opening specs); next D1: dashboards UI + Procurement & Grading-Extraction folds + specs | Branch: dev | Base: de4c13b
+Updated: 2026-10-15 | Phase: 5 DASHBOARDS in session — D0 export engine + D1a Procurement/Grading-Extraction folds done; next D1b: dashboards UI on /reports/live behind flags.dashboards.* + per-module export specs | Branch: dev | Base: de4c13b
 
 ## Contracts
 - v1.9 (2026-10-15, P4): +shipment/challan/return wire — ShipmentVersionExtension (documents.version
