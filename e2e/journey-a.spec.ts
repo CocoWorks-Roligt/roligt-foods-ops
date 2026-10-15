@@ -2,19 +2,26 @@ import { test, expect, type Locator } from '@playwright/test'
 import { failOnPageErrors, dismissTour } from './helpers'
 
 /**
- * HEAVY Journey A — as far as it exists (through dispatch; signature/challan
- * legs are Phase 4). The plant's own data and forms, end to end:
+ * HEAVY Journey A — extended through delivery (Phase 4 close-out): the
+ * signature, the challan, and the board reading the outcome. The plant's own
+ * data and forms, end to end:
  *
  *   coconut PO → staged receipt → grading → extraction (spoilage, close) →
  *   coconut-milk blend (close) → QC release → BIB pack → QC release →
- *   order → dispatch
+ *   order → dispatch → trip → Out for Delivery → per-line confirm +
+ *   signature → challan PDF → board reads Delivered
  *
  * Legs share one module-scope ledger and one server/DB (workers=1, serial);
- * the DB itself is rebuilt fresh per Playwright run by scripts/e2e/up.mjs.
- * Deviations from the prompt's ideal journey, both forced by live data:
+ * the DB itself is rebuilt fresh per Playwright run by scripts/e2e/up.mjs,
+ * and the r2-shim stands in for object storage so the signature PNG and the
+ * challan PDF really travel (R2_ENDPOINT → 127.0.0.1:8112).
+ * Deviations from the prompt's ideal journey, all forced by live data:
  *   - the milk recipe is E2E-seeded (the plant has no milk intermediate),
  *   - the BIB pack packs the extraction's coconut-water bulk (the plant's own
- *     FG-0001 5L BiB packs SF-0002), not the milk.
+ *     FG-0001 5L BiB packs SF-0002), not the milk,
+ *   - the delivery legs run as the dev session (Admin) — the harness has no
+ *     agent login; the board user holds every page, and the agent-scope
+ *     refusals (404-never-403) are pinned by the B5 service tests.
  */
 test.describe.serial(() => {
   const ledger: Record<string, string> = {}
@@ -319,7 +326,12 @@ test.describe.serial(() => {
     // The footer button names the order it will send. The section header
     // ("Dispatch ORD-… Fernandez Bogulkunta") answers to the same prefix —
     // take the primary action, not the fold it lives under.
-    await page.locator('button.btn-primary').filter({ hasText: /^Dispatch ORD/ }).click()
+    const send = page.locator('button.btn-primary').filter({ hasText: /^Dispatch ORD/ })
+    // Order ids are ORD-YYYY-NNNN — \d+ cannot span the inner hyphen (the
+    // same trap the batch-id matcher in leg 10 documents).
+    ledger.orderId = (/Dispatch (ORD-[\d-]+)/.exec((await send.textContent()) ?? '') ?? [])[1] ?? ''
+    expect(ledger.orderId, 'the dispatch button names its order').toMatch(/ORD-\d+-\d+/)
+    await send.click()
     // The queue is drained — the only open order just went out.
     await expect(page.getByText(/No open orders/i)).toBeVisible()
   })
@@ -339,5 +351,106 @@ test.describe.serial(() => {
     // The blend's own draws are on the record too: the malai and the water.
     await expect(page.getByText(/Drew 100 Kg of SF-0003/)).toBeVisible()
     await expect(page.getByText(/Drew 100 Litre of SF-0002/)).toBeVisible()
+  })
+
+  test('leg 11 — the board boards the dispatch onto a trip', async ({ page }) => {
+    await page.goto('/shipments')
+    await dismissTour(page)
+
+    await page.getByRole('button', { name: 'New trip' }).click()
+    const modal = page.locator('.modal-box')
+
+    // The free-dispatch select also lists DUMP-era undelivered orders (same
+    // customer, no vehicle) — leg 9's order is told apart by its id.
+    expect(ledger.orderId, 'leg 9 captured the order id').toMatch(/ORD-\d+/)
+    await pickOption(modal.getByLabel(/^Order/), new RegExp(ledger.orderId))
+    // Leg 9's 8 BiBs left as one or two dispatch rows (FEFO picks may draw a
+    // second lot) — board them all; the vehicle input keeps the dispatch's own.
+    const rowsToBoard = modal.locator('label.check-row')
+    await expect(rowsToBoard.first()).toBeVisible()
+    for (let i = 0; i < await rowsToBoard.count(); i++) await rowsToBoard.nth(i).click()
+    await expect(modal.getByLabel(/^Vehicle/)).toHaveValue('AP 16 TV 1234')
+    // The trip is assigned to the agent who will run it — the dev session's
+    // own email, so the PWA leg reads this trip as its own.
+    await modal.getByLabel(/^Agent \(email\)/).fill('dev@roligt.local')
+
+    await modal.getByRole('button', { name: 'Create trip' }).click()
+    await expect(modal).toBeHidden()
+
+    // The board answers the new row: the customer, the vehicle, Created.
+    const row = page.locator('tr', { hasText: 'Fernandez Bogulkunta' })
+    await expect(row).toBeVisible({ timeout: 30_000 })
+    await expect(row).toContainText('AP 16 TV 1234')
+    await expect(row).toContainText('Created')
+  })
+
+  test('leg 12 — the agent starts the trip, confirms the lines, takes the signature', async ({ page }) => {
+    await page.goto('/my-deliveries')
+    await dismissTour(page)
+
+    const card = page.locator('button.trip-card', { hasText: 'Fernandez Bogulkunta' })
+    await expect(card).toBeVisible()
+    await card.click()
+
+    // The stop the customer master spells out: name and address.
+    await expect(page.locator('.trip-stop', { hasText: 'Fernandez Bogulkunta' })).toBeVisible()
+
+    await page.getByRole('button', { name: 'Start delivery' }).click()
+    // started walks Created → Dispatched → Out for Delivery, the refetch
+    // lands it, and the confirm flow opens. 30 s covers a slow poll tick.
+    // The lines speak the dispatch row's own vocabulary — the pack's item id
+    // (FG-0001), its lot, and what left the gate (1 + 7 across two rows).
+    const line = page.locator('.line-confirm').first()
+    await expect(line).toBeVisible({ timeout: 30_000 })
+    await expect(line).toContainText(/lot BAT-\d+-\d+/)
+    await expect(line).toContainText(/\d+ out/)
+    // Everything delivered is the draft's own default — nothing to type.
+
+    // Ink on the pad: pointer events answer to the mouse.
+    const pad = page.getByRole('img', { name: /Customer signature/ })
+    const box = (await pad.boundingBox())!
+    await page.mouse.move(box.x + 40, box.y + 90)
+    await page.mouse.down()
+    await page.mouse.move(box.x + 180, box.y + 50, { steps: 10 })
+    await page.mouse.move(box.x + 320, box.y + 120, { steps: 10 })
+    await page.mouse.up()
+    await expect(pad).toHaveAccessibleName(/signed/)
+
+    await page.getByLabel(/^Printed name/).fill('Mariya Fernandez')
+    await page.getByLabel(/^Phone/).fill('9876543210')
+
+    await page.getByRole('button', { name: 'Submit delivery' }).click()
+    // The submit uploads the PNG (presigned PUT → the r2-shim), then posts
+    // the one idempotent write: outcome Delivered, challan minted.
+    await expect(page.getByText('Delivery recorded. The challan is with the office.')).toBeVisible({
+      timeout: 30_000,
+    })
+  })
+
+  test('leg 13 — the board reads the outcome and the challan answers', async ({ page }) => {
+    await page.goto('/shipments')
+    await dismissTour(page)
+
+    const row = page.locator('tr', { hasText: 'Fernandez Bogulkunta' })
+    await expect(row).toBeVisible({ timeout: 30_000 })
+    await expect(row).toContainText('Delivered')
+
+    // The challan link carries the DC number the submit minted.
+    const link = row.locator('a.challan-link')
+    await expect(link).toContainText(/DC\d+/)
+
+    // The drawer: the delivered stamp and the append-only history.
+    await row.locator('td').first().click()
+    const drawer = page.locator('.modal-box')
+    await expect(drawer).toContainText('Delivered at')
+    await expect(drawer.locator('.event-type').first()).toBeVisible()
+
+    // The PDF itself: the lazy render (probe → render → PUT → presigned GET)
+    // happens on this first fetch, against the r2-shim.
+    const href = (await link.getAttribute('href'))!
+    const res = await page.request.get(href)
+    expect(res.status(), `challan file: ${href}`).toBe(200)
+    expect(res.headers()['content-type']).toContain('pdf')
+    expect((await res.body()).subarray(0, 4).toString()).toBe('%PDF')
   })
 })

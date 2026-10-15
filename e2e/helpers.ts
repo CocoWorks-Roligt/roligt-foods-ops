@@ -18,6 +18,11 @@ export function failOnPageErrors(page: Page, errors: string[]) {
   page.on('pageerror', (err) => errors.push(`pageerror: ${err}`))
   page.on('console', (msg) => {
     const text = msg.text()
+    // A failed resource load logs "Failed to load resource: …" with NO url in
+    // the text — the url rides msg.location(). Exclude the SSE 404 by either
+    // (so the exclusion stays narrow: a 404 anywhere else still fails, which
+    // is exactly how the missing /api/shipments route was caught).
+    const where = msg.location()?.url ?? ''
     // 429 is the commit throttle the client queues behind, 409 its CAS
     // conflict path (refused whole, winners adopted, re-saved) — both are
     // protocol events the sync engine owns, though the browser still logs
@@ -25,6 +30,7 @@ export function failOnPageErrors(page: Page, errors: string[]) {
     if (
       msg.type() === 'error' &&
       !text.includes('/api/events') &&
+      !where.includes('/api/events') &&
       !text.includes('429') &&
       !text.includes('409 (Conflict)')
     ) {

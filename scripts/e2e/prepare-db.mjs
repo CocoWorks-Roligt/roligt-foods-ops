@@ -7,9 +7,10 @@
  *      never load schema.sql on top of it),
  *   2. the Phase-2 backfill applied in its own --db local mode (item flags,
  *      storage zones, spoilage_reasons, counters, flags seeded OFF, app_config),
- *   3. the two UI flags the journey needs flipped ON: shell_nav + pipeline.
- *      Everything else stays at the rollback position (OFF), and batch_v2 /
- *      qc_gate_v2 stay OFF per STATE (mass-balance decision open).
+ *   3. the three UI flags the journey needs flipped ON: shell_nav + pipeline +
+ *      shipments (Phase 4's delivery legs). Everything else stays at the
+ *      rollback position (OFF), and batch_v2 / qc_gate_v2 stay OFF per STATE
+ *      (mass-balance decision open).
  *
  * Real vendor/customer names ride along from the committed dump — no new
  * exposure, but E2E screenshots inherit them (noted in QA_REPORT.md).
@@ -50,15 +51,15 @@ console.log('[prepare-db] phase-2 backfill applied')
 const flip = db.prepare(
   `UPDATE documents
      SET json = json_set(json, '$.enabled', json('true'))
-   WHERE collection = 'flags' AND id IN ('shell_nav', 'pipeline')`,
+   WHERE collection = 'flags' AND id IN ('shell_nav', 'pipeline', 'shipments')`,
 )
 const flipped = flip.run().changes
-if (flipped !== 2) throw new Error(`expected 2 flag rows, updated ${flipped}`)
+if (flipped !== 3) throw new Error(`expected 3 flag rows, updated ${flipped}`)
 
 const activeMelanges = db
   .prepare("SELECT id, json_extract(json, '$.name') AS name FROM documents WHERE collection = 'melanges' AND lower(json_extract(json, '$.status')) = 'active'")
   .all()
-console.log(`[prepare-db] flags shell_nav+pipeline ON (${flipped} rows); active melanges: ${activeMelanges.map((m) => `${m.id} ${m.name}`).join(', ') || 'NONE — journey needs recipe inserts'}`)
+console.log(`[prepare-db] flags shell_nav+pipeline+shipments ON (${flipped} rows); active melanges: ${activeMelanges.map((m) => `${m.id} ${m.name}`).join(', ') || 'NONE — journey needs recipe inserts'}`)
 
 /**
  * The journey's coconut-milk recipe — the ONE piece of reference data the

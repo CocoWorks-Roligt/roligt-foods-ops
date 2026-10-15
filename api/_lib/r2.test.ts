@@ -74,4 +74,19 @@ describe('r2 presigning', () => {
     const url = presignR2Get('compliance/x.pdf', { now: NOW, expiresInSec: 120 })
     expect(new URL(url).searchParams.get('X-Amz-Expires')).toBe('120')
   })
+
+  it('R2_ENDPOINT replaces scheme+host and the signed host header follows it', () => {
+    process.env.R2_ENDPOINT = 'http://127.0.0.1:8112/'
+    const url = presignR2Put('delivery/trip.png', 'image/png', { now: NOW })
+    expect(url.startsWith('http://127.0.0.1:8112/roligt-compliance/delivery/trip.png?')).toBe(true)
+    // the canonical host header must name the endpoint the URL targets, or a
+    // signature-verifying stand-in would refuse every URL the harness mints
+    expect(new URL(url).host).toBe('127.0.0.1:8112')
+    delete process.env.R2_ENDPOINT
+    // unset = R2's own URL again (the signature re-signs the R2 host, so only
+    // the shape is compared, not the hex)
+    expect(presignR2Put('delivery/trip.png', 'image/png', { now: NOW })).toMatch(
+      /^https:\/\/testaccount\.r2\.cloudflarestorage\.com\/roligt-compliance\/delivery\/trip\.png\?/,
+    )
+  })
 })

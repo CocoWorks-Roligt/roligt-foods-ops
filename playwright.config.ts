@@ -7,7 +7,10 @@ import { defineConfig, devices } from '@playwright/test'
  * sessions instead of WorkOS). The journey never touches a remote DB.
  *
  *   npm run build:e2e && npx playwright test            # from repo root
+ *   E2E_PORT=3100 npx playwright test                  # when :3000 is taken
  */
+const port = Number(process.env.E2E_PORT || '3000')
+
 export default defineConfig({
   testDir: './e2e',
   outputDir: '.artifacts/results',
@@ -18,13 +21,13 @@ export default defineConfig({
   retries: 0,
   reporter: [['list']],
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL: `http://localhost:${port}`,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
   webServer: {
-    command: 'node scripts/e2e/up.mjs',
-    url: 'http://localhost:3000/api/revision',
+    command: `node scripts/e2e/up.mjs --port ${port}`,
+    url: `http://localhost:${port}/api/revision`,
     // Never: a run must always rebuild the DB (up.mjs prepares it fresh) and
     // boot its own harness. Reusing a stray server silently ran the journey
     // against whatever state the last debug session left in it.

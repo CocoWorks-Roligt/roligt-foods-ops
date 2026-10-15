@@ -68,6 +68,15 @@ const kpisModuleHandler = (await import('../api/kpis/[module].ts')).default
 const searchHandler = (await import('../api/search.ts')).default
 const genealogyHandler = (await import('../api/genealogy.ts')).default
 const dispatchConfirmHandler = (await import('../api/dispatch/confirm.ts')).default
+const shipmentsHandler = (await import('../api/shipments.ts')).default
+const shipmentItemHandler = (await import('../api/shipments/[id].ts')).default
+const shipmentEventsHandler = (await import('../api/shipments/[id]/events.ts')).default
+const shipmentSubmitHandler = (await import('../api/shipments/[id]/submit.ts')).default
+const challansHandler = (await import('../api/challans.ts')).default
+const challanFileHandler = (await import('../api/challans/[id]/file.ts')).default
+const challanCorrectHandler = (await import('../api/challans/[id]/correct.ts')).default
+const returnsHandler = (await import('../api/returns.ts')).default
+const returnDecisionHandler = (await import('../api/returns/[id]/decision.ts')).default
 // /api/events is deliberately NOT wired here: its handler streams SSE, and the
 // node adapter below only answers json()/end(). It 404s in this harness, which
 // is the designed degraded path — the client's EventSource fails over to the
@@ -95,6 +104,9 @@ const API_ROUTES = {
   '/api/search': searchHandler,
   '/api/genealogy': genealogyHandler,
   '/api/dispatch/confirm': dispatchConfirmHandler,
+  '/api/shipments': shipmentsHandler,
+  '/api/challans': challansHandler,
+  '/api/returns': returnsHandler,
 }
 
 /** Segment-pattern routes for the paths Vercel's file router parameterizes.
@@ -103,6 +115,12 @@ const PARAM_API_ROUTES = [
   { pattern: '/api/purchase-orders/:id/receive', handler: purchaseOrderReceiveHandler },
   { pattern: '/api/purchase-orders/:id', handler: purchaseOrderItemHandler },
   { pattern: '/api/kpis/:module', handler: kpisModuleHandler },
+  { pattern: '/api/shipments/:id/submit', handler: shipmentSubmitHandler },
+  { pattern: '/api/shipments/:id/events', handler: shipmentEventsHandler },
+  { pattern: '/api/shipments/:id', handler: shipmentItemHandler },
+  { pattern: '/api/challans/:id/file', handler: challanFileHandler },
+  { pattern: '/api/challans/:id/correct', handler: challanCorrectHandler },
+  { pattern: '/api/returns/:id/decision', handler: returnDecisionHandler },
 ]
 
 /** The first pattern that matches, with its params — handlers read `req.query`
@@ -113,7 +131,14 @@ function matchParamRoute(path) {
     const actual = path.split('/')
     if (pattern.length !== actual.length) continue
     const params = {}
-    if (pattern.every((seg, i) => (seg.startsWith(':') ? ((params[seg.slice(1)] = actual[i]), true) : seg === actual[i]))) {
+    // Param segments arrive DECODED, the way Vercel's file router delivers
+    // them — a challan id is its DC number, and 'DC0017%2F2026' must reach
+    // the handler as 'DC0017/2026'.
+    if (
+      pattern.every((seg, i) =>
+        seg.startsWith(':') ? ((params[seg.slice(1)] = decodeURIComponent(actual[i])), true) : seg === actual[i],
+      )
+    ) {
       return { handler: route.handler, params }
     }
   }

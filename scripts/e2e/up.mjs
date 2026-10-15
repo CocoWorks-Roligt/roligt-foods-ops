@@ -2,7 +2,11 @@
 /**
  * Brings the E2E stack up and keeps it up — the Playwright webServer command.
  *
- *   prepare-db → d1-shim (:8111) → dev-server (:3000, D1_API_BASE → shim)
+ *   prepare-db → d1-shim (:8111) → r2-shim (:8112) → dev-server (:3000, D1_API_BASE → shim)
+ *
+ * The R2_* env (dummy creds + R2_ENDPOINT → the r2-shim) is what lets the
+ * delivery legs keep their bytes: the PWA's signature upload and the challan's
+ * lazy PDF render both really store and fetch objects.
  *
  * The dev-server child env is built so the app runs its DESIGNED local shape:
  *   - D1_* points at the shim (dummy account/db/token — non-empty, never real),
@@ -27,6 +31,7 @@ const flag = (name, fallback) => {
 }
 const port = Number(flag('--port', process.env.E2E_PORT || '3000'))
 const shimPort = Number(flag('--shim-port', '8111'))
+const r2Port = Number(flag('--r2-port', '8112'))
 const dbPath = join(root, 'scripts/e2e/.tmp/e2e.sqlite')
 
 if (!args.includes('--skip-prepare')) {
@@ -45,6 +50,7 @@ process.on('SIGINT', die)
 process.on('SIGTERM', die)
 
 children.push(spawn('node', ['scripts/e2e/d1-shim.mjs', '--db', dbPath, '--port', String(shimPort)], { cwd: root, stdio: 'inherit' }))
+children.push(spawn('node', ['scripts/e2e/r2-shim.mjs', '--port', String(r2Port)], { cwd: root, stdio: 'inherit' }))
 children.push(
   spawn(
     'npx',
@@ -60,6 +66,13 @@ children.push(
         D1_ACCOUNT_ID: 'e2e-local',
         D1_DATABASE_ID: 'e2e-local',
         D1_API_TOKEN: 'e2e-local',
+        // Dummy creds never leave the loopback — r2Configured() wants all four,
+        // and R2_ENDPOINT bends every presigned URL onto the local shim.
+        R2_ACCOUNT_ID: 'e2e-local',
+        R2_BUCKET: 'e2e-attachments',
+        R2_ACCESS_KEY_ID: 'e2e-local',
+        R2_SECRET_ACCESS_KEY: 'e2e-local',
+        R2_ENDPOINT: `http://127.0.0.1:${r2Port}`,
         WORKOS_CLIENT_ID: '',
         // A dummy key keeps api/_lib/workos.ts's eager `new WorkOS()` happy while
         // the empty clientId + cookie password keep workosConfigured() false.
@@ -86,6 +99,7 @@ async function waitFor(url, label, timeoutMs = 30_000) {
 
 try {
   await waitFor(`http://127.0.0.1:${shimPort}/health`, 'd1-shim')
+  await waitFor(`http://127.0.0.1:${r2Port}/health`, 'r2-shim')
   await waitFor(`http://127.0.0.1:${port}/api/revision`, 'dev-server')
   console.log(`E2E-READY http://localhost:${port}`)
 } catch (e) {

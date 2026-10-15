@@ -18,6 +18,10 @@
  * UNSIGNED-PAYLOAD on both methods, and the clock is UTC — the scope's date
  * and X-Amz-Date are derived from the same instant, so a presign minted near
  * UTC midnight stays internally consistent.
+ *
+ * R2_ENDPOINT, when set, replaces the scheme+host every URL is built on
+ * (any S3-compatible endpoint — the e2e harness's local stand-in, or a
+ * MinIO box). Unset = R2's own cloudflarestorage.com URL, byte for byte.
  */
 import { createHash, createHmac } from 'node:crypto'
 
@@ -70,7 +74,10 @@ function presign(
 ): string {
   const env = r2Env()
   if (!env) throw new Error('R2_ACCOUNT_ID / R2_BUCKET / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY are not configured.')
-  const host = `${env.accountId}.r2.cloudflarestorage.com`
+  const base = process.env.R2_ENDPOINT
+    ? process.env.R2_ENDPOINT.replace(/\/+$/, '')
+    : `https://${env.accountId}.r2.cloudflarestorage.com`
+  const host = new URL(base).host
   const now = new Date(opts.now ?? Date.now())
   const amzDate = `${now.toISOString().replace(/[-:]/g, '').slice(0, 15)}Z` // 20261008T041500Z
   const date = amzDate.slice(0, 8)
@@ -107,7 +114,7 @@ function presign(
   const signingKey = hmac(hmac(hmac(hmac(`AWS4${env.secretAccessKey}`, date), 'auto'), 's3'), 'aws4_request')
   const signature = createHmac('sha256', signingKey).update(stringToSign).digest('hex')
 
-  return `https://${host}${canonicalUri}?${canonicalQuery}&X-Amz-Signature=${signature}`
+  return `${base}${canonicalUri}?${canonicalQuery}&X-Amz-Signature=${signature}`
 }
 
 /** The URL the browser PUTs the file bytes to. The content type is signed: R2
