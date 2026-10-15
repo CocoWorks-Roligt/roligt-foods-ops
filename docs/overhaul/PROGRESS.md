@@ -1,5 +1,5 @@
 # PROGRESS — Beverage Ops Platform Overhaul
-Updated: 2026-10-16 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS in session — D0 export engine, D1a/D1b + D2a/D2b done (modules 1-4 COMPLETE: Procurement, Grading & Extraction, Intermediates & Blending, Packing — each with fold + dashboard + register; QA LIGHT green at 2- and 4-module gates); next D3a: QC + Control Samples folds (BACKEND first)
+Updated: 2026-10-16 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS in session — D0 export engine, D1a/D1b + D2a/D2b + D3a/D3b done (modules 1-6 COMPLETE: Procurement, Grading & Extraction, Intermediates & Blending, Packing, QC, Control Samples — each with fold + dashboard + register; QA LIGHT green at 2-, 4- and 6-module gates); next D4a: Inventory/Storage + Packaging Materials folds (BACKEND first)
 
 | Task | Agent | Status | Files | Next action |
 |---|---|---|---|---|
@@ -51,7 +51,10 @@ Updated: 2026-10-16 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS in
 | P5: QA LIGHT (2-module gate) | QA | done | — | tsc -b clean · 1169 passed/7 skipped · lint 10 baseline · build + build:e2e + assert-no-apptics clean (113 dist files) |
 | P5/D2a: KPI folds live — Intermediates & Blending + Packing | BACKEND | done | src/lib/kpis/{intermediatesBlending.ts,packing.ts,p5.test.ts}, src/lib/kpis/index.ts (folds + collections: +ledger / spoilage_records, narrowed) | 1176 tests (+7); tsc -b, lint 10, build green; honest gaps logged DECISIONS P5; D2b = dashboards UI + module export registers |
 | P5/D2b: module registers (blend-runs, packing-runs) + catalog wiring | BACKEND | done | src/lib/exports/index.ts (+2 specs), src/lib/kpis/packing.ts (packFormatOf exported), src/lib/dashboards.ts (exports wired), api/_lib/exports.test.ts (+4) | 1180 tests (+4); QA LIGHT (4-module gate) green below; modules 3-4 COMPLETE |
-| P5: QA LIGHT (4-module gate) | QA | done | — | tsc -b clean · 1180 passed/7 skipped · lint 10 baseline · build + build:e2e + assert-no-apptics clean (114 dist files); next D3a: QC + Control Samples folds (BACKEND first) |
+| P5: QA LIGHT (4-module gate) | QA | done | — | tsc -b clean · 1180 passed/7 skipped · lint 10 baseline · build + build:e2e + assert-no-apptics clean (114 dist files) |
+| P5/D3a: KPI folds live — QC full build + Control Samples | BACKEND | done @ ca8a771 | src/lib/kpis/{qc.ts(control),controlSamples.ts}, src/lib/kpis/index.ts (qc +ledger; control-samples fold+collections), src/lib/qcCategories.ts + sensory.ts (.ts extensions — api project), p5.test.ts | 1186 tests (+6); tsc -b, lint 10, build green; honest gaps logged DECISIONS P5 |
+| P5/D3b: module registers (qc-records, control-samples) + catalog wiring | BACKEND | done @ 57b3719 | src/lib/exports/index.ts (+2 specs), src/lib/dashboards.ts (exports wired, qc blurb honest), api/_lib/exports.test.ts (+4) | 1190 tests (+4); QA LIGHT (6-module gate) green below; modules 5-6 COMPLETE |
+| P5: QA LIGHT (6-module gate) | QA | done | — | tsc -b clean · 1190 passed/7 skipped · lint 10 baseline · build + build:e2e + assert-no-apptics clean (115 dist files); next D4a: Inventory/Storage + Packaging Materials folds (BACKEND first) |
 
 ## Log
 - 2026-10-13 Phase 0 complete. Baseline green (745 tests, tsc -b, lint, build @ de4c13b). DB target confirmed:
@@ -615,3 +618,34 @@ Updated: 2026-10-16 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS in
   files). Modules 3-4 (Intermediates & Blending, Packing) COMPLETE per the acceptance
   bar — dashboard + live report + exports off the same fold. Next D3a: BACKEND folds
   for QC + Control Samples, then D3b registers, QA LIGHT (6-module gate).
+- 2026-10-16 P5 D3a — the modules 5-6 folds (BACKEND). qc grows from the B4 skeleton to
+  its full build: TURNAROUND (decided records only — Released/Rejected, a Retest is still
+  on the bench — batch day → reviewedAt day, mean by month + card), FAILED TESTS BY
+  CATEGORY (qcStatuses over windowed records; the honest out-of-spec — a QC test records
+  a Pass/Fail/Retest status, never a numeric reading, and no spec-limits collection
+  exists anywhere, so control charts are a logged gap, not a fabricated one), and the
+  QUARANTINE POSITION (stockRows filtered status 'Quarantine' off the ledger — the staged
+  receipts' whole-load lines are its writers; unwindowed, uom on the label, never summed).
+  control-samples (src/lib/kpis/controlSamples.ts): kept/due/expired/destroyed cards and
+  expiry-timeline/destructions/product-mix charts, ALL off the register's own folds
+  (controlSampleRows/sampleStatus) and the tile's own dueSamples predicate — counts are
+  ROWS (the tile's unit), never bottles; timeline + due are positions (unwindowed);
+  location is not recorded (logged gap). Spec collections: qc +ledger;
+  control-samples = packingRuns/products/items. Build note: the qc fold now imports
+  qcCategories/sensory, pulling them into the api tsconfig project for the first time —
+  .ts import extensions + two lambda annotations (the api-imported-closure rule, late).
+  +6 tests. Gates: tsc -b clean, 1186 passed, oxlint 10 baseline, build green.
+- 2026-10-16 P5 D3b — the modules 5-6 export registers (+QA LIGHT, 6-module gate). The
+  dashboards UI needed NOTHING new (D1b built it generic). `qc-records` (pages
+  live-reports+quality) windows by the REPORT's own rule (a record rides its BATCH date);
+  its Failed-tests and Turnaround columns ARE the fold's own arithmetic, never
+  re-derived. `control-samples` (pages live-reports+control-samples) IS the register's
+  own rows (controlSampleRows, tracking-sheet order) windowed by the run day, status in
+  sampleStatus' own words. The D2b withheld-collections edge generalizes and is kept:
+  batches gate on page.production, so a live-reports+quality holder streams qc-records
+  EMPTY until they also hold production — B4's read-withholding rule. +4 tests (window
+  arithmetic + RBAC pairs ×2). QA LIGHT (6-module gate): tsc -b clean; 1190 passed |
+  7 skipped; oxlint 10 baseline; build + build:e2e + assert-no-apptics clean (115 dist
+  files). Modules 5-6 (QC, Control Samples) COMPLETE per the acceptance bar — dashboard
+  + live report + exports off the same fold. Next D4a: BACKEND folds for Inventory/
+  Storage + Packaging Materials, then D4b registers, QA LIGHT (8-module gate).

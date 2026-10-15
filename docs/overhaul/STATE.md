@@ -1,5 +1,5 @@
 # STATE — Beverage Ops Platform Overhaul
-Updated: 2026-10-16 | Phase: 5 DASHBOARDS in session — D2b done, modules 1-4 COMPLETE (folds + dashboards + registers; QA LIGHT green at 2- and 4-module gates); next D3a: QC + Control Samples KPI folds (BACKEND first) | Branch: dev | Base: de4c13b
+Updated: 2026-10-16 | Phase: 5 DASHBOARDS in session — D3b done, modules 1-6 COMPLETE (folds + dashboards + registers; QA LIGHT green at 2-, 4- and 6-module gates); next D4a: Inventory/Storage + Packaging Materials KPI folds (BACKEND first) | Branch: dev | Base: de4c13b
 
 ## Contracts
 - v1.9 (2026-10-15, P4): +shipment/challan/return wire — ShipmentVersionExtension (documents.version
@@ -26,6 +26,19 @@ Updated: 2026-10-16 | Phase: 5 DASHBOARDS in session — D2b done, modules 1-4 C
 
 ## Locks
 - none
+
+## P5 D3a/D3b invariants (2026-10-16)
+- The qc fold's turnaround counts DECIDED records only (Released/Rejected — a Retest is
+  still on the bench) and its failed-tests column/chart IS qcStatuses' Fail count; the
+  qc-records register reuses both, never re-derives. CONTROL CHARTS / numeric spec
+  limits are a DECISIONS-logged gap (results are statuses, not readings) — do not
+  fabricate a numeric fold.
+- Control-sample counts are ROWS (controlSampleRows — the tile's own unit), never
+  bottle counts; the due count IS dueSamples (sampleStage's export, the tile's
+  predicate). The control-samples register IS controlSampleRows windowed by run day —
+  one implementation. Sample location is not recorded (logged gap).
+- `batches` gates on page.production in the tables registry: a live-reports+quality
+  holder streams qc-records empty (B4 read-withholding) — expected, not a bug.
 
 ## P5 D2a invariants (2026-10-16)
 - intermediates-blending's blend output IS netNewOutputs (production.ts's one rule) and its
