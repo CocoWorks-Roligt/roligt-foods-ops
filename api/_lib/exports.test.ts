@@ -392,3 +392,85 @@ describe('D2b module registers', () => {
     ).rejects.toMatchObject({ status: 403, code: 'role_allowed' })
   })
 })
+
+describe('D3b module registers', () => {
+  const seedQc = (d1: FakeD1): void => {
+    put(d1, 'batches', 'BAT-2026-0007', { id: 'BAT-2026-0007', date: '2026-09-01', kind: 'Press', status: 'Released' })
+    put(d1, 'batches', 'BAT-2026-0008', { id: 'BAT-2026-0008', date: '2026-04-01', kind: 'Press', status: 'Released' })
+    put(d1, 'items', 'SF-W', { id: 'SF-W', name: 'Coconut Water Bulk', type: 'Semi Finished', uom: 'Litre' })
+    put(d1, 'qcs', 'QC-2026-0007', {
+      id: 'QC-2026-0007', batchId: 'BAT-2026-0007', item: 'SF-W', micro: 'Fail', pesticides: 'Pass',
+      heavyMetals: 'Pass', physico: 'Pass', disposition: 'Rejected', reviewedBy: 'qc@roligt.local',
+      reviewedAt: '2026-09-04T10:00:00Z',
+    })
+    put(d1, 'qcs', 'QC-2026-0009', {
+      id: 'QC-2026-0009', batchId: 'BAT-2026-0008', disposition: 'Released', reviewedBy: 'qc@roligt.local',
+      reviewedAt: '2026-04-03T10:00:00Z',
+    })
+  }
+
+  it('qc register: batch-date window, failed count, decided-only turnaround', async () => {
+    const d1 = new FakeD1()
+    seedQc(d1)
+    // batches gate on page.production (B4 read-withholding): without it the
+    // register streams honestly empty — a quality holder sees no batch dates.
+    const v = await exportFor(d1, { ...OPS, permissions: ['page.live-reports', 'page.quality', 'page.production'] }, 'qc-records', { format: 'csv' })
+    if (v.kind !== 'stream') throw new Error('expected a stream')
+    const text = v.file.bytes.toString('utf8')
+    expect(text).toContain('QC-2026-0007')
+    expect(text).toContain('Coconut Water Bulk')
+    expect(text).toContain('"Rejected","1"') // disposition + one failed test, same CSV line
+    expect(text).toContain('3') // turnaround: 09-01 → 09-04
+    expect(text).not.toContain('QC-2026-0009') // out-of-window batch never rides
+  })
+
+  it('qc register: a quality-page caller may run it, a production-only caller may not', async () => {
+    const d1 = new FakeD1()
+    seedQc(d1)
+    const qualityOnly = { email: 'bench@roligt.local', permissions: ['page.quality'] }
+    const v = await exportFor(d1, qualityOnly, 'qc-records', { format: 'csv' })
+    expect(v.kind).toBe('stream')
+    await expect(
+      exportFor(d1, { ...OPS, permissions: ['page.production'] }, 'qc-records', { format: 'csv' }),
+    ).rejects.toMatchObject({ status: 403, code: 'role_allowed' })
+  })
+
+  const seedSamples = (d1: FakeD1): void => {
+    put(d1, 'products', 'FG-250', { id: 'FG-250', name: 'TCW 250ml', type: 'Glass Bottle', size: 250, unit: 'ml', packVolume: 0.25, shelfLifeDays: 30, bom: [] })
+    put(d1, 'packing_runs', 'PKG-2026-0011', {
+      id: 'PKG-2026-0011', date: '2026-09-05', batchId: 'BAT-2026-0007', medium: 'Water', lines: [], drawn: 0, status: 'Posted',
+      controlSamples: [
+        { sku: 'FG-250', count: 2, collectedBy: 'amit', expiresOn: '2026-09-12', destroyedOn: '2026-09-10', remark: 'shelf 3' },
+        { count: 1, expiresOn: '2099-01-01' },
+      ],
+    })
+    put(d1, 'packing_runs', 'PKG-2026-0012', {
+      id: 'PKG-2026-0012', date: '2026-03-01', batchId: 'BAT-2026-0008', medium: 'Water', lines: [], drawn: 0, status: 'Posted',
+      controlSamples: [{ sku: 'FG-250', count: 4, expiresOn: '2026-03-08' }],
+    })
+  }
+
+  it('samples register: run-day window, the register own rows and status words', async () => {
+    const d1 = new FakeD1()
+    seedSamples(d1)
+    const v = await exportFor(d1, { ...OPS, permissions: ['page.live-reports', 'page.control-samples'] }, 'control-samples', { format: 'csv', to: '2026-10-16' })
+    if (v.kind !== 'stream') throw new Error('expected a stream')
+    const text = v.file.bytes.toString('utf8')
+    expect(text).toContain('PKG-2026-0011')
+    expect(text).toContain('TCW 250ml')
+    expect(text).toContain('Destroyed')
+    expect(text).toContain('shelf 3')
+    expect(text).not.toContain('PKG-2026-0012') // out-of-window run day never rides
+  })
+
+  it('samples register: a control-samples-page caller may run it, a quality-only caller may not', async () => {
+    const d1 = new FakeD1()
+    seedSamples(d1)
+    const samplesOnly = { email: 'shelf@roligt.local', permissions: ['page.control-samples'] }
+    const v = await exportFor(d1, samplesOnly, 'control-samples', { format: 'csv' })
+    expect(v.kind).toBe('stream')
+    await expect(
+      exportFor(d1, { ...OPS, permissions: ['page.quality'] }, 'control-samples', { format: 'csv' }),
+    ).rejects.toMatchObject({ status: 403, code: 'role_allowed' })
+  })
+})

@@ -71,10 +71,10 @@ export const DASHBOARDS: readonly DashboardDef[] = [
   {
     module: 'qc',
     title: 'Quality Control',
-    blurb: 'Pass/fail trend, parameters vs spec limits, pending queue aging, turnaround, quarantine volume.',
+    blurb: 'Pass/fail trend, failed tests by category, pending queue aging, turnaround, quarantine volume.',
     sources: 'QC records + batches',
     reports: ['quality'],
-    exports: ['quality'],
+    exports: ['quality', 'qc-records'],
   },
   {
     module: 'control-samples',
@@ -82,7 +82,7 @@ export const DASHBOARDS: readonly DashboardDef[] = [
     blurb: 'Samples by batch, retention-expiry timeline, due and expiring.',
     sources: 'Packing runs',
     reports: [],
-    exports: [],
+    exports: ['control-samples'],
   },
   {
     module: 'inventory',

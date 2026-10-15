@@ -21,6 +21,8 @@ import { qualityReport } from '../reports/qualityReport.ts'
 import { netNewOutputs } from '../reports/production.ts'
 import { openBlendRuns } from '../blendStage.ts'
 import { packFormatOf } from '../kpis/packing.ts'
+import { qcStatuses } from '../qcCategories.ts'
+import { controlSampleRows } from '../controlSamples.ts'
 import type { PurchaseOrder, SpoilageRecord } from '../contracts.ts'
 
 export type { ExportColumn }
@@ -312,6 +314,92 @@ export const EXPORT_SPECS = {
       { header: 'Lines', value: (r) => r.lines },
       { header: 'Bulk drawn', value: (r) => r.drawn },
       { header: 'Status', value: (r) => r.status },
+    ],
+  }),
+  // ── P5 module registers (D3b): the QC and Control Samples dashboards'
+  // Export rows fold these — windowed and worded the same way their KPI folds
+  // are, so the file and the chart cannot disagree.
+  'qc-records': spec({
+    key: 'qc-records',
+    title: 'QC record register',
+    pages: ['live-reports', 'quality'],
+    collections: ['qcs', 'batches', 'items'],
+    // The report's own window rule: a record rides its BATCH's date. The
+    // turnaround and failed-tests columns ARE the fold's own arithmetic
+    // (decided records only; qcStatuses' Fail count), never a re-derivation.
+    rows: (state, w) => {
+      const batchOf = (id: string) => state.batches?.find((b) => b.id === id)
+      const itemName = (id: string) => state.items?.find((i) => i.id === id)?.name || id
+      return (state.qcs ?? [])
+        .filter((q) => inWindow(batchOf(q.batchId)?.date, w))
+        .sort(
+          (a, b) =>
+            (batchOf(b.batchId)?.date || '').localeCompare(batchOf(a.batchId)?.date || '') ||
+            a.id.localeCompare(b.id),
+        )
+        .map((q) => {
+          const made = batchOf(q.batchId)?.date
+          const reviewed = q.reviewedAt ? q.reviewedAt.slice(0, 10) : ''
+          const decided = q.disposition === 'Released' || q.disposition === 'Rejected'
+          return {
+            record: q.id,
+            batch: q.batchId,
+            product: itemName(q.item || ''),
+            disposition: q.disposition,
+            failed: Object.values(qcStatuses(q)).filter((s) => s === 'Fail').length,
+            reviewedBy: q.reviewedBy,
+            reviewedAt: reviewed,
+            turnaround: decided && made && reviewed
+              ? Math.max(0, Math.floor((Date.parse(reviewed) - Date.parse(made)) / 86_400_000))
+              : null,
+          }
+        })
+    },
+    columns: [
+      { header: 'Record', value: (r) => r.record },
+      { header: 'Batch', value: (r) => r.batch },
+      { header: 'Product', value: (r) => r.product },
+      { header: 'Disposition', value: (r) => r.disposition },
+      { header: 'Failed tests', value: (r) => r.failed },
+      { header: 'Reviewed by', value: (r) => r.reviewedBy },
+      { header: 'Reviewed at', value: (r) => r.reviewedAt || '—' },
+      { header: 'Turnaround (days)', value: (r) => r.turnaround ?? '—' },
+    ],
+  }),
+  'control-samples': spec({
+    key: 'control-samples',
+    title: 'Control sample register',
+    pages: ['live-reports', 'control-samples'],
+    collections: ['packingRuns', 'products', 'items'],
+    // The register's own rows (controlSampleRows — newest run first, the
+    // tracking sheet's own order), windowed by the day the run filled them —
+    // the fold's product-mix rule. Status is sampleStatus' own word.
+    rows: (state, w, today) =>
+      controlSampleRows(state as AppState, today)
+        .filter((r) => inWindow(r.producedOn, w))
+        .map((r) => ({
+          run: r.run.id,
+          batch: r.run.batchId,
+          product: r.product,
+          bottles: r.sample.count,
+          producedOn: r.producedOn,
+          collectedBy: r.sample.collectedBy || '',
+          expiresOn: r.sample.expiresOn || '',
+          status: r.status,
+          destroyedOn: r.sample.destroyedOn || '',
+          remark: r.sample.remark || '',
+        })),
+    columns: [
+      { header: 'Run', value: (r) => r.run },
+      { header: 'Batch', value: (r) => r.batch },
+      { header: 'Product', value: (r) => r.product },
+      { header: 'Bottles', value: (r) => r.bottles },
+      { header: 'Produced on', value: (r) => r.producedOn },
+      { header: 'Collected by', value: (r) => r.collectedBy || '—' },
+      { header: 'Expires on', value: (r) => r.expiresOn || '—' },
+      { header: 'Status', value: (r) => r.status },
+      { header: 'Destroyed on', value: (r) => r.destroyedOn || '—' },
+      { header: 'Remark', value: (r) => r.remark || '—' },
     ],
   }),
 } satisfies Record<string, RegisteredExportSpec>
