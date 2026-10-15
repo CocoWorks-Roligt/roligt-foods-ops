@@ -1,5 +1,5 @@
 # PROGRESS — Beverage Ops Platform Overhaul
-Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 4 SHIPMENT in flight (H1, B5, S1 done)
+Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 4 SHIPMENT in flight (H1, B5, S1, S2 done)
 
 | Task | Agent | Status | Files | Next action |
 |---|---|---|---|---|
@@ -41,6 +41,7 @@ Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 4 SHIPMENT in f
 | P4/B5b: shipment submit + challan mint/register/correct + KPI fold | BACKEND | done @ 71f790c | api/_lib/shipmentSubmit.ts(+test), api/_lib/challans.ts, api/_lib/challanPdf.ts, api/shipments/[id]/submit.ts, api/challans.ts, api/challans/[id]/file.ts, api/challans/[id]/correct.ts, src/lib/kpis/shipmentTracking.ts(+test), src/lib/kpis/index.ts, api/_lib/b4.test.ts | 1115 tests (+18); B5c returns next |
 | P4/B5c: returns — record + QC decision (ledger 'Return' lines) | BACKEND | done @ 9222476 | api/_lib/returns.ts(+test), api/returns.ts, api/returns/[id]/decision.ts, src/lib/contracts.ts (ReturnDecisionRequest/Response) | 1122 tests (+14); S1 board page next |
 | P4/S1: shipment board page + route + store badge | SHIPMENT | done @ 2bbe7a7 | src/pages/Shipments.tsx, src/lib/shipmentApi.ts, src/lib/shipmentView.ts(+test), src/lib/shipmentStore.ts, src/App.tsx (ShipmentsRoute), src/components/Layout.tsx (badge off the module store), src/index.css | 1127 tests (+5); S2 delivery PWA next |
+| P4/S2: delivery-agent PWA — My Deliveries + offline outbox | SHIPMENT | done @ 6ec38f4 | src/pages/MyDeliveries.tsx, src/lib/shipmentOutbox.ts(+test), src/lib/deliveryDraft.ts(+test), src/lib/shipmentApi.ts (submit), src/lib/attachmentRules.ts (delivery area, grammar off AREAS), src/App.tsx, src/index.css | 1138 tests (+11); docs slice next |
 
 ## Log
 - 2026-10-13 Phase 0 complete. Baseline green (745 tests, tsc -b, lint, build @ de4c13b). DB target confirmed:
@@ -441,3 +442,22 @@ Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 4 SHIPMENT in f
   workbox SW exists (generateSW, static precache) — S2's offline outbox builds on it.
   Suite 1127 (+5 view tests), tsc -b clean, lint 10 baseline, build green. Committed
   2bbe7a7. Next: S2 delivery PWA.
+- 2026-10-15 P4 S2 — the delivery PWA (SHIPMENT). My Deliveries: the external agent's whole
+  app, mobile-first. The offline story is two outboxes: attachment BYTES were already solved
+  (attachmentQueue, IndexedDB) — this slice adds a `delivery` area to attachmentRules (key
+  minted on-device, area grammar now derived off ATTACHMENT_AREAS rather than the hardcoded
+  (qc|pod) regex, so the next area is a one-line change) — and API INTENTS get their own
+  localStorage queue (shipmentOutbox): each event/submit parks with the Idempotency-Key it
+  was BORN with, so a retry hours later replays as the same intent server-side, never a
+  second challan or a twice-started trip. Flush is oldest-first on reconnect; a final
+  refusal (already submitted / replay body mismatch / line not on trip) drops without
+  retry — the refreshed list carries the server's truth. Signature + rejection photos
+  upload into the delivery area; only the key travels in the submit. A parked `started`
+  opens the confirm flow immediately (flush order walks the trip before the submit lands —
+  the server's own started-from-Created double-walk does the rest). OTP stays optional and
+  folded away (DECISIONS #12's default-off): presence in the submit is what otpVerified
+  means; agents cannot read app_config (H1's empty projection), so the field shows when the
+  customer asks rather than when a config flag flips. Flag off = "not switched on" card, no
+  redirect — the page is the tier's only landing. Suite 1138 (+11: outbox 6, draft 4,
+  delivery area 1), tsc -b clean, lint 10 baseline, build green. Committed 6ec38f4.
+  Next: docs slice + QA LIGHT.
