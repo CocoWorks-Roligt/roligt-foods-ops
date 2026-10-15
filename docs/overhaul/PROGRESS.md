@@ -1,5 +1,5 @@
 # PROGRESS — Beverage Ops Platform Overhaul
-Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 4 SHIPMENT in flight (H1, B5 done — backend wire complete)
+Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 4 SHIPMENT in flight (H1, B5, S1 done)
 
 | Task | Agent | Status | Files | Next action |
 |---|---|---|---|---|
@@ -40,6 +40,7 @@ Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 4 SHIPMENT in f
 | P4/B5a: shipments service — create/list/get/patch/events (contracts v1.9) | BACKEND | done @ f89fb37 | src/lib/contracts.ts (v1.9 additive: ShipmentVersionExtension, ShipmentLine, ShipmentChallanLink, ShipmentDetail/List/EventsResponse, PatchShipmentRequest/Response), api/_lib/shipments.ts(+test), api/shipments.ts, api/shipments/[id].ts, api/shipments/[id]/events.ts | 1097 tests (+15); B5b submit+challan next |
 | P4/B5b: shipment submit + challan mint/register/correct + KPI fold | BACKEND | done @ 71f790c | api/_lib/shipmentSubmit.ts(+test), api/_lib/challans.ts, api/_lib/challanPdf.ts, api/shipments/[id]/submit.ts, api/challans.ts, api/challans/[id]/file.ts, api/challans/[id]/correct.ts, src/lib/kpis/shipmentTracking.ts(+test), src/lib/kpis/index.ts, api/_lib/b4.test.ts | 1115 tests (+18); B5c returns next |
 | P4/B5c: returns — record + QC decision (ledger 'Return' lines) | BACKEND | done @ 9222476 | api/_lib/returns.ts(+test), api/returns.ts, api/returns/[id]/decision.ts, src/lib/contracts.ts (ReturnDecisionRequest/Response) | 1122 tests (+14); S1 board page next |
+| P4/S1: shipment board page + route + store badge | SHIPMENT | done @ 2bbe7a7 | src/pages/Shipments.tsx, src/lib/shipmentApi.ts, src/lib/shipmentView.ts(+test), src/lib/shipmentStore.ts, src/App.tsx (ShipmentsRoute), src/components/Layout.tsx (badge off the module store), src/index.css | 1127 tests (+5); S2 delivery PWA next |
 
 ## Log
 - 2026-10-13 Phase 0 complete. Baseline green (745 tests, tsc -b, lint, build @ de4c13b). DB target confirmed:
@@ -422,3 +423,21 @@ Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 4 SHIPMENT in f
   then stamps the record Closed with qcDecision/decidedBy/ledgerRef. 14 tests incl. the
   404-never-403 privacy pair, second-verdict 409 return_closed, replay. Suite 1122, tsc -b
   clean, lint 10 baseline. Committed 9222476. Phase-4 backend wire complete; S1 board page next.
+- 2026-10-15 P4 S1 — the board (SHIPMENT). Shipments are NOT an AppState key, so the
+  board owns its fetch (/api/shipments) and refetches on the SSE revision tick — same
+  feed every Classic page rides — parking the list in a module-level store
+  (shipmentStore.ts) so the sidebar badge counts active trips with the board unmounted;
+  zero until a fetch answers, which is honest (no trips known ≠ none). The board's
+  writes are exactly PATCH's two jobs (reassign agent/eta on active trips, the
+  Failed→Rescheduled retry stamped with the drawer's ETA) plus the New-trip form off
+  free dispatch rows (not Delivered in Classic, not carried by an active trip, grouped
+  per order; multi-customer orders spell stops out client-side off the customer
+  master — the create endpoint's own rule, so the server's 422 stays unreachable
+  rather than papered over). Outcomes at the door stay the PWA's submit; the board
+  reads them (drawer: lines, append-only history, the failed event's reason, challan
+  PDF links — Superseded numbers marked 'old'). KPI cards come from the fold
+  (useKpis('shipment-tracking')) so the board and any future report read one number.
+  Route: Pipeline's gate shape verbatim (flag → page rule → bounce). The build's
+  workbox SW exists (generateSW, static precache) — S2's offline outbox builds on it.
+  Suite 1127 (+5 view tests), tsc -b clean, lint 10 baseline, build green. Committed
+  2bbe7a7. Next: S2 delivery PWA.
