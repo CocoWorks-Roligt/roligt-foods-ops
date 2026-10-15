@@ -1,5 +1,5 @@
 # STATE — Beverage Ops Platform Overhaul
-Updated: 2026-10-15 | Phase: 5 DASHBOARDS in session — D0 export engine + D1a Procurement/Grading-Extraction folds done; next D1b: dashboards UI on /reports/live behind flags.dashboards.* + per-module export specs | Branch: dev | Base: de4c13b
+Updated: 2026-10-15 | Phase: 5 DASHBOARDS in session — D1b done (modules 1-2 complete: dashboards UI on /reports/live behind flags.dashboards.*, module registers, export client; QA LIGHT green); next D2a: Intermediates & Blending + Packing KPI folds (BACKEND first) | Branch: dev | Base: de4c13b
 
 ## Contracts
 - v1.9 (2026-10-15, P4): +shipment/challan/return wire — ShipmentVersionExtension (documents.version
@@ -26,6 +26,18 @@ Updated: 2026-10-15 | Phase: 5 DASHBOARDS in session — D0 export engine + D1a 
 
 ## Locks
 - none
+
+## P5 D1b invariants (2026-10-15)
+- The dashboards catalog's gate is ONE rule in ONE place: visibleDashboards (src/lib/dashboards.ts) folds
+  flags.dashboards[module] × the KPI spec's pages — the same gate /api/kpis/:module enforces. Do not add a
+  second client-side gate or widen it; the card and the endpoint must refuse together.
+- A module export register windows EXACTLY as its module's KPI fold windows (purchase-orders = the funnel's
+  un-promised-rides-every-window rule; spoilage = the pareto's batch-window join). If a fold's window rule is
+  reworked, its register follows — dashboard, report and export must keep counting the same rows.
+- ModuleDashboard's figures come ONLY from useKpis (cards, charts) — never a local re-derivation; an unbuilt
+  module (no fold) shows the API's empty state, never client-side zeros.
+- dashboards_<module> flags seed OFF (B1 backfill); switching one on is the LEAD rollout action. Flags ride
+  the snapshot; a staged flag lands on the next poll/SSE tick (≤20 s), never forces a revision.
 
 ## W16 notes (done 2026-10-14 — kept one line: see PROGRESS log)
 - Onboarding behind the pipeline flag: first-run tour (once per device,

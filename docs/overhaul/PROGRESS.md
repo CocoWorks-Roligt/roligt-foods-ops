@@ -1,5 +1,5 @@
 # PROGRESS — Beverage Ops Platform Overhaul
-Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS in session — D0 export engine done (3 specs, jobs, audit); D1a Procurement + Grading-Extraction folds done; next D1b: dashboards UI + module specs
+Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS in session — D0 export engine, D1a folds, D1b dashboards UI + module registers done (modules 1-2 complete, QA LIGHT green); next D2a: Intermediates & Blending + Packing folds (BACKEND first)
 
 | Task | Agent | Status | Files | Next action |
 |---|---|---|---|---|
@@ -47,6 +47,8 @@ Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS in
 | P4: QA HEAVY — Journey A extended through delivery (phase close) | QA | done | e2e/journey-a.spec.ts (legs 11–13), e2e/boot.spec.ts, e2e/helpers.ts, playwright.config.ts (E2E_PORT), scripts/dev-server.mjs (P4 routes + decoded params), scripts/e2e/{up,prepare-db,r2-shim}.mjs, api/_lib/r2.ts(+r2.test), .artifacts/qa-screens.mjs, .artifacts/qa-p4-visual-checks.mjs, QA_REPORT.md | 14/14; LIGHT gates re-green (1139 tests); Lighthouse a11y 98 both new screens; §6 45 shots + programmatic checklist PASS; Phase 4 CLOSED — Phase 5 DASHBOARDS next |
 | P5/D0: export engine — /api/exports/:report + jobs, registry (3 specs), formats, audit | BACKEND | done | src/lib/exports/{csv.ts,index.ts}, src/lib/export.ts (re-exports shared guard), api/_lib/{exports.ts,exportFormats.ts, exports.test.ts}, api/exports/[report].ts, api/exports/jobs/[id].ts, scripts/dev-server.mjs (routes) | 1149 tests (+10); tsc -b, lint 10 baseline, build green; module report specs land per module D1+ |
 | P5/D1a: KPI folds live — Procurement + Grading-Extraction | BACKEND | done | src/lib/kpis/{procurement.ts,gradingExtraction.ts,p5.test.ts}, src/lib/kpis/index.ts (specs: folds + collections) | 1155 tests (+6); tsc -b, lint 10, build green; honest gaps logged DECISIONS P5; D1b = dashboards UI + module export specs |
+| P5/D1b: dashboards UI (all 10 modules catalogued; flags per module) + module registers (purchase-orders, spoilage) + export client | DASHBOARDS+BACKEND | done | src/lib/{dashboards.ts(+test), exportJob.ts}, src/components/reports/ModuleDashboard.tsx, src/pages/LiveReports.tsx (branch + Dashboards family), src/lib/exports/index.ts (+2 specs), api/_lib/exports.test.ts (+4), src/index.css | 1169 tests (+14); tsc -b, lint 10, build + build:e2e green; modules 1-2 COMPLETE — QA LIGHT green (2-module gate); next D2a BACKEND folds |
+| P5: QA LIGHT (2-module gate) | QA | done | — | tsc -b clean · 1169 passed/7 skipped · lint 10 baseline · build + build:e2e + assert-no-apptics clean (113 dist files) |
 
 ## Log
 - 2026-10-13 Phase 0 complete. Baseline green (745 tests, tsc -b, lint, build @ de4c13b). DB target confirmed:
@@ -545,3 +547,22 @@ Updated: 2026-10-15 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS in
   reject %, yield per 100 incl. malai Kg, pareto/variance/cycle). Gates: tsc -b clean, 1155
   passed (+6), oxlint 10 baseline, build green. Next D1b: the dashboards UI on /reports/live
   behind flags.dashboards.* + per-module export specs.
+- 2026-10-15 P5 D1b — the dashboards UI (DASHBOARDS, first UI slice; +BACKEND registers). The module dashboards
+  live ON Live Reports: `?dashboard=<module>&from=&to=` beside the report `?type=`, one Dashboards family card
+  per KPI module at the top of the catalog, each behind its OWN dashboards_<module> flag (backfill seeds all
+  OFF; staging one on is the LEAD rollout switch). visibleDashboards pre-checks the SAME flag × page rule
+  /api/kpis/:module enforces — the card and the endpoint cannot disagree; agents see none (external clamp).
+  All ten modules are catalogued in process order now; an early flag on an unbuilt module renders the API's
+  honest empty cards (never a client guess). ModuleDashboard: FilterBar presets → useKpis (the one aggregation
+  layer), KpiCard grid, ChartCard grid (echarts stays its own lazy chunk), FreshnessChip + Refresh, skeleton /
+  error / empty states, and beneath the charts the module's classic report links + its Export row (register
+  select × CSV/XLSX/PDF through exportJob: stream → download, 202 → poll job → presigned URL; DOM side
+  injected so tests pin the decision). BACKEND registers: purchase-orders (the funnel's own window rule —
+  un-promised POs ride every window; statuses in the funnel's spelling; pages live-reports+procurement) and
+  spoilage (the pareto's own batch-window join; pages live-reports+production). +14 tests: visibility fold
+  (flag × page × agent), catalog keys all resolve to real specs/report defs, export client stream/job/failure
+  paths, register RBAC any-of pairs + window pins. QA LIGHT (2-module gate): tsc -b clean; 1169 passed |
+  7 skipped; oxlint 10 baseline; build + build:e2e + assert-no-apptics clean (113 dist files). Modules 1-2
+  (Procurement, Grading & Extraction) COMPLETE per the acceptance bar — dashboard + live report + exports off
+  the same fold. Next D2a: BACKEND folds for Intermediates & Blending + Packing, then D2b their dashboards +
+  registers, QA LIGHT again.
