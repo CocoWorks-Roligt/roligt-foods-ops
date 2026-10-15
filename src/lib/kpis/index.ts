@@ -26,6 +26,7 @@ import { procurementKpis } from './procurement.ts'
 import { gradingExtractionKpis } from './gradingExtraction.ts'
 import { intermediatesBlendingKpis } from './intermediatesBlending.ts'
 import { packingKpis } from './packing.ts'
+import { controlSamplesKpis } from './controlSamples.ts'
 
 export type { KpiPayload }
 
@@ -71,8 +72,15 @@ export const KPI_SPECS: Record<KpiModule, KpiSpec> = {
     collections: ['packingRuns', 'productionPlans', 'products', 'spoilage_records'],
     fold: packingKpis,
   },
-  qc: { pages: ['quality'], collections: ['qcs', 'batches', 'items'], fold: qcKpis },
-  'control-samples': { pages: ['control-samples'], collections: ['packingRuns'] },
+  // P5 D3a: qc grows to its full build (turnaround, failed tests by category,
+  // the ledger-derived quarantine position); control-samples gets its fold,
+  // riding the register's own rows and the tile's own due predicate.
+  qc: { pages: ['quality'], collections: ['qcs', 'batches', 'items', 'ledger'], fold: qcKpis },
+  'control-samples': {
+    pages: ['control-samples'],
+    collections: ['packingRuns', 'products', 'items'],
+    fold: controlSamplesKpis,
+  },
   inventory: { pages: ['inventory'], collections: ['items', 'storageLocations'] },
   'packaging-materials': { pages: ['packing-materials'], collections: ['items'] },
   'orders-dispatch': {

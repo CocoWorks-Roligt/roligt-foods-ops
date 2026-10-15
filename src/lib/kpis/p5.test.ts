@@ -8,6 +8,8 @@ import { procurementKpis } from './procurement.ts'
 import { gradingExtractionKpis } from './gradingExtraction.ts'
 import { intermediatesBlendingKpis } from './intermediatesBlending.ts'
 import { packingKpis } from './packing.ts'
+import { qcKpis } from './qc.ts'
+import { controlSamplesKpis } from './controlSamples.ts'
 import type { AppState, Batch, Grn, Product } from '../../types.ts'
 import type { PurchaseOrder } from '../contracts.ts'
 
@@ -329,5 +331,112 @@ describe('packingKpis', () => {
       { label: 'spillage', value: 3 },
     ])
     expect(out.cards.find((c) => c.key === 'pk-fill-spoilage')?.value).toBe(2)
+  })
+})
+
+/** P5 D3a: qc full build (turnaround, failed tests, quarantine position) and
+ * the control-samples fold (expiry timeline, due count, destructions). */
+describe('qcKpis D3a', () => {
+  const qc = (over: Record<string, unknown>) => ({
+    id: 'QC-1', batchId: 'BAT-1', micro: 'Pass', pesticides: 'Pass',
+    heavyMetals: 'Pass', physico: 'Pass', disposition: 'Released',
+    reviewedBy: 'q', reviewedAt: '', ...over,
+  })
+  const batches = [{ id: 'BAT-1', date: '2026-09-01', status: 'Released' }]
+
+  it('turnaround averages decided records only, batch day → review day', () => {
+    const state = {
+      qcs: [
+        qc({ id: 'QC-1', disposition: 'Released', reviewedAt: '2026-09-03T10:00:00' }),
+        qc({ id: 'QC-2', disposition: 'Rejected', reviewedAt: '2026-09-05T10:00:00' }),
+        qc({ id: 'QC-3', disposition: 'Retest', reviewedAt: '2026-09-02T10:00:00' }),
+        qc({ id: 'QC-4', disposition: 'Pending' }),
+      ],
+      batches,
+      items: [],
+    } as unknown as Partial<AppState>
+    const out = qcKpis(state, W, '2026-10-15')
+    // (2 + 4) / 2 — the Retest and the Pending record never answer.
+    expect(out.cards.find((c) => c.key === 'qc-turnaround')?.value).toBe(3)
+    expect(out.charts.find((c) => c.key === 'qc-turnaround')?.rows).toEqual([{ label: '2026-09', value: 3 }])
+  })
+
+  it('failed tests count by category, legacy fields and added tests alike', () => {
+    const state = {
+      qcs: [
+        qc({ id: 'QC-1', micro: 'Fail', disposition: 'Rejected', reviewedAt: '2026-09-02T10:00:00' }),
+        qc({ id: 'QC-2', tests: { sensory: { status: 'Fail' } }, disposition: 'Rejected', reviewedAt: '2026-09-02T10:00:00' }),
+      ],
+      batches,
+      items: [],
+    } as unknown as Partial<AppState>
+    const out = qcKpis(state, W, '2026-10-15')
+    const rows = out.charts.find((c) => c.key === 'qc-failed-tests')?.rows ?? []
+    expect(rows).toContainEqual({ label: 'Microbiology', value: 1 })
+    expect(rows).toContainEqual({ label: 'Sensory Evaluation', value: 1 })
+  })
+
+  it('quarantine is a position: staged lots in, verdicts out, uom on the label', () => {
+    const ledger = (id: string, lot: string, status: string, qtyIn: number, qtyOut = 0, uom = 'Piece') =>
+      ({ id, type: 'Receipt', doc: 'GRN-1', item: 'COCO', itemType: 'Raw', lot, location: 'Hold Area',
+         status, qtyIn, qtyOut, uom, unitCost: 10, time: '2026-09-01T08:00:00' })
+    const state = {
+      qcs: [], batches, items: [{ id: 'COCO', name: 'Coconuts' }],
+      ledger: [
+        ledger('L1', 'LOT-1', 'Quarantine', 100),
+        ledger('L2', 'LOT-2', 'Quarantine', 50),
+        ledger('L3', 'LOT-3', 'Released', 500),
+      ],
+    } as unknown as Partial<AppState>
+    const out = qcKpis(state, W, '2026-10-15')
+    expect(out.cards.find((c) => c.key === 'qc-quarantine-lots')?.value).toBe(2)
+    expect(out.charts.find((c) => c.key === 'qc-quarantine')?.rows).toEqual([
+      { label: 'Coconuts (Piece)', value: 150 },
+    ])
+  })
+})
+
+describe('controlSamplesKpis', () => {
+  const run = (over: Record<string, unknown>) => ({
+    id: 'RUN-1', date: '2026-09-01T06:00:00', batchId: 'BAT-1', medium: 'Water',
+    lines: [], drawn: 10, pmCost: 0, bulkCost: 0, status: 'Completed', ...over,
+  })
+  const state = {
+    packingRuns: [
+      run({ id: 'RUN-1', controlSamples: [{ sku: 'P-1', count: 2, expiresOn: '2026-09-05' }] }),
+      run({
+        id: 'RUN-2', date: '2026-09-20T06:00:00', bulkItem: 'BULK-1',
+        controlSamples: [
+          { count: 1, expiresOn: '2026-10-18' },
+          { sku: 'P-1', count: 3, expiresOn: '2026-11-20', destroyedOn: '2026-10-01' },
+        ],
+      }),
+    ],
+    products: [{ id: 'P-1', name: '200 ml Tender' }],
+    items: [{ id: 'BULK-1', name: 'Coco Bulk' }],
+  } as unknown as Partial<AppState>
+
+  it('counts kept/due/expired/destroyed off the register and the tile predicate', () => {
+    const out = controlSamplesKpis(state, W, '2026-10-15')
+    expect(out.cards.find((c) => c.key === 'cs-kept')?.value).toBe(2)
+    expect(out.cards.find((c) => c.key === 'cs-due')?.value).toBe(2) // 09-05 past, 10-18 inside 7 d
+    expect(out.cards.find((c) => c.key === 'cs-expired')?.value).toBe(1)
+    expect(out.cards.find((c) => c.key === 'cs-destroyed')?.value).toBe(1)
+  })
+
+  it('expiry timeline charts kept samples by expiry month, destructions by their day', () => {
+    const out = controlSamplesKpis(state, W, '2026-10-15')
+    expect(out.charts.find((c) => c.key === 'cs-expiry-timeline')?.rows).toEqual([
+      { label: '2026-09', value: 1 },
+      { label: '2026-10', value: 1 },
+    ])
+    expect(out.charts.find((c) => c.key === 'cs-destructions')?.rows).toEqual([{ label: '2026-10', value: 1 }])
+  })
+
+  it('product mix windows by the run day and names bulk containers too', () => {
+    const out = controlSamplesKpis(state, W, '2026-10-15')
+    const rows = out.charts.find((c) => c.key === 'cs-by-product')?.rows ?? []
+    expect(rows).toContainEqual({ label: '200 ml Tender', value: 2 })
+    expect(rows).toContainEqual({ label: 'Coco Bulk', value: 1 })
   })
 })

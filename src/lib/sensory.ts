@@ -7,7 +7,7 @@
  * attribute scored below 3 holds the product whatever the total says.
  */
 
-import type { SensoryProductGroup, SensoryScore, TestParameter } from '../types'
+import type { SensoryProductGroup, SensoryScore, TestParameter } from '../types.ts'
 
 /** The built-in sensory report type's key. */
 export const SENSORY_KEY = 'sensory'

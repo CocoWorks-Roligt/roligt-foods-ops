@@ -9,14 +9,14 @@
  * every other test's result lives under its key in `QcRecord.tests`.
  */
 
-import type { AppState, QcAttachment, QcRecord, QcTestResult, TestCategoryDef, TestParameter } from '../types'
+import type { AppState, QcAttachment, QcRecord, QcTestResult, TestCategoryDef, TestParameter } from '../types.ts'
 import {
   DEFAULT_MINOR_SCORE,
   DEFAULT_PASS_SCORE,
   SENSORY_KEY,
   SENSORY_PRODUCT_GROUPS,
   defaultSensoryParameters,
-} from './sensory'
+} from './sensory.ts'
 
 export const LEGACY_TESTS = ['micro', 'pesticides', 'heavyMetals', 'physico'] as const
 export type LegacyTest = (typeof LEGACY_TESTS)[number]
@@ -103,7 +103,7 @@ export const requiredCategoryKeys = (state: Pick<AppState, 'config'>) =>
  * `materializeParameters` for how the first change keeps the rest.
  */
 export function categoryParameters(state: Pick<AppState, 'testParameters'>, key: string): TestParameter[] {
-  const stored = state.testParameters.filter((tp) => tp.category === key)
+  const stored = state.testParameters.filter((tp: TestParameter) => tp.category === key)
   if (stored.length || key !== SENSORY_KEY) return stored
   return defaultSensoryParameters()
 }
@@ -114,7 +114,7 @@ export function categoryParameters(state: Pick<AppState, 'testParameters'>, key:
  * twenty-three — which only ever existed in code — would vanish from the sheet.
  */
 export function materializeParameters(draft: AppState, key: string) {
-  if (draft.testParameters.some((tp) => tp.category === key)) return
+  if (draft.testParameters.some((tp: TestParameter) => tp.category === key)) return
   draft.testParameters.push(...categoryParameters(draft, key))
 }
 
@@ -149,7 +149,9 @@ export const hasTestData = (r: QcTestResult) => r.status !== 'Pending' || !!r.no
 export function qcStatuses(q: QcRecord): Record<string, string> {
   const out: Record<string, string> = {}
   for (const key of LEGACY_TESTS) out[key] = q[key] || 'Pending'
-  for (const [key, r] of Object.entries(q.tests || {})) out[key] = r?.status || 'Pending'
+  for (const [key, r] of Object.entries<Partial<QcTestResult> | undefined>(q.tests || {})) {
+    out[key] = r?.status || 'Pending'
+  }
   return out
 }
 
@@ -215,7 +217,7 @@ export function qcAttachments(q: QcRecord): { key: string; file: QcAttachment }[
     const file = q[`${key}Report` as const]
     if (file) out.push({ key, file })
   }
-  for (const [key, r] of Object.entries(q.tests || {})) {
+  for (const [key, r] of Object.entries<Partial<QcTestResult> | undefined>(q.tests || {})) {
     if (r?.report) out.push({ key, file: r.report })
   }
   return out

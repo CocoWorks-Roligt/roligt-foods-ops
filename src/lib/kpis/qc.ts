@@ -1,22 +1,28 @@
 /**
- * The qc module's fold — the B4 reference implementation of a KPI fold: the
- * same wire shape every module answers (KpiCard/KpiChart, contracts), the same
- * math the live Quality report reads (this calls qualityReport, so the two can
- * never disagree), plus the module-specific pieces the report does not carry
- * (pending-queue aging). Definitions: KPI.md §QC.
+ * The qc module's fold (KPI.md §QC). The pass/fail trend rides qualityReport —
+ * the same math the live Quality report reads, so the two can never disagree —
+ * plus the module pieces the report does not carry: pending-queue aging,
+ * turnaround, failed tests by category, and the quarantine position.
  *
- * Skeleton scope (B4): pass/fail trend, pending count, release rate, pending
- * aging. Control charts, out-of-spec alerts, turnaround and quarantine volume
- * wait on the §2 qcs.results limits + ledger folds and land with the module's
- * full build (Phase 5).
+ * Honest gaps, logged in DECISIONS (P5 D3a): CONTROL CHARTS and numeric
+ * OUT-OF-SPEC ALERTS need parameter RESULTS as numbers against configurable
+ * spec limits — a QC test records a Pass/Fail/Retest status, never a reading,
+ * and no limits exist anywhere. The discrete truth is charted instead: FAILED
+ * TESTS BY CATEGORY. Turnaround ages a DECIDED record only (Released or
+ * Rejected — a Retest is still on the bench) from its batch's day to its
+ * review's day. Quarantine volume is a POSITION (ledger-derived, unwindowed).
  *
  * Isomorphic: `.ts` extensions, no browser globals.
  */
 
 import type { AppState } from '../../types.ts'
 import type { ReportWindow } from '../reports/params.ts'
+import { inWindow, monthOf } from '../reports/params.ts'
 import { qualityReport } from '../reports/qualityReport.ts'
 import { localDay } from '../utils.ts'
+import { stockRows } from '../stock.ts'
+import { itemName } from '../stock.ts'
+import { qcStatuses, categoryTitle } from '../qcCategories.ts'
 import type { KpiCard, KpiChart } from '../contracts.ts'
 
 export interface KpiPayload {
@@ -33,6 +39,11 @@ const AGING_BUCKETS: { label: string; maxDays: number }[] = [
 
 const daysBetween = (from: string, to: string): number =>
   Math.floor((Date.parse(to) - Date.parse(from)) / 86_400_000)
+
+/** The fold never sees app_config (collections only), so category titles come
+ *  from the built-ins; an admin-added key falls back to its own key — honest. */
+const titleOf = (key: string): string =>
+  categoryTitle({ config: {} } as Pick<AppState, 'config'>, key)
 
 export function qcKpis(state: Partial<AppState>, w: ReportWindow, today: string): KpiPayload {
   const report = qualityReport(
@@ -56,6 +67,11 @@ export function qcKpis(state: Partial<AppState>, w: ReportWindow, today: string)
   )
   const releasePct = totals.records ? Number(((totals.released / totals.records) * 100).toFixed(1)) : 0
 
+  // The window reads on the batch's date — the report's own rule (recordsIn).
+  const batchDateOf = (batchId: string): string | undefined =>
+    state.batches?.find((b) => b.id === batchId)?.date
+  const windowed = (state.qcs ?? []).filter((q) => inWindow(batchDateOf(q.batchId), w))
+
   const cards: KpiCard[] = [
     { key: 'qc-pending', label: 'Pending QC', value: totals.pending, href: '/quality?disposition=Pending' },
     { key: 'qc-release-rate', label: 'Release rate', value: releasePct, unit: '%' },
@@ -78,7 +94,7 @@ export function qcKpis(state: Partial<AppState>, w: ReportWindow, today: string)
   const buckets = new Map<string, number>(AGING_BUCKETS.map((b) => [b.label, 0]))
   for (const q of state.qcs ?? []) {
     if (q.disposition === 'Pending') {
-      const made = state.batches?.find((b) => b.id === q.batchId)?.date
+      const made = batchDateOf(q.batchId)
       if (!made) continue
       const days = daysBetween(localDay(made), today)
       const bucket = AGING_BUCKETS.find((b) => days <= b.maxDays) ?? AGING_BUCKETS[AGING_BUCKETS.length - 1]
@@ -92,5 +108,75 @@ export function qcKpis(state: Partial<AppState>, w: ReportWindow, today: string)
     rows: AGING_BUCKETS.map((b) => ({ label: b.label, value: buckets.get(b.label) ?? 0 })),
   }
 
-  return { cards, charts: [trend, aging] }
+  // ── Turnaround: a decided record's days on the bench, batch day → review day
+  const decided = windowed.filter(
+    (q) => (q.disposition === 'Released' || q.disposition === 'Rejected') && localDay(q.reviewedAt),
+  )
+  const turnOfMonth = new Map<string, { days: number; n: number }>()
+  let turnSum = 0
+  for (const q of decided) {
+    const made = batchDateOf(q.batchId)
+    const reviewed = localDay(q.reviewedAt)
+    if (!made || !reviewed) continue
+    const days = Math.max(0, daysBetween(localDay(made), reviewed))
+    const m = monthOf(reviewed)
+    const acc = turnOfMonth.get(m) ?? { days: 0, n: 0 }
+    acc.days += days
+    acc.n += 1
+    turnOfMonth.set(m, acc)
+    turnSum += days
+  }
+  const turnaround: KpiChart = {
+    key: 'qc-turnaround',
+    label: 'Avg turnaround (days)',
+    kind: 'line',
+    rows: [...turnOfMonth.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([m, acc]) => ({ label: m, value: Number((acc.days / acc.n).toFixed(1)) })),
+  }
+  cards.push({
+    key: 'qc-turnaround',
+    label: 'Avg turnaround',
+    value: decided.length ? Number((turnSum / decided.length).toFixed(1)) : 0,
+    unit: 'days',
+  })
+
+  // ── Out-of-spec, as the records can say it: failed tests by category ──────
+  const fails = new Map<string, number>()
+  for (const q of windowed) {
+    for (const [key, status] of Object.entries(qcStatuses(q))) {
+      if (status === 'Fail') fails.set(key, (fails.get(key) ?? 0) + 1)
+    }
+  }
+  const failedTests: KpiChart = {
+    key: 'qc-failed-tests',
+    label: 'Failed tests by category',
+    kind: 'bar',
+    rows: [...fails.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([key, value]) => ({ label: titleOf(key), value })),
+  }
+
+  // ── Quarantine volume: a position, never windowed (the staged receipts'
+  //    whole-load 'Quarantine' lines are its writers; the QC verdicts move
+  //    them out). Qty never sums across uoms — the label carries the unit. ──
+  const full = { ...state, ledger: state.ledger ?? [] } as AppState
+  const quarantine = stockRows(full).filter((r) => r.status === 'Quarantine')
+  const byItem = new Map<string, number>()
+  for (const r of quarantine) {
+    const label = `${itemName(full, r.item)} (${r.uom})`
+    byItem.set(label, (byItem.get(label) ?? 0) + r.qty)
+  }
+  const quarantineChart: KpiChart = {
+    key: 'qc-quarantine',
+    label: 'In quarantine by item',
+    kind: 'bar',
+    rows: [...byItem.entries()].sort((a, b) => b[1] - a[1]).map(([label, value]) => ({ label, value })),
+  }
+  cards.push({ key: 'qc-quarantine-lots', label: 'Quarantine lots', value: quarantine.length })
+
+  return {
+    cards,
+    charts: [trend, aging, turnaround, failedTests, quarantineChart],
+  }
 }
