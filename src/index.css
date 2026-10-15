@@ -5508,3 +5508,29 @@ table tbody tr.subrow > td {
   width: 100%;
   resize: vertical;
 }
+
+/* ── Shipment Tracking board (SHIPMENT S1, `shipments` flag) ───────────── */
+.challan-link {
+  display: inline-block;
+  margin-right: 8px;
+  white-space: nowrap;
+}
+.shipment-drawer h4 {
+  margin: 14px 0 6px;
+}
+.event-list {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+.event-list li {
+  color: var(--muted);
+  font-size: 13px;
+}
+.event-type {
+  text-transform: capitalize;
+  color: var(--ink);
+  margin-right: 6px;
+}

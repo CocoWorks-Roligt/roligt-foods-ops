@@ -3,6 +3,7 @@ import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useApp, useSaveStatus } from '../context/AppContext'
 import { useAuth } from '../context/AuthContext'
 import { navBadges, type NavBadges } from '../lib/navBadges.ts'
+import { activeTripCount, subscribeShipments } from '../lib/shipmentStore.ts'
 import { allowedPages, pageScope, PAGE_CATALOG, type PageRow } from '../lib/pages.ts'
 import { useSessionPermissions } from '../lib/sessionPermissions'
 import { PAGES } from '../lib/utils'
@@ -271,6 +272,18 @@ export function Layout() {
   // with every snapshot install, which is what makes them live.
   const badges = useMemo<NavBadges>(() => navBadges(state), [state])
 
+  // Shipments are not a Classic state key, so their badge cannot ride navBadges:
+  // the board's own fetch parks its list in the module store, and the sidebar
+  // counts active trips from there — live with the same revision feed, even with
+  // the board unmounted (a manager's default landing). Zero until a fetch has
+  // answered, which is honest: an empty cache is no trips known, not none.
+  const [shipBadge, setShipBadge] = useState(() => activeTripCount())
+  useEffect(() => {
+    if (!flags.shipments) return
+    setShipBadge(activeTripCount())
+    return subscribeShipments(() => setShipBadge(activeTripCount()))
+  }, [flags.shipments])
+
   // The tour greets an operator once per device, the first time the pipeline
   // shell reaches them — the flags arrive with the first snapshot, so this
   // fires when the new look actually switches on, not on a blank boot.
@@ -362,7 +375,7 @@ export function Layout() {
               {items.map(({ id, label }) => {
                 const row = navRow(id)
                 const active = isActive(location.pathname, row.path)
-                const badge = badges[id]
+                const badge = id === 'shipments' ? shipBadge : badges[id]
                 return (
                   <button
                     key={id}

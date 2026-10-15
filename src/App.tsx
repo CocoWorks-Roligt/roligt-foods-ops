@@ -33,6 +33,7 @@ const Orders = lazy(() => import('./pages/Orders').then((m) => ({ default: m.Ord
 const Packing = lazy(() => import('./pages/Packing').then((m) => ({ default: m.Packing })))
 const PackingMaterials = lazy(() => import('./pages/PackingMaterials').then((m) => ({ default: m.PackingMaterials })))
 const Pipeline = lazy(() => import('./pages/Pipeline').then((m) => ({ default: m.Pipeline })))
+const Shipments = lazy(() => import('./pages/Shipments').then((m) => ({ default: m.Shipments })))
 const Procurement = lazy(() => import('./pages/Procurement').then((m) => ({ default: m.Procurement })))
 const ProductionPlanning = lazy(() => import('./pages/ProductionPlanning').then((m) => ({ default: m.ProductionPlanning })))
 const Roster = lazy(() => import('./pages/Roster').then((m) => ({ default: m.Roster })))
@@ -84,6 +85,22 @@ function PipelineRoute() {
     return <Navigate to={firstAllowedPath(permissions) ?? '/'} replace />
   }
   return <Pipeline />
+}
+
+/**
+ * Shipment Tracking (SHIPMENT, `shipments` flag) — same gate shape as the
+ * pipeline board: flag off bounces to Classic's '/', flag on applies the
+ * ordinary page rule. The board fetches its own list off /api/shipments;
+ * it never reads Classic client state for trips.
+ */
+function ShipmentsRoute() {
+  const { flags } = useApp()
+  const permissions = useSessionPermissions()
+  if (!flags.shipments) return <Navigate to="/" replace />
+  if (!canViewPage(permissions, 'shipments')) {
+    return <Navigate to={firstAllowedPath(permissions) ?? '/'} replace />
+  }
+  return <Shipments />
 }
 
 /**
@@ -151,6 +168,7 @@ function AuthGate() {
                 and fetches, rather than after Layout unmounts it. */}
             <Route index element={<RequirePage viewId="dashboard"><HomeRoute /></RequirePage>} />
             <Route path="pipeline" element={<PipelineRoute />} />
+            <Route path="shipments" element={<ShipmentsRoute />} />
             <Route path="batch/:id" element={<BatchRoute />} />
             <Route path="procurement" element={<RequirePage viewId="procurement"><Procurement /></RequirePage>} />
             <Route path="roster" element={<RequirePage viewId="roster"><Roster /></RequirePage>} />
