@@ -1,5 +1,5 @@
 # PROGRESS — Beverage Ops Platform Overhaul
-Updated: 2026-10-16 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS in session — D0 export engine, D1a/D1b + D2a/D2b + D3a/D3b + D4a/D4b done (modules 1-8 COMPLETE: Procurement, Grading & Extraction, Intermediates & Blending, Packing, QC, Control Samples, Inventory & Storage, Packaging Materials — each with fold + dashboard + register; QA LIGHT green at 2-, 4-, 6- and 8-module gates); next D5a: Orders & Dispatch + Shipment Tracking folds (BACKEND first)
+Updated: 2026-10-16 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS CLOSED — all 10 modules COMPLETE (folds + dashboards + registers; QA LIGHT green at 2-, 4-, 6-, 8- and 10-module gates); Phase 6 QA HEAVY next (fresh session: /clear, re-run the master prompt)
 
 | Task | Agent | Status | Files | Next action |
 |---|---|---|---|---|
@@ -58,6 +58,9 @@ Updated: 2026-10-16 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS in
 | P5/D4a: KPI folds live — Inventory/Storage + Packaging Materials | BACKEND | done @ e5cb88c | src/lib/kpis/{inventoryStorage,packagingMaterials}.ts, src/lib/kpis/index.ts, src/lib/reports/inventoryReports.ts (RECEIPT_TYPES/ISSUE_TYPES/lineDay exported), p5.test.ts | 1194 tests (+4); tsc -b, lint 10, build green; honest gaps logged DECISIONS P5 (carton charts declined, capacity/min-max fields absent, SLOW_MOVING_DAYS ASSUMED 30) |
 | P5/D4b: module registers (stock-position, pm-flows) + catalog wiring | BACKEND | done @ e943f34 | src/lib/exports/index.ts (+2 specs, +position flag), api/_lib/{exports.ts (Position-as-of header), exports.test.ts (+4)}, src/lib/dashboards.ts (exports wired, blurbs honest) | QA LIGHT (8-module gate) green below; modules 7-8 COMPLETE |
 | P5: QA LIGHT (8-module gate) | QA | done | — | tsc -b clean · 1198 passed/7 skipped · lint 10 baseline · build + build:e2e + assert-no-apptics clean (115 dist files); next D5a: Orders & Dispatch + Shipment Tracking folds (BACKEND first) |
+| P5/D5a: KPI folds live — Orders & Dispatch + Shipment Tracking | BACKEND | done @ 95910b3 | src/lib/kpis/{ordersDispatch,shipmentTracking}.ts, src/lib/kpis/index.ts (collections narrowed), p5.test.ts, api/_lib/b4.test.ts (card list) | 1201 tests (+3); tsc -b, lint 10, build green; honest gaps logged DECISIONS P5 |
+| P5/D5b: module registers (dispatch-lines, challans) + catalog wiring | BACKEND | done @ 27463f3 | src/lib/exports/index.ts (+2 specs), src/lib/dashboards.ts (exports wired, sources honest), api/_lib/exports.test.ts (+4) | QA LIGHT (10-module gate) green below; modules 9-10 COMPLETE — Phase 5 CLOSED |
+| P5: QA LIGHT (10-module gate — phase close) | QA | done | — | tsc -b clean · 1205 passed/7 skipped · lint 10 baseline · build + build:e2e + assert-no-apptics clean (115 dist files); Phase 6 QA HEAVY next session |
 
 ## Log
 - 2026-10-13 Phase 0 complete. Baseline green (745 tests, tsc -b, lint, build @ de4c13b). DB target confirmed:
@@ -697,3 +700,38 @@ Updated: 2026-10-16 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS in
   folds for Orders & Dispatch + Shipment Tracking (the board's cached daily
   folds — avg delivery time, agent performance — are Phase-5 work per B5b),
   then D5b registers, QA LIGHT (10-module gate) closes Phase 5.
+- 2026-10-16 P5 D5a — the modules 9-10 folds (BACKEND). orders-dispatch completes its catalog row:
+  DISPATCH-VS-PLAN (od-dispatch-vs-plan) — no Dispatch plan stage exists (PlanStage is Extraction |
+  Melange | Packing), so the plan that feeds dispatch is the stage-Packing PACKS plan, the D2a
+  packed-vs-planned rule verbatim; Litre/Kg plans and cancellations never answer, chart labelled
+  "(packs)", monthly bar beside the dispatched series. shipment-tracking grows its daily folds:
+  AVG DELIVERY (times.delivered − times.dispatched, KPI.md's formula, hours 1dp — card + by-agent
+  bar), AGENT PERFORMANCE (volume = trips with a delivered time; on-time % only where an eta
+  exists — the card's own denominator rule; two bars, counts and % never share an axis), and the
+  FAILED/RETURNED REASONS pareto (failed/rescheduled events' payload.reason — the board's own
+  lastFailReason vocabulary — plus return-line reasons in their own words; blanks skip, nothing is
+  re-categorized). ONE window rule for the module: everything rides the trip's times.created and
+  events/returns hang off their trip (shipmentId ∈ windowed ids; orphans never count). Collections
+  narrowed to what each fold reads (orders/dispatches/productionPlans; shipments/delivery_events/
+  returns — B4's placeholder items/customers/batches and the unread dispatches dropped). Honest
+  gaps logged DECISIONS P5: agent labels are agentUserId emails (no users join in the documents
+  state); BIB/carton returns split DECLINED (return lines carry no packaging dimension; the D2a
+  name-join precedent). 3 tests (plan arithmetic incl. skips, agent avg/volume/on-time split,
+  pareto window + tie order); b4's cache-test card list updated for st-avg-delivery. Gates: tsc -b
+  clean, 1201 passed, oxlint 10 baseline, build green. Committed 95910b3.
+- 2026-10-16 P5 D5b — the modules 9-10 export registers (+QA LIGHT, 10-module gate — PHASE 5
+  CLOSED). `dispatch-lines` (pages live-reports+dispatch) windows by the fold's own rule — a line
+  rides its dispatch DAY; product names off the master (a lookup, never a decision); POD and
+  delivered-on print the dispatch row's own words. `challans` (pages live-reports+shipments) is
+  KPI.md's challan-register row: windows by the TRIP's created day (the module's one rule; an
+  orphan challan never counts), status in the challan machine's own words, a correction names the
+  NUMBER it replaced (supersedesId resolved through the register) and its reason. Neither register
+  rides a page-gated collection — the D4b note: a live-reports-only holder streams both full.
+  Dashboards catalog wired (dispatch-lines, challans; sources made honest: packing plans named,
+  delivery events + returns named, dispatches dropped where the fold reads none). +4 tests (window
+  arithmetic + RBAC pairs; explicit from/to — the trailing-6-month default swallows May rows).
+  QA LIGHT (10-module gate): tsc -b clean; 1205 passed | 7 skipped; oxlint 10 baseline; build +
+  build:e2e + assert-no-apptics clean (115 dist files). All ten modules COMPLETE per the
+  acceptance bar — dashboard + live report + exports off the same fold. Phase 6 QA HEAVY
+  (E2E A–E, security, performance, a11y, visual verification, ROLLOUT.md) next, in a fresh
+  session per one-phase-one-session.

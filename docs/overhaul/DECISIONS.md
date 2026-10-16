@@ -161,6 +161,20 @@ Verdicts from audit slice 2 (2026-10-13). RULE: ASSUMED/PARTIAL items are built 
   batches were B4 placeholders the fold never read); shipment-tracking ['shipments','delivery_events','returns']
   (dispatches dropped — the fold reads none; the classic dispatch VIEW stays the seed source it always was).
 
+- D5b module registers (2026-10-16): `dispatch-lines` (pages live-reports+dispatch) windows by the FOLD's own
+  rule — a line rides its dispatch DAY (localDay(dispatchTime), what the fulfilment trend buckets by); product
+  names read the product master (a lookup, never a decision); POD/delivered-on print the dispatch row's own
+  words. `challans` (pages live-reports+shipments) is KPI.md's challan-register row: it windows by the TRIP's
+  created day — the module's one window rule (D5a), so an orphan challan whose trip is not in state never
+  counts; Status is the challan machine's own word (Issued/Superseded); a correction names the NUMBER it
+  replaced (supersedesId resolved through the register itself) and its reason. Collections: dispatch-lines
+  reads dispatches+products; challans reads challans+shipments — neither rides a page-gated collection, so
+  (the D4b note) a live-reports-only holder streams both registers full. The BIB/carton returns TABLE stays
+  declined with the D5a split — return lines carry no packaging dimension to tabulate.
+- Phase 5 CLOSED at the 10-module gate (QA LIGHT): tsc -b clean; vitest 1205 passed | 7 skipped; oxlint 10
+  warnings baseline; build + build:e2e + assert-no-apptics clean (115 dist files). All ten modules COMPLETE
+  per the acceptance bar — dashboard + live report + exports off the same fold.
+
 ## Blocked
 - batch_v2 enablement — blocked on the DECISIONS #2 mass-balance resolution (3/14 pass; extractions cannot close under enforcement).
 - can.* action slugs not yet issued by any role seed (release arm runs on the page.quality proxy).

@@ -1,5 +1,5 @@
 # STATE — Beverage Ops Platform Overhaul
-Updated: 2026-10-16 | Phase: 5 DASHBOARDS in session — D4b done, modules 1-8 COMPLETE (folds + dashboards + registers; QA LIGHT green at 2-, 4-, 6- and 8-module gates); next D5a: Orders & Dispatch + Shipment Tracking KPI folds (BACKEND first) | Branch: dev | Base: de4c13b
+Updated: 2026-10-16 | Phase: 5 DASHBOARDS CLOSED — all 10 modules COMPLETE (folds + dashboards + registers; QA LIGHT green at 2-, 4-, 6-, 8- and 10-module gates); next: Phase 6 QA HEAVY in a FRESH session (/clear + re-run the master prompt) | Branch: dev | Base: de4c13b
 
 ## Contracts
 - v1.9 (2026-10-15, P4): +shipment/challan/return wire — ShipmentVersionExtension (documents.version
@@ -26,6 +26,25 @@ Updated: 2026-10-16 | Phase: 5 DASHBOARDS in session — D4b done, modules 1-8 C
 
 ## Locks
 - none
+
+## P5 D5a/D5b invariants (2026-10-16)
+- shipment-tracking keeps ONE window rule: a trip rides its times.created, and events/returns
+  count only when their shipmentId is among the windowed trips (an orphan or an out-of-window
+  trip's event never counts). Failure reasons read payload.reason — the board's lastFailReason
+  vocabulary — and return lines their own reason words; nothing is re-categorized. AVG DELIVERY =
+  delivered − dispatched (hours, 1dp); agent volume = trips with a delivered time; agent on-time %
+  only where an eta exists. The `challans` register windows by the SAME rule (trip created day).
+- DISPATCH-VS-PLAN counts stage-Packing PACKS plans only (no Dispatch plan stage exists; a
+  Litre/Kg plan never converts — the D2a rule); the `dispatch-lines` register windows by
+  dispatch DAY, matching the fulfilment trend's buckets. If either fold's window rule is
+  reworked, its register follows.
+- Collections are NARROWED to what each fold reads: orders-dispatch
+  ['orders','dispatches','productionPlans']; shipment-tracking
+  ['shipments','delivery_events','returns']. Do not re-add placeholder collections — read
+  withholding is per-collection, so a widened list re-exposes data the fold never reads.
+- Agent charts label agentUserId (email; 'Unassigned' when absent) — no users-name join exists in
+  the documents state. BIB/carton returns split is DECLINED (D5a DECISIONS) until return lines
+  carry a packaging dimension.
 
 ## P5 D4a/D4b invariants (2026-10-16)
 - The inventory fold's cuts are ALL POSITIONS (unwindowed, the control-samples
