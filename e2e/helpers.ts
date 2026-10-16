@@ -24,9 +24,11 @@ export function failOnPageErrors(page: Page, errors: string[]) {
     // is exactly how the missing /api/shipments route was caught).
     const where = msg.location()?.url ?? ''
     // 429 is the commit throttle the client queues behind, 409 its CAS
-    // conflict path (refused whole, winners adopted, re-saved) — both are
-    // protocol events the sync engine owns, though the browser still logs
-    // the failed fetch itself. ERR_INTERNET_DISCONNECTED is the offline
+    // conflict path (refused whole, winners adopted, re-saved), and 422 is
+    // the rules gate refusing a write — all three are protocol events the
+    // sync engine owns, though the browser still logs the failed fetch
+    // itself (journey-d's refusal leg asserts the 422's audit trail itself).
+    // ERR_INTERNET_DISCONNECTED is the offline
     // spec's own doing: it cuts the network on purpose, and every in-flight
     // fetch logs it — the test's condition, not the page failing. Everything
     // else is the page failing.
@@ -36,6 +38,7 @@ export function failOnPageErrors(page: Page, errors: string[]) {
       !where.includes('/api/events') &&
       !text.includes('429') &&
       !text.includes('409 (Conflict)') &&
+      !text.includes('422') &&
       !text.includes('net::ERR_INTERNET_DISCONNECTED')
     ) {
       errors.push(text)

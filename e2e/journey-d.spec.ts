@@ -4,26 +4,28 @@ import { failOnPageErrors, dismissTour, getJson, pickOption, settleMirror } from
 /**
  * HEAVY Journey D (Phase 6) — the QC hard gate, end to end, under
  * E2E_FLAGS=qc_gate_v2 (this spec SKIPS itself in a default-flags run: its
- * leg-7 refusal only exists with the gate on, and its pass legs must prove the
+ * refusal leg only exists with the gate on, and its pass legs must prove the
  * gate lets honest work through — so it runs as its own playwright invocation
  * on the fresh DB the flags env builds):
  *
  *   coconut PO → staged receipt → grading → extraction (close) →
- *   QC REJECTS the malai (its lot lands Quarantine) →
- *   QC RELEASES the water →
- *   a blend drawing the quarantined malai is REFUSED BY THE SERVER —
- *     the client's own rules still allow it (classic DRAWABLE), the commit
- *     422s with lot_not_released, and the refused write is left stuck-dirty on
- *     the device (the offline retry loop cannot tell a refusal from an
- *     outage — a ROLLOUT gate recorded in QA_REPORT) →
- *   packing the RELEASED water passes the same gate →
- *   order → dispatch (the new dispatch arm's pass path) → No open orders
+ *   a blend drawing the still-QUARANTINE water is REFUSED BY THE SERVER —
+ *     the client's own rules still allow the draw (classic DRAWABLE), the
+ *     commit 422s, and the refused write is left stuck-dirty on the device
+ *     (the offline retry loop cannot tell a refusal from an outage — a
+ *     ROLLOUT gate recorded in QA_REPORT) →
+ *   the lab RELEASES the water (the malai never sits on the QC page — it is
+ *     qcExempt, released as booked) →
+ *   pack the now-Released water → the packs carry the verdict →
+ *   order → dispatch sails through the new arm on Released packs →
+ *   No open orders
  *
- * The gate's other refusal arms (a Packing/Dispatch draw of non-Released
- * stock) are pinned by rulesGate.test.ts — the plant's own flow cannot stage
- * them in a UI journey: packs inherit their bulk's verdict, so a rejected
- * bulk's packs are already unpoolable client-side, and the server arms are the
- * authority for hand-built writes.
+ * The gate's OTHER refusal arms stay unit-pinned in rulesGate.test.ts: a
+ * packing draw of non-Released bulk 422s the same way (observed on this
+ * journey's own iterations — the plant's own flow can no longer stage one,
+ * because the packs inherit the verdict), and a dispatch draw of non-Released
+ * packs is unreachable for the same reason (the dispatch tab pools Released
+ * packs only, so its button dies client-side before the server is asked).
  */
 test.describe.serial(() => {
   test.skip(
@@ -138,23 +140,55 @@ test.describe.serial(() => {
     await expect(page.getByText(/closed — variance/i)).toBeVisible({ timeout: 60_000 })
   })
 
-  test('leg 5 — the lab REJECTS the malai (its lot lands Quarantine)', async ({ page }) => {
-    await page.goto('/quality?tab=entry')
+  test('leg 5 — the blend drawing the quarantined water is refused BY THE SERVER', async ({ page }) => {
+    settleExempt = true // the refused write never settles — that is the finding
+    await page.goto('/production?stage=blend')
     await dismissTour(page)
 
-    await pickOption(page.getByRole('combobox', { name: /^Record/ }), /Tender Coconut Malai/)
+    await pickOption(page.getByRole('combobox', { name: /^Blend recipe/ }), /Coconut Milk \(E2E\)/)
 
-    // A Fail on any test rejects it — fail them all, in the bench's own words.
-    const cards = page.locator('article.qc-review-card')
-    const count = await cards.count()
-    for (let i = 0; i < count; i++) {
-      await pickOption(cards.nth(i).getByRole('combobox'), /^Fail$/)
-    }
-    await page.getByRole('button', { name: /^Reject / }).click()
-    await expect(page.getByText('QC updated: Rejected.')).toBeVisible()
+    // The classic client still allows a Quarantine draw (DRAWABLE) — the
+    // journey's whole point is that the SERVER says no. The malai is
+    // Released (qcExempt, released as booked); the water is the Quarantine
+    // draw the gate exists to refuse. 100 kg + 100 L in, 198 out, 2 lost.
+    const malaiRow = page.locator('.form-grid').filter({ hasText: 'Tender Coconut Malai' })
+    await pickOption(malaiRow.getByRole('combobox', { name: /^Lot/ }), /100 kg on hand/)
+    await malaiRow.getByLabel(/^Quantity \(kg\)/).fill('100')
+
+    const waterRow = page.locator('.form-grid').filter({ hasText: 'Tender Coconut Water' })
+    await pickOption(waterRow.getByRole('combobox', { name: /^Lot/ }), /200 litre on hand/)
+    await waterRow.getByLabel(/^Quantity \(litre\)/).fill('100')
+
+    // The server's water stock, before the attempt — the refusal must leave
+    // it untouched (a landed draw would take 100 L off it).
+    const waterBefore = await itemNet(page, 'Tender Coconut Water')
+
+    await page.getByLabel(/^Blend produced/).fill('198')
+    await pickOption(page.getByLabel('Put away in'), /Cold Room A/i)
+    await page.getByLabel(/^Lost to blending/).fill('2')
+    await pickOption(page.getByLabel(/^Reason/), /spillage/i)
+
+    await page.getByRole('button', { name: 'Post run & close' }).click()
+    // Optimistically the run closes on screen… and then the commit is
+    // refused: the push fails, the app flips to its offline vocabulary. This
+    // toast is the refusal, seen from the operator's chair.
+    // The offline banner lives twice on the page (nav rail + toast) — pin the
+    // toast, the operator's transient notice of the refusal.
+    await expect(page.locator('.toast').filter({ hasText: /Offline — changes are held/ })).toBeVisible({
+      timeout: 45_000,
+    })
+
+    // The server's own truth: the water's net stock is untouched (a landed
+    // draw would have taken 100 L off it), and the refusal is on the audit
+    // trail (action rules.rejected, guard released_only).
+    expect(await itemNet(page, 'Tender Coconut Water'), 'no draw landed').toBe(waterBefore)
+    const refusals = await refusalAudits(page)
+    expect(refusals.length, 'the refusal is audited').toBeGreaterThan(0)
+    expect(refusals[0].action).toBe('rules.rejected')
+    expect(refusals[0].details).toContain('released_only')
   })
 
-  test('leg 6 — the lab RELEASES the water', async ({ page }) => {
+  test('leg 6 — the lab RELEASES the water (the malai never could be — it skips QC)', async ({ page }) => {
     await page.goto('/quality?tab=entry')
     await dismissTour(page)
 
@@ -168,48 +202,7 @@ test.describe.serial(() => {
     await expect(page.getByText('QC updated: Released.')).toBeVisible()
   })
 
-  test('leg 7 — the blend drawing the quarantined malai is refused BY THE SERVER', async ({ page }) => {
-    settleExempt = true // the refused write never settles — that is the finding
-    await page.goto('/production?stage=blend')
-    await dismissTour(page)
-
-    await pickOption(page.getByRole('combobox', { name: /^Blend recipe/ }), /Coconut Milk \(E2E\)/)
-
-    // The classic client still allows a Quarantine draw (DRAWABLE) — the
-    // journey's whole point is that the SERVER says no. Journey-a leg 5's
-    // numbers: 100 kg malai + 100 L water in, 198 out, 2 lost.
-    const malaiRow = page.locator('.form-grid').filter({ hasText: 'Tender Coconut Malai' })
-    await pickOption(malaiRow.getByRole('combobox', { name: /^Lot/ }), /100 kg on hand/)
-    await malaiRow.getByLabel(/^Quantity \(kg\)/).fill('100')
-
-    const waterRow = page.locator('.form-grid').filter({ hasText: 'Tender Coconut Water' })
-    await pickOption(waterRow.getByRole('combobox', { name: /^Lot/ }), /200 litre on hand/)
-    await waterRow.getByLabel(/^Quantity \(litre\)/).fill('100')
-
-    await page.getByLabel(/^Blend produced/).fill('198')
-    await pickOption(page.getByLabel('Put away in'), /Cold Room A/i)
-    await page.getByLabel(/^Lost to blending/).fill('2')
-    await pickOption(page.getByLabel(/^Reason/), /spillage/i)
-
-    await page.getByRole('button', { name: 'Post run & close' }).click()
-    // Optimistically the run closes on screen… and then the commit is
-    // refused: the push fails, the app flips to its offline vocabulary. This
-    // toast is the refusal, seen from the operator's chair.
-    await expect(page.getByText(/Offline — changes are held on this device/)).toBeVisible({
-      timeout: 45_000,
-    })
-
-    // The server's own truth, read straight off the snapshot: no blend ever
-    // landed — zero Melange Consume draws — and the refusal is on the audit
-    // trail (action rules.rejected, filed by the engine that refused).
-    const { blends, refusals } = await serverTruth(page)
-    expect(blends, 'no blend draw landed').toBe(0)
-    expect(refusals.length, 'the refusal is audited').toBeGreaterThan(0)
-    expect(refusals[0].action).toBe('rules.rejected')
-    expect(refusals[0].details).toContain('released_only')
-  })
-
-  test('leg 8 — packing the RELEASED water passes the same gate', async ({ page }) => {
+  test('leg 7 — pack the now-Released water: the packs carry the verdict', async ({ page }) => {
     await page.goto('/production?stage=pack')
     await dismissTour(page)
 
@@ -220,10 +213,12 @@ test.describe.serial(() => {
 
     await pickOption(page.getByLabel('Storage area'), /Cold Room A/i)
     await page.getByRole('button', { name: 'Post packing run' }).click()
+    // The released bulk's packs land Released — the toast says so in its
+    // own words, and they are what leg 9 dispatches.
     await expect(page.getByText(/— the packs carry the bulk/i)).toBeVisible()
   })
 
-  test('leg 9 — the desk raises a Fernandez order for the BiBs', async ({ page }) => {
+  test('leg 8 — the desk raises a Fernandez order for the BiBs', async ({ page }) => {
     await page.goto('/orders?tab=desk')
     await dismissTour(page)
 
@@ -242,7 +237,7 @@ test.describe.serial(() => {
     await expect(page.getByText('Order raised.')).toBeVisible()
   })
 
-  test('leg 10 — dispatch sails through the new dispatch arm', async ({ page }) => {
+  test('leg 9 — dispatch sails through the new arm on Released packs', async ({ page }) => {
     await page.goto('/orders?tab=dispatch')
     await dismissTour(page)
 
@@ -253,29 +248,30 @@ test.describe.serial(() => {
     ledger.orderId = (/Dispatch (ORD-[\d-]+)/.exec((await send.textContent()) ?? '') ?? [])[1] ?? ''
     expect(ledger.orderId, 'the dispatch button names its order').toMatch(/ORD-\d+-\d+/)
     await send.click()
-    // The packs are Released stock — the dispatch arm's pass path — so the
-    // queue drains exactly as it does with the flag off.
+    // The lab's release moved the bulk AND the packs filled from it — the
+    // packs are Released stock, the dispatch arm's pass path.
     await expect(page.getByText(/No open orders/i)).toBeVisible()
   })
 })
 
-/** The server's answer for the refusal leg: how many blend draws landed, and
- *  the rules-rejection audit rows the engine filed. */
-async function serverTruth(page: Page): Promise<{
-  blends: number
-  refusals: { action: string; details: string }[]
-}> {
+/** The item's net stock on the server — every lot pooled, so a refused draw
+ *  shows as a before/after difference (or the lack of one). */
+async function itemNet(page: Page, item: string): Promise<number> {
   const body = await getJson<{
-    state?: {
-      ledger?: { type?: string }[]
-      audits?: { action?: string; details?: string }[]
-    }
+    state?: { ledger?: { item?: string; qtyIn?: number | string; qtyOut?: number | string }[] }
   }>(page.request, '/api/snapshot')
-  const ledger = body.state?.ledger ?? []
-  return {
-    blends: ledger.filter((l) => l.type === 'Melange Consume').length,
-    refusals: (body.state?.audits ?? [])
-      .filter((a) => a.action === 'rules.rejected')
-      .map((a) => ({ action: String(a.action), details: String(a.details ?? '') })),
-  }
+  return (body.state?.ledger ?? [])
+    .filter((l) => String(l.item ?? '') === item)
+    .reduce((sum, l) => sum + Number(l.qtyIn ?? 0) - Number(l.qtyOut ?? 0), 0)
+}
+
+/** The rules-rejection audit rows the gate engine files (newest first). */
+async function refusalAudits(page: Page): Promise<{ action: string; details: string }[]> {
+  const body = await getJson<{ state?: { audits?: { action?: string; details?: string }[] } }>(
+    page.request,
+    '/api/snapshot',
+  )
+  return (body.state?.audits ?? [])
+    .filter((a) => a.action === 'rules.rejected')
+    .map((a) => ({ action: String(a.action), details: String(a.details ?? '') }))
 }
