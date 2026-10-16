@@ -15,6 +15,7 @@
 import type { AppState, ViewId } from '../../types.ts'
 import type { ReportWindow } from '../reports/params.ts'
 import { inWindow } from '../reports/params.ts'
+import { localDay } from '../utils.ts'
 import type { ExportColumn } from './csv.ts'
 import { procurementLotRows, type ProcurementLotRow } from '../reports/procurement.ts'
 import { qualityReport } from '../reports/qualityReport.ts'
@@ -25,7 +26,7 @@ import { qcStatuses } from '../qcCategories.ts'
 import { controlSampleRows } from '../controlSamples.ts'
 import { stockRows, locationLabel, itemTypeLabel } from '../stock.ts'
 import { itemFlows, daysBetween } from '../reports/inventoryReports.ts'
-import type { PurchaseOrder, SpoilageRecord } from '../contracts.ts'
+import type { PurchaseOrder, SpoilageRecord, Challan, Shipment } from '../contracts.ts'
 
 export type { ExportColumn }
 
@@ -101,6 +102,8 @@ const num = (n: number | undefined | null, digits = 0): number =>
 type WithDocs = Partial<AppState> & {
   purchase_orders?: PurchaseOrder[]
   spoilage_records?: SpoilageRecord[]
+  challans?: Challan[]
+  shipments?: Shipment[]
 }
 
 const docsState = (state: Partial<AppState>): WithDocs => state as WithDocs
@@ -490,6 +493,98 @@ export const EXPORT_SPECS = {
       { header: 'Closing value', value: (r) => num(r.value, 2) },
       { header: 'Reorder level', value: (r) => r.reorder ?? '—' },
       { header: 'Below reorder', value: (r) => (r.below ? 'Yes' : '—') },
+    ],
+  }),
+  // ── P5 module registers (D5b): the Orders & Dispatch and Shipment Tracking
+  // dashboards' Export rows fold these — windowed exactly as their KPI folds
+  // window (dispatch lines by dispatch day; challans by their TRIP's created
+  // day, the module's one rule), so the file and the chart cannot disagree.
+  'dispatch-lines': spec({
+    key: 'dispatch-lines',
+    title: 'Dispatch line register',
+    pages: ['live-reports', 'dispatch'],
+    collections: ['dispatches', 'products'],
+    // The fold's own window rule: a dispatch line rides its dispatch day. The
+    // product name reads the product master (a name lookup, never a decision);
+    // POD/delivered-at print what the dispatch row itself carries.
+    rows: (state, w) => {
+      const productName = (id: string): string => state.products?.find((p) => p.id === id)?.name || id
+      return (state.dispatches ?? [])
+        .filter((d) => inWindow(localDay(d.dispatchTime), w))
+        .sort((a, b) => b.dispatchTime.localeCompare(a.dispatchTime) || a.id.localeCompare(b.id))
+        .map((d) => ({
+          challan: d.challan,
+          day: localDay(d.dispatchTime),
+          order: d.orderId || '',
+          customer: d.customerName,
+          product: productName(d.sku),
+          qty: d.qty,
+          vehicle: d.vehicle,
+          status: d.status,
+          pod: d.pod,
+          deliveredAt: d.deliveredTime ? localDay(d.deliveredTime) : '',
+          note: d.deliveryNote || '',
+        }))
+    },
+    columns: [
+      { header: 'Challan', value: (r) => r.challan },
+      { header: 'Dispatched on', value: (r) => r.day },
+      { header: 'Order', value: (r) => r.order || '—' },
+      { header: 'Customer', value: (r) => r.customer },
+      { header: 'Product', value: (r) => r.product },
+      { header: 'Qty', value: (r) => r.qty },
+      { header: 'Vehicle', value: (r) => r.vehicle },
+      { header: 'Status', value: (r) => r.status },
+      { header: 'POD', value: (r) => r.pod || '—' },
+      { header: 'Delivered on', value: (r) => r.deliveredAt || '—' },
+      { header: 'Note', value: (r) => r.note || '—' },
+    ],
+  }),
+  challans: spec({
+    key: 'challans',
+    title: 'Challan register',
+    pages: ['live-reports', 'shipments'],
+    collections: ['challans', 'shipments'],
+    // The module's one window rule (D5a): everything rides the trip's created
+    // day — a challan windows with the trip that submitted it, exactly as the
+    // fold counts. Status is the challan machine's own word; a superseded
+    // correction names the number it replaced and why.
+    rows: (state, w) => {
+      const s = docsState(state)
+      const createdById = new Map((s.shipments ?? []).map((t) => [t.id, localDay(t.times.created)] as const))
+      const numberById = new Map((s.challans ?? []).map((c) => [c.id, c.number] as const))
+      return (s.challans ?? [])
+        .filter((c) => {
+          const day = createdById.get(c.shipmentId)
+          return day !== undefined && inWindow(day, w)
+        })
+        .sort((a, b) => b.deliveredAt.localeCompare(a.deliveredAt) || a.number.localeCompare(b.number))
+        .map((c) => ({
+          number: c.number,
+          status: c.status,
+          trip: c.shipmentId,
+          order: c.orderId,
+          agent: c.agentId,
+          vehicle: c.vehicle,
+          deliveredAt: localDay(c.deliveredAt),
+          lines: c.lines.map((l) => `${l.skuName} · ${l.qty} ${l.uom} · ${l.packaging}`).join('; '),
+          version: c.version,
+          supersedes: c.supersedesId ? (numberById.get(c.supersedesId) ?? c.supersedesId) : '',
+          reason: c.reason || '',
+        }))
+    },
+    columns: [
+      { header: 'Challan', value: (r) => r.number },
+      { header: 'Status', value: (r) => r.status },
+      { header: 'Trip', value: (r) => r.trip },
+      { header: 'Order', value: (r) => r.order },
+      { header: 'Agent', value: (r) => r.agent },
+      { header: 'Vehicle', value: (r) => r.vehicle },
+      { header: 'Delivered on', value: (r) => r.deliveredAt },
+      { header: 'Lines', value: (r) => r.lines },
+      { header: 'Version', value: (r) => r.version },
+      { header: 'Supersedes', value: (r) => r.supersedes || '—' },
+      { header: 'Correction reason', value: (r) => r.reason || '—' },
     ],
   }),
 } satisfies Record<string, RegisteredExportSpec>

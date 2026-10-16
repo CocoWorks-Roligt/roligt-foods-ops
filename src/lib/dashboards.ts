@@ -104,17 +104,17 @@ export const DASHBOARDS: readonly DashboardDef[] = [
     module: 'orders-dispatch',
     title: 'Orders & Dispatch',
     blurb: 'Order pipeline, fulfilment %, overdue orders, dispatch vs plan.',
-    sources: 'Orders + dispatches',
+    sources: 'Orders + dispatches + packing plans',
     reports: ['dispatch'],
-    exports: [],
+    exports: ['dispatch-lines'],
   },
   {
     module: 'shipment-tracking',
     title: 'Shipment Tracking',
     blurb: 'Status board, on-time %, failed and returned reasons, agent performance.',
-    sources: 'Shipments + dispatches',
+    sources: 'Shipments + delivery events + returns',
     reports: ['dispatch'],
-    exports: [],
+    exports: ['challans'],
   },
 ]
 

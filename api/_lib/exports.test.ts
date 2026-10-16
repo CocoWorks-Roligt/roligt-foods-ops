@@ -551,3 +551,109 @@ describe('P5 D4b registers', () => {
     ).rejects.toMatchObject({ status: 403, code: 'role_allowed' })
   })
 })
+
+describe('P5 D5b registers', () => {
+  const seedDispatch = (d1: FakeD1): void => {
+    put(d1, 'products', 'FG-BIB', { id: 'FG-BIB', name: 'TCW 5L', type: 'BiB', size: 5, unit: 'L', packVolume: 5, shelfLifeDays: 60, bom: [], packName: '5 L BiB' })
+    put(d1, 'dispatches', 'DSP-2026-0001', {
+      id: 'DSP-2026-0001', customerId: 'C-1', customerName: 'Fernandez Stores', batchId: 'BAT-2026-0001',
+      sku: 'FG-BIB', qty: 8, challan: 'DC0017/2026', orderId: 'ORD-2026-0009', vehicle: 'AP-07',
+      dispatchTime: '2026-09-14T04:30:00.000Z', status: 'Delivered', pod: 'M. Fernandez',
+      deliveredTime: '2026-09-14T09:00:00.000Z',
+    })
+    put(d1, 'dispatches', 'DSP-2026-0002', {
+      id: 'DSP-2026-0002', customerId: 'C-2', customerName: 'Old Market', batchId: 'BAT-2026-0002',
+      sku: 'FG-BIB', qty: 3, challan: 'DC0002/2026', vehicle: 'AP-03',
+      dispatchTime: '2026-05-02T04:30:00.000Z', status: 'Delivered', pod: 'x',
+    })
+  }
+
+  it('dispatch-lines: dispatch-day window, product names off the master, POD as printed', async () => {
+    const d1 = new FakeD1()
+    seedDispatch(d1)
+    const v = await exportFor(d1, { ...OPS, permissions: ['page.live-reports', 'page.dispatch'] }, 'dispatch-lines', { format: 'csv', from: '2026-09-01', to: '2026-10-15' })
+    if (v.kind !== 'stream') throw new Error('expected a stream')
+    const text = v.file.bytes.toString('utf8')
+    expect(text).toContain('DC0017/2026')
+    expect(text).toContain('2026-09-14') // the fold's own window key: dispatch DAY
+    expect(text).toContain('ORD-2026-0009')
+    expect(text).toContain('Fernandez Stores')
+    expect(text).toContain('TCW 5L')
+    expect(text).toContain('M. Fernandez')
+    expect(text).not.toContain('DSP-2026-0002') // May dispatch outside the default window
+    expect(text).not.toContain('Old Market')
+  })
+
+  it('dispatch-lines: a dispatch-page caller may run it, a production-only caller may not', async () => {
+    const d1 = new FakeD1()
+    seedDispatch(d1)
+    const dispatchOnly = { email: 'desk@roligt.local', permissions: ['page.dispatch'] }
+    const v = await exportFor(d1, dispatchOnly, 'dispatch-lines', { format: 'csv' })
+    expect(v.kind).toBe('stream')
+    await expect(
+      exportFor(d1, { ...OPS, permissions: ['page.production'] }, 'dispatch-lines', { format: 'csv' }),
+    ).rejects.toMatchObject({ status: 403, code: 'role_allowed' })
+  })
+
+  const seedChallans = (d1: FakeD1): void => {
+    put(d1, 'shipments', 'SHP-2026-0001', {
+      id: 'SHP-2026-0001', orderId: 'ORD-2026-0009', dispatchIds: ['DSP-2026-0001'], agentUserId: 'driver@roligt.local',
+      vehicle: 'AP-07', status: 'Delivered', stops: [], packaging: 'LOOSE',
+      times: { created: '2026-09-14T04:00:00.000Z', dispatched: '2026-09-14T06:00:00.000Z', delivered: '2026-09-14T09:00:00.000Z' },
+    })
+    put(d1, 'shipments', 'SHP-2026-0002', {
+      id: 'SHP-2026-0002', orderId: 'ORD-2026-0002', dispatchIds: [], agentUserId: 'driver@roligt.local',
+      vehicle: 'AP-03', status: 'Delivered', stops: [], packaging: 'LOOSE',
+      times: { created: '2026-05-02T04:00:00.000Z', delivered: '2026-05-02T08:00:00.000Z' },
+    })
+    put(d1, 'challans', 'CH-1', {
+      id: 'CH-1', number: 'DC0017/2026', shipmentId: 'SHP-2026-0001', orderId: 'ORD-2026-0009', status: 'Superseded',
+      version: 1, pdfKey: 'challans/DC0017-2026.pdf', taxFields: {},
+      lines: [{ sku: 'FG-BIB', skuName: 'TCW 5L', lot: 'LOT-1', qty: 8, uom: 'Packs', packaging: 'LOOSE' }],
+      agentId: 'driver@roligt.local', vehicle: 'AP-07', deliveredAt: '2026-09-14T09:00:00.000Z',
+    })
+    put(d1, 'challans', 'CH-2', {
+      id: 'CH-2', number: 'DC0018/2026', shipmentId: 'SHP-2026-0001', orderId: 'ORD-2026-0009', status: 'Issued',
+      version: 2, supersedesId: 'CH-1', reason: 'wrong qty', pdfKey: 'challans/DC0018-2026.pdf', taxFields: {},
+      lines: [{ sku: 'FG-BIB', skuName: 'TCW 5L', lot: 'LOT-1', qty: 7, uom: 'Packs', packaging: 'LOOSE' }],
+      agentId: 'driver@roligt.local', vehicle: 'AP-07', deliveredAt: '2026-09-14T09:00:00.000Z',
+    })
+    put(d1, 'challans', 'CH-3', {
+      id: 'CH-3', number: 'DC0003/2026', shipmentId: 'SHP-2026-0002', orderId: 'ORD-2026-0002', status: 'Issued',
+      version: 1, pdfKey: 'challans/DC0003-2026.pdf', taxFields: {}, lines: [],
+      agentId: 'driver@roligt.local', vehicle: 'AP-03', deliveredAt: '2026-05-02T08:00:00.000Z',
+    })
+    put(d1, 'challans', 'CH-4', {
+      id: 'CH-4', number: 'DC0099/2026', shipmentId: 'SHP-MISSING', orderId: 'ORD-2026-0009', status: 'Issued',
+      version: 1, pdfKey: 'challans/DC0099-2026.pdf', taxFields: {}, lines: [],
+      agentId: 'driver@roligt.local', vehicle: 'AP-07', deliveredAt: '2026-09-15T09:00:00.000Z',
+    })
+  }
+
+  it('challans: windows by the TRIP created day (the module one rule), corrections named', async () => {
+    const d1 = new FakeD1()
+    seedChallans(d1)
+    const v = await exportFor(d1, { ...OPS, permissions: ['page.live-reports', 'page.shipments'] }, 'challans', { format: 'csv', from: '2026-09-01', to: '2026-10-15' })
+    if (v.kind !== 'stream') throw new Error('expected a stream')
+    const text = v.file.bytes.toString('utf8')
+    expect(text).toContain('DC0017/2026')
+    expect(text).toContain('DC0018/2026')
+    expect(text).toContain('Superseded')
+    expect(text).toContain('wrong qty') // the correction's own reason
+    expect(text).toContain('TCW 5L · 7 Packs · LOOSE')
+    expect(text).toContain('driver@roligt.local')
+    expect(text).not.toContain('DC0003/2026') // May trip outside the window
+    expect(text).not.toContain('DC0099/2026') // orphan — its trip is not in state
+  })
+
+  it('challans: a shipments-page caller may run it, a quality-only caller may not', async () => {
+    const d1 = new FakeD1()
+    seedChallans(d1)
+    const shipmentsOnly = { email: 'board@roligt.local', permissions: ['page.shipments'] }
+    const v = await exportFor(d1, shipmentsOnly, 'challans', { format: 'csv' })
+    expect(v.kind).toBe('stream')
+    await expect(
+      exportFor(d1, { ...OPS, permissions: ['page.quality'] }, 'challans', { format: 'csv' }),
+    ).rejects.toMatchObject({ status: 403, code: 'role_allowed' })
+  })
+})
