@@ -1,5 +1,5 @@
-import { test, expect, type Locator } from '@playwright/test'
-import { failOnPageErrors, dismissTour } from './helpers'
+import { test, expect } from '@playwright/test'
+import { failOnPageErrors, dismissTour, pickOption, settleMirror } from './helpers'
 
 /**
  * HEAVY Journey A — extended through delivery (Phase 4 close-out): the
@@ -33,77 +33,16 @@ test.describe.serial(() => {
   })
 
   test.afterEach(async ({ page }, info) => {
-    // A leg's writes must reach the server before its context closes. The
-    // save is debounced, and the next leg boots a FRESH context — none of
-    // this tab's localStorage — so an un-flushed save would simply vanish
-    // between legs (leg 7's packs once did: posted, toasted, never
-    // committed, and the order desk had nothing to sell). The app's own
-    // contract is the mirror: dirty work sits in a per-tab spill key, and a
-    // tab is saved only when no spill remains. The plant's commit budget
-    // (8/min sustained) means a busy stretch queues behind the throttle for
-    // a while — the poll lets that drain.
+    // A leg's writes must reach the server before its context closes — the
+    // shared settle guard polls the mirror clean (journey-a's own words moved
+    // to helpers.ts at Phase 6 when the other journeys needed them too).
     if (info.failed) return
-    await expect
-      .poll(
-        () =>
-          page.evaluate(() => {
-            try {
-              for (let i = 0; i < localStorage.length; i++) {
-                const k = localStorage.key(i)
-                if (k && k.startsWith('roligt_foods_ops_v1:t:')) return true // a spill = unsaved work
-              }
-              return JSON.parse(localStorage.getItem('roligt_foods_ops_v1') ?? '{}').dirty !== false
-            } catch {
-              return true
-            }
-          }),
-        { timeout: 90_000 },
-      )
-      .toBe(false)
+    await settleMirror(page)
   })
 
   test.afterAll(async () => {
     expect(errors, `page errors: ${errors.join(' | ')}`).toEqual([])
   })
-
-  /**
-   * Picks the option whose visible text matches, in EITHER control the app
-   * uses: a native <select> (the PO form) or the hand-rolled listbox
-   * (components/Select — button + portaled role=option divs; keyboard-first,
-   * so a click opens and an option click picks). Returns the picked text —
-   * the journey reads ids back out of it.
-   */
-  async function pickOption(control: Locator, matcher: RegExp | string): Promise<string> {
-    const isNative = await control
-      .evaluate((el) => el instanceof HTMLSelectElement)
-      .catch(() => false)
-    if (isNative) {
-      const label = await control.evaluate((el: HTMLSelectElement, src) => {
-        const re = new RegExp(src, 'i')
-        const opt = Array.from(el.options).find((o) => re.test(o.textContent ?? ''))
-        return opt?.textContent ?? ''
-      }, matcher instanceof RegExp ? matcher.source : String(matcher))
-      expect(label, `no option matching ${matcher}`).not.toBe('')
-      await control.selectOption({ label })
-      return label
-    }
-    await control.click()
-    const option = control.page().getByRole('option', { name: matcher }).first()
-    // A snapshot landing between click and dispatch can drop the click on a
-    // node React has since replaced — the list never opens. If NOTHING is
-    // open after a beat, click again (only then: a second click toggles an
-    // open list shut).
-    await option.waitFor({ state: 'visible', timeout: 3_000 }).catch(async () => {
-      const anyOpen = await control.page().getByRole('option').first().isVisible().catch(() => false)
-      if (!anyOpen) await control.click()
-      await option.waitFor({ state: 'visible' })
-    })
-    // Read before the click — clicking picks and closes the list, unmounting
-    // the option.
-    const text = (await option.textContent()) ?? ''
-    await option.click()
-    return text
-  }
 
   test('leg 1 — raise a coconut PO and acknowledge it', async ({ page }) => {
     await page.goto('/procurement?tab=orders')

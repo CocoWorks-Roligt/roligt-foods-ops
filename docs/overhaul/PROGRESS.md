@@ -61,6 +61,11 @@ Updated: 2026-10-16 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS CL
 | P5/D5a: KPI folds live — Orders & Dispatch + Shipment Tracking | BACKEND | done @ 95910b3 | src/lib/kpis/{ordersDispatch,shipmentTracking}.ts, src/lib/kpis/index.ts (collections narrowed), p5.test.ts, api/_lib/b4.test.ts (card list) | 1201 tests (+3); tsc -b, lint 10, build green; honest gaps logged DECISIONS P5 |
 | P5/D5b: module registers (dispatch-lines, challans) + catalog wiring | BACKEND | done @ 27463f3 | src/lib/exports/index.ts (+2 specs), src/lib/dashboards.ts (exports wired, sources honest), api/_lib/exports.test.ts (+4) | QA LIGHT (10-module gate) green below; modules 9-10 COMPLETE — Phase 5 CLOSED |
 | P5: QA LIGHT (10-module gate — phase close) | QA | done | — | tsc -b clean · 1205 passed/7 skipped · lint 10 baseline · build + build:e2e + assert-no-apptics clean (115 dist files); Phase 6 QA HEAVY next session |
+| P6/Q1: journeys B/C/E + offline-replay + security specs (run 1: boot+A+B+C+E+offline+security) | QA | done @ c8acb85 + 202d7d5 + specs commit | e2e/{journey-b,journey-c,journey-e,offline,security}.spec.ts, e2e/helpers.ts (+pickOption/settle/getJson), scripts/e2e/prepare-db.mjs (E2E_FLAGS env, PP-E2E-CB seed) | run 1 green 33/33 (13 iterations); READY_EXTRACT itemType defect fixed; honest gaps: board has no return surface (write-only record, read via dispatch deliveryNote), stuck-dirty on rules refusal (ROLLOUT gate) |
+| P6/Q2: qc_gate run — journey D (E2E_FLAGS=qc_gate_v2) + dispatch-draw gate extension | QA | pending | api/_lib/rulesGate.ts + test, e2e/journey-d.spec.ts | run 2 green |
+| P6/Q3: performance — API p95, snapshot size breakdown, Lighthouse incl. dashboards, secrets scan | QA | pending | .artifacts/* | numbers into QA_REPORT |
+| P6/Q4: a11y fixes (heading-order, sort-header touch size) + re-audit; visual walk incl. dashboard screens | QA | pending | src/index.css or components, .artifacts/qa-screens.mjs | defects fixed + walk PASS |
+| P6/Q5: QA_REPORT Phase-6, ROLLOUT.md, usability script, DECISIONS/STATE, final LIGHT gates | QA | pending | docs/overhaul/* | Phase 6 CLOSED |
 
 ## Log
 - 2026-10-13 Phase 0 complete. Baseline green (745 tests, tsc -b, lint, build @ de4c13b). DB target confirmed:

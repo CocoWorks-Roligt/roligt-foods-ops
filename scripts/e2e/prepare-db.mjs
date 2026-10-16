@@ -56,6 +56,26 @@ const flip = db.prepare(
 const flipped = flip.run().changes
 if (flipped !== 3) throw new Error(`expected 3 flag rows, updated ${flipped}`)
 
+// Extra flags for a specific run, via E2E_FLAGS (comma-separated flag ids) —
+// Phase 6's Journey D boots its own run with qc_gate_v2 ON (the server-side
+// QC gate the journey verifies). Never batch_v2: its mass-balance enforcement
+// is refused by the open DECISIONS #2 decision, ON or OFF.
+const extraFlags = (process.env.E2E_FLAGS ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean)
+if (extraFlags.length) {
+  const extra = db.prepare(
+    `UPDATE documents
+       SET json = json_set(json, '$.enabled', json('true'))
+     WHERE collection = 'flags' AND id = ?`,
+  )
+  for (const id of extraFlags) {
+    if (extra.run(id).changes !== 1) throw new Error(`E2E_FLAGS: no flag row '${id}'`)
+  }
+  console.log(`[prepare-db] E2E_FLAGS ON: ${extraFlags.join(', ')}`)
+}
+
 const activeMelanges = db
   .prepare("SELECT id, json_extract(json, '$.name') AS name FROM documents WHERE collection = 'melanges' AND lower(json_extract(json, '$.status')) = 'active'")
   .all()
@@ -95,9 +115,22 @@ const e2eSeeds = [
     },
   },
 ]
+// Journey B's ready-extract intake: SF-0009 (Cold Brew Coffee concentrate) is
+// a real item no purchase product wires up — the catalog lists farm produce
+// and packaging only. One seed row (cribbed from PP-0007, its own roaster)
+// makes the concentrate receivable the way any bought-in extract is.
+e2eSeeds.push({
+  collection: 'purchase_products',
+  id: 'PP-E2E-CB',
+  json: {
+    id: 'PP-E2E-CB', name: 'Cold Brew Concentrate', category: 'Farm Produce',
+    uom: 'Litre', description: 'E2E seed: bought-in cold brew extract (SF-0009).',
+    vendorIds: ['VEN-00003'], itemId: 'SF-0009', status: 'Active',
+  },
+})
 for (const s of e2eSeeds) {
   seedDoc.run(s.collection, s.id, JSON.stringify(s.json), now)
 }
-console.log('[prepare-db] E2E seeds: SF-MLG-E2E-MILK item + MLG-E2E-MILK recipe (malai 50 + water 50)')
+console.log('[prepare-db] E2E seeds: SF-MLG-E2E-MILK item + MLG-E2E-MILK recipe (malai 50 + water 50) + PP-E2E-CB purchase product')
 db.close()
 console.log(`[prepare-db] ready — ${dbPath}`)
