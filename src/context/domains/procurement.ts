@@ -97,7 +97,13 @@ export function useProcurement({ state, setState, nextId, nextLot, log, showToas
           type: 'Receipt',
           doc: id,
           item: itemId,
-          itemType: 'Raw Material',
+          // The ITEM master's own type, not a hardcoded one: a ready extract
+          // (READY_EXTRACT route — "into inventory as-is") is Semi Finished
+          // stock, and a hardcoded 'Raw Material' hides its lot from the blend
+          // stage's fold (blendableLots reads itemType — Phase-6 Journey B's
+          // finding). Graded farm produce stays 'Raw Material' because its
+          // items are.
+          itemType: draft.items.find((i) => i.id === itemId)?.type ?? 'Raw Material',
           lot,
           location,
           status: staged ? 'Quarantine' : 'Available',

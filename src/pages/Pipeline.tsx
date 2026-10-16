@@ -85,7 +85,9 @@ export function Pipeline() {
     <div className="card">
       <div className="section-head">
         <div>
-          <h3>Pipeline</h3>
+          {/* h2, not h3: the page card sits directly under the app's h1, and a
+              skipped level is the heading-order a11y flag (Phase-6 QA §5). */}
+          <h2>Pipeline</h2>
           <span>The process at a glance — bottlenecks first, one click to the records</span>
         </div>
       </div>

@@ -4675,6 +4675,16 @@ table tbody tr.subrow > td {
 .dt th[aria-sort] button .dt-sort-mark {
   color: var(--leaf-deep);
 }
+
+/* The sort header IS its button — a bare unset leaves a ~13px tap target on
+   phones. Pad it to the touch minimum without fattening the desktop grid
+   (Phase-6 QA §5). */
+@media (max-width: 760px) {
+  .dt thead th button {
+    padding: 6px 0;
+    min-height: 24px;
+  }
+}
 .dt tbody tr.clickable {
   cursor: pointer;
 }
