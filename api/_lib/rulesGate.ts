@@ -243,8 +243,35 @@ function gateBatchCloses(changes: StateChanges, evidence: RulesEvidence): void {
  */
 export function gateRules(changes: StateChanges, evidence: RulesEvidence): void {
   gateLotDraws(changes, evidence.flags)
+  gateDispatchDraws(changes, evidence.flags)
   gateBatchCloses(changes, evidence)
   gateQcReleases(changes, evidence)
+}
+
+/** The qc_gate_v2 dispatch arm (§3.3-7's third verb): a dispatch draw — a pack
+ *  leaving the gate — must be Released stock. The client's own pool
+ *  (releasedPacksBySku) already refuses unreleased packs fold-side; this is
+ *  the server's word for it, same flag, same refusal code as the blend/pack
+ *  arm. A row with NO status passes: legacy pre-QC-era dispatches never
+ *  stamped one, and the flag must roll out over years of them. */
+function gateDispatchDraws(changes: StateChanges, flags: FlagMap): void {
+  if (!flags.qc_gate_v2) return
+  for (const change of changes.tables) {
+    if (change.table !== 'ledger') continue
+    for (const row of change.upsert) {
+      if (str(row.type) !== 'Dispatch') continue
+      if (!(Number(row.qty_out) > 0)) continue
+      const status = str(row.status)
+      if (!status || status === 'Released') continue
+      throw new RulesRejected({
+        code: 'lot_not_released',
+        guard: 'released_only',
+        entity: 'lot',
+        docId: str(row.lot) || str(row.doc),
+        message: `${GUARD_EXPLANATIONS.released_only} ${str(row.item) || 'This stock'} in lot ${str(row.lot) || str(row.doc)} is ${status}.`,
+      })
+    }
+  }
 }
 
 /** Who may write a Released disposition (RBAC.md can.release_lot): an admin,

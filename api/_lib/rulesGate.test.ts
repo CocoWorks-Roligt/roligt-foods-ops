@@ -224,6 +224,45 @@ describe('gateRules (pure)', () => {
     ).not.toThrow()
   })
 
+  // ── the qc_gate_v2 dispatch arm (Phase 6): §3.3-7's third verb ────────────
+  const dispatchDraw = (status: string) => ({
+    id: `D-${status || 'blank'}`,
+    type: 'Dispatch',
+    doc: 'ORD-2026-1',
+    item: 'FG-0001',
+    item_type: 'Finished Goods',
+    lot: 'BAT-2026-1',
+    location: 'Cold Room',
+    status,
+    qty_in: 0,
+    qty_out: 8,
+    uom: 'Pack',
+    unit_cost: 100,
+    at: '2026-09-01T00:00:00Z',
+  })
+
+  it('qc_gate_v2: a dispatch draw of explicitly non-Released stock is refused, same code as a blend draw', () => {
+    const flags = { ...ALL_FLAGS_OFF, qc_gate_v2: true }
+    expect(() => gateRules(ledgerChange(dispatchDraw('Quarantine')), evidenceOf({ flags }))).toThrow(RulesRejected)
+    try {
+      gateRules(ledgerChange(dispatchDraw('Quarantine')), evidenceOf({ flags }))
+    } catch (e) {
+      const r = e as RulesRejected
+      expect(r.code).toBe('lot_not_released')
+      expect(r.docId).toBe('BAT-2026-1')
+    }
+  })
+
+  it('qc_gate_v2: Released packs dispatch untouched, and a legacy blank-status row passes — the flag rolls out over years of them', () => {
+    const flags = { ...ALL_FLAGS_OFF, qc_gate_v2: true }
+    expect(() => gateRules(ledgerChange(dispatchDraw('Released')), evidenceOf({ flags }))).not.toThrow()
+    expect(() => gateRules(ledgerChange(dispatchDraw('')), evidenceOf({ flags }))).not.toThrow()
+  })
+
+  it('flag off: a Quarantine dispatch lands exactly as it does today', () => {
+    expect(() => gateRules(ledgerChange(dispatchDraw('Quarantine')), evidenceOf())).not.toThrow()
+  })
+
   const qcRelease = (disposition: string): StateChanges => ({
     empty: false,
     tables: [{ table: 'qcs', upsert: [{ id: 'QC-1', batch: 'B-1', disposition }], remove: [] }],
