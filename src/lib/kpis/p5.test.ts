@@ -1,7 +1,7 @@
 /**
- * P5 fold tests: procurement (PO funnel, on-time, window filter) and
- * grading-extraction (grade mix, yield per 100, spoilage pareto, close stamps).
- * Pure folds over shaped state — no store.
+ * P5 fold tests, grown per module slice (D1a procurement/grading-extraction →
+ * D5a orders-dispatch/shipment-tracking). Pure folds over shaped state —
+ * no store.
  */
 import { describe, expect, it } from 'vitest'
 import { procurementKpis } from './procurement.ts'
@@ -12,8 +12,10 @@ import { qcKpis } from './qc.ts'
 import { controlSamplesKpis } from './controlSamples.ts'
 import { inventoryStorageKpis } from './inventoryStorage.ts'
 import { packagingMaterialsKpis } from './packagingMaterials.ts'
-import type { AppState, Batch, Grn, Product } from '../../types.ts'
-import type { PurchaseOrder } from '../contracts.ts'
+import { ordersDispatchKpis } from './ordersDispatch.ts'
+import { shipmentTrackingKpis } from './shipmentTracking.ts'
+import type { AppState, Batch, Grn, Product, Order, Dispatch, ProductionPlan } from '../../types.ts'
+import type { PurchaseOrder, Shipment, DeliveryEvent, ReturnRecord } from '../contracts.ts'
 
 const W = { from: '2026-07-01', to: '2026-10-15' }
 
@@ -584,5 +586,120 @@ describe('packagingMaterialsKpis', () => {
     expect(stock).toContainEqual({ series: 'On hand', label: 'Crown cap (No)', value: 400 })
     expect(stock).toContainEqual({ series: 'Reorder', label: 'Crown cap (No)', value: 500 })
     expect(stock.some((r) => r.label.startsWith('Label'))).toBe(false) // no level set — nothing to compare
+  })
+})
+
+describe('ordersDispatchKpis — D5a dispatch vs plan', () => {
+  const order = (over: Partial<Order>): Order =>
+    ({ id: 'O-1', customerId: 'C-1', customerName: 'Cust', date: '2026-09-01', lines: [{ sku: 'BIB-1L', qty: 10 }], status: 'Open', ...over })
+  const dispatch = (over: Partial<Dispatch>): Dispatch =>
+    ({ id: 'D-1', customerId: 'C-1', customerName: 'Cust', batchId: 'BAT-1', sku: 'BIB-1L', qty: 6, challan: 'DC1/2026', vehicle: 'AP-07', dispatchTime: '2026-09-05T04:00:00Z', status: 'Dispatched', pod: 'name', ...over })
+  const plan = (over: Partial<ProductionPlan>): ProductionPlan =>
+    ({ id: 'P-1', date: '2026-09-01', stage: 'Packing', product: 'BIB-1L', qty: 20, uom: 'Packs', status: 'Planned', createdOn: '2026-08-30', ...over })
+
+  it('counts only stage-Packing Packs plans against dispatched packs, by month', () => {
+    const state = {
+      orders: [order({})],
+      dispatches: [dispatch({ qty: 6 }), dispatch({ id: 'D-2', qty: 4, dispatchTime: '2026-10-02T04:00:00Z' })],
+      productionPlans: [
+        plan({ id: 'P-1', qty: 20, date: '2026-09-01' }),
+        plan({ id: 'P-2', qty: 500, uom: 'Litre', date: '2026-09-02' }), // never converts to packs
+        plan({ id: 'P-3', qty: 99, status: 'Cancelled', date: '2026-09-03' }),
+        plan({ id: 'P-4', qty: 77, date: '2026-05-01' }), // outside the window
+      ],
+    } as unknown as Partial<AppState>
+    const out = ordersDispatchKpis(state, W, '2026-10-15')
+    const chart = out.charts.find((c) => c.key === 'od-dispatch-vs-plan')
+    expect(chart?.rows).toEqual([
+      { series: 'Planned', label: 'July 2026', value: 0 },
+      { series: 'Dispatched', label: 'July 2026', value: 0 },
+      { series: 'Planned', label: 'August 2026', value: 0 },
+      { series: 'Dispatched', label: 'August 2026', value: 0 },
+      { series: 'Planned', label: 'September 2026', value: 20 },
+      { series: 'Dispatched', label: 'September 2026', value: 6 },
+      { series: 'Planned', label: 'October 2026', value: 0 },
+      { series: 'Dispatched', label: 'October 2026', value: 4 },
+    ])
+  })
+})
+
+describe('shipmentTrackingKpis — D5a daily folds', () => {
+  const trip = (over: Partial<Shipment>): Shipment =>
+    ({
+      id: 'SHP-1', orderId: 'O-1', dispatchIds: ['D-1'], agentUserId: 'a@roligt.local', vehicle: 'AP-07',
+      status: 'Delivered', stops: [], packaging: 'LOOSE',
+      times: { created: '2026-10-14T04:00:00.000Z', dispatched: '2026-10-14T06:00:00.000Z', delivered: '2026-10-14T10:00:00.000Z' },
+      ...over,
+    }) as Shipment
+  const event = (over: Partial<DeliveryEvent>): DeliveryEvent =>
+    ({ id: 'E-1', shipmentId: 'SHP-1', type: 'failed', at: '2026-10-14T09:00:00.000Z', ...over })
+  const ret = (over: Partial<ReturnRecord>): ReturnRecord =>
+    ({ id: 'RET-1', shipmentId: 'SHP-1', status: 'Open', lines: [], ...over })
+
+  const state = (over: Record<string, unknown>) => over as unknown as Partial<AppState>
+
+  it('averages delivery hours per agent; volume and on-time split per agent', () => {
+    const folded = shipmentTrackingKpis(
+      state({
+        shipments: [
+          trip({ id: 'A1', agentUserId: 'a@x', times: { created: '2026-10-14T04:00:00Z', dispatched: '2026-10-14T06:00:00Z', delivered: '2026-10-14T08:00:00Z' }, eta: '2026-10-14T09:00:00Z' }), // 2h, on time
+          trip({ id: 'A2', agentUserId: 'a@x', times: { created: '2026-10-14T04:00:00Z', dispatched: '2026-10-14T06:00:00Z', delivered: '2026-10-14T10:00:00Z' }, eta: '2026-10-14T09:00:00Z' }), // 4h, late
+          trip({ id: 'B1', agentUserId: 'b@x', times: { created: '2026-10-14T04:00:00Z', dispatched: '2026-10-14T06:00:00Z', delivered: '2026-10-14T07:00:00Z' }, eta: '2026-10-14T09:00:00Z' }), // 1h, on time
+          trip({ id: 'C1', agentUserId: 'c@x', status: 'Out for Delivery', times: { created: '2026-10-14T04:00:00Z' } }), // never delivered — no agent rows
+        ],
+      }),
+      W,
+      '2026-10-15',
+    )
+    expect(folded.cards.find((c) => c.key === 'st-avg-delivery')?.value).toBe(2.3) // (2+4+1)/3
+    const byAgent = new Map(folded.charts.find((c) => c.key === 'st-avg-by-agent')?.rows.map((r) => [r.label, r.value]))
+    expect(byAgent?.get('a@x')).toBe(3)
+    expect(byAgent?.get('b@x')).toBe(1)
+    expect(byAgent?.has('c@x')).toBe(false)
+    expect(folded.charts.find((c) => c.key === 'st-agent-volume')?.rows).toEqual([
+      { label: 'a@x', value: 2 },
+      { label: 'b@x', value: 1 },
+    ])
+    expect(folded.charts.find((c) => c.key === 'st-agent-on-time')?.rows).toEqual([
+      { label: 'a@x', value: 50 },
+      { label: 'b@x', value: 100 },
+    ])
+  })
+
+  it('paretos failure and return reasons, windowed by the trip that carried them', () => {
+    const folded = shipmentTrackingKpis(
+      state({
+        shipments: [
+          trip({ id: 'IN', status: 'Failed' }),
+          trip({ id: 'OUT', times: { created: '2026-05-01T04:00:00Z' } }), // outside the window
+        ],
+        delivery_events: [
+          event({ shipmentId: 'IN', type: 'failed', payload: { reason: 'Customer absent' } }),
+          event({ shipmentId: 'IN', type: 'failed', payload: { reason: 'Customer absent' } }),
+          event({ shipmentId: 'IN', type: 'rescheduled', payload: { reason: 'Vehicle breakdown' } }),
+          event({ shipmentId: 'IN', type: 'failed', payload: { reason: '  ' } }), // blank reason — skipped
+          event({ shipmentId: 'OUT', type: 'failed', payload: { reason: 'Old trip' } }), // orphan by window
+          event({ shipmentId: 'MISSING', type: 'failed', payload: { reason: 'No trip' } }), // orphan, no trip
+          event({ shipmentId: 'IN', type: 'arrived', payload: { reason: 'not a failure' } }), // wrong type
+        ],
+        returns: [
+          ret({ shipmentId: 'IN', lines: [
+            { item: 'BIB-1L', lot: 'L1', qty: 2, uom: 'Packs', reason: 'Leaking pouch' },
+            { item: 'BIB-2.5L', lot: 'L2', qty: 1, uom: 'Packs', reason: 'Leaking pouch' },
+            { item: 'BOT-250', lot: 'L3', qty: 3, uom: 'No', reason: 'Bottle damaged' },
+          ] }),
+          ret({ shipmentId: 'OUT', lines: [{ item: 'X', lot: 'L9', qty: 1, uom: 'No', reason: 'Old return' }] }),
+        ],
+      }),
+      W,
+      '2026-10-15',
+    )
+    // Ties keep insertion order — events read before returns.
+    expect(folded.charts.find((c) => c.key === 'st-fail-reasons')?.rows).toEqual([
+      { label: 'Customer absent', value: 2 },
+      { label: 'Leaking pouch', value: 2 },
+      { label: 'Vehicle breakdown', value: 1 },
+      { label: 'Bottle damaged', value: 1 },
+    ])
   })
 })

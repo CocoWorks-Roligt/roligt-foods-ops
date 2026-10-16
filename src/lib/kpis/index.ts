@@ -96,18 +96,18 @@ export const KPI_SPECS: Record<KpiModule, KpiSpec> = {
     collections: ['ledger', 'items'],
     fold: packagingMaterialsKpis,
   },
+  // P5 D5a: both folds at full build. orders-dispatch narrows to what it
+  // reads (orders, dispatches, the stage-Packing Packs plans); shipment-
+  // tracking grows the daily folds (avg delivery, agent performance, the
+  // failed/returned reasons pareto) over shipments + their events + returns.
   'orders-dispatch': {
     pages: ['orders', 'dispatch'],
-    collections: ['orders', 'dispatches', 'items', 'customers', 'batches'],
+    collections: ['orders', 'dispatches', 'productionPlans'],
     fold: ordersDispatchKpis,
   },
-  // SHIPMENT (Phase 4): the live board numbers; the cached daily folds (avg
-  // delivery time, agent performance) are Phase 5 module work. The TTL stays —
-  // it is the layer's one real cached-fold user (b4's cache test rides it),
-  // and a cold start past a quiet revision serves from meta.
   'shipment-tracking': {
     pages: ['dispatch', 'shipments'],
-    collections: ['shipments', 'dispatches'],
+    collections: ['shipments', 'delivery_events', 'returns'],
     cacheTtlSec: 3600,
     fold: shipmentTrackingKpis,
   },

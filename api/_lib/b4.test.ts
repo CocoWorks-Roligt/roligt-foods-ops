@@ -240,7 +240,7 @@ describe('kpisFor', () => {
     setRevision(d1, '9:nonce')
     const first = await kpisFor(d1, OD_CALLER, 'shipment-tracking', {})
     // the fold is live since SHIPMENT B5b — an empty store still answers its cards
-    expect(first.cards.map((c) => c.key)).toEqual(['st-out', 'st-delivered-today', 'st-on-time'])
+    expect(first.cards.map((c) => c.key)).toEqual(['st-out', 'st-delivered-today', 'st-on-time', 'st-avg-delivery'])
     // the cache row exists
     const row = d1.db.prepare(`SELECT value FROM meta WHERE setting = 'kpi:shipment-tracking'`).get() as { value: string }
     expect(JSON.parse(row.value).revision).toBe('9:nonce')
@@ -257,7 +257,7 @@ describe('kpisFor', () => {
     setRevision(d1, '10:nonce')
     resetKpiMemo()
     const refolded = await kpisFor(d1, OD_CALLER, 'shipment-tracking', {})
-    expect(refolded.cards.map((c) => c.key)).toEqual(['st-out', 'st-delivered-today', 'st-on-time'])
+    expect(refolded.cards.map((c) => c.key)).toEqual(['st-out', 'st-delivered-today', 'st-on-time', 'st-avg-delivery'])
   })
 
   it('serves the orders-dispatch fold end to end', async () => {

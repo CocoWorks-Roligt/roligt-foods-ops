@@ -142,6 +142,25 @@ Verdicts from audit slice 2 (2026-10-13). RULE: ASSUMED/PARTIAL items are built 
 
 - D4b module registers (2026-10-16): `stock-position` (pages live-reports+inventory) IS the Inventory page's own rows (stockRows, labels via locationLabel, days-to-expiry off the FG report's daysBetween), a POSITION — the D4a fold's every cut is unwindowed, so the register ignores the window too. The engine grew an additive `position` flag for it: such a register's header prints "Position as of <today>" (never a Window line that was not applied) and its job row's from/to collapse to the as-of day. `pm-flows` (pages live-reports+packing-materials) IS the classic PM report's own engine (itemFlows) over the caller's window — opening/received/issued/closing with belowReorder, the report's own flag. No withheld-collections edge this time: ledger/items/storage_locations are open-tier reads (no page owns them, unlike batches) — a live-reports-only holder streams both registers full, exactly as they already run the classic rm/pm/storage reports. Catalog blurbs made honest (D3b precedent): inventory names what the fold draws; PM says reorder level, not min/max, and drops the boxed-vs-loose claim.
 
+- D5a fold honest gaps (declined, not missed): DISPATCH-VS-PLAN has no Dispatch plan stage to read (PlanStage is
+  Extraction | Melange | Packing) — the plan that feeds dispatch is the stage-Packing PACKS plan, the D2a
+  packed-vs-planned rule verbatim; Litre/Kg plans and cancellations never answer, and the chart says "(packs)".
+  AGENT charts label agentUserId itself (an email; 'Unassigned' when a trip carries none) — no users-name join
+  exists in the documents state and none was invented. BIB/CARTON RETURNS (KPI.md's by-packaging split) DECLINED:
+  return lines carry no packaging dimension and a per-item name join cannot be trusted (D2a precedent) — returns
+  answer the REASONS pareto by their own reason words instead. CHALLAN REGISTER and BIB returns tables are D5b
+  register/export work (tables, not charts).
+- D5a vocabulary pins: shipment-tracking keeps ONE window rule — everything windows by the trip's times.created
+  (the register will window the same way), and events/returns hang off their trip (their shipmentId must be among
+  the windowed ids; an orphan or an out-of-window trip's event never counts). Failure reasons read
+  payload.reason — the board's own lastFailReason vocabulary, failed + rescheduled events, blank reasons skip;
+  return lines count per line, in their own words, never re-categorized. AVG DELIVERY = delivered − dispatched
+  (KPI.md's formula), hours, 1dp — started-only trips (no dispatched stamp) never answer it; VOLUME = trips with a
+  delivered time; agent ON-TIME % only where an eta exists (same denominator rule as the card). Collections
+  narrowed to what each fold reads: orders-dispatch ['orders','dispatches','productionPlans'] (items/customers/
+  batches were B4 placeholders the fold never read); shipment-tracking ['shipments','delivery_events','returns']
+  (dispatches dropped — the fold reads none; the classic dispatch VIEW stays the seed source it always was).
+
 ## Blocked
 - batch_v2 enablement — blocked on the DECISIONS #2 mass-balance resolution (3/14 pass; extractions cannot close under enforcement).
 - can.* action slugs not yet issued by any role seed (release arm runs on the page.quality proxy).

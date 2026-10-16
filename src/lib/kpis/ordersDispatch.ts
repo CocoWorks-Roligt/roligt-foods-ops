@@ -6,7 +6,10 @@
  * qty, per KPI.md's formula.
  *
  * Skeleton scope (B4): pipeline, fulfilment %, overdue, ordered-vs-dispatched
- * trend. Dispatch-vs-plan waits on productionPlans wiring (Phase 5).
+ * trend. D5a adds dispatch-vs-plan: no Dispatch plan stage exists
+ * (PlanStage is Extraction | Melange | Packing), so the plan that feeds
+ * dispatch is the stage-Packing Packs plan — the D2a packed-vs-planned rule
+ * verbatim; a Litre plan never converts without an untrustworthy name join.
  *
  * Isomorphic: `.ts` extensions, no browser globals.
  */
@@ -77,5 +80,24 @@ export function ordersDispatchKpis(
     ]),
   }
 
-  return { cards, charts: [pipeline, trend] }
+  // ── Dispatch vs plan (KPI.md's last row). The Packs plan is the plan that
+  // feeds dispatch — the packing module's own packed-vs-planned rule (D2a);
+  // plans in other uoms or stages never convert to pack counts.
+  const plannedByMonth = new Map<string, number>(months.map((m) => [m, 0]))
+  for (const p of state.productionPlans ?? []) {
+    if (p.stage !== 'Packing' || p.status === 'Cancelled' || p.uom !== 'Packs') continue
+    const m = p.date.slice(0, 7)
+    if (plannedByMonth.has(m)) plannedByMonth.set(m, (plannedByMonth.get(m) ?? 0) + (p.qty || 0))
+  }
+  const dispatchVsPlan: KpiChart = {
+    key: 'od-dispatch-vs-plan',
+    label: 'Dispatch vs plan (packs)',
+    kind: 'bar',
+    rows: months.flatMap((m) => [
+      { series: 'Planned', label: monthLabel(m), value: plannedByMonth.get(m) ?? 0 },
+      { series: 'Dispatched', label: monthLabel(m), value: dispatchedByMonth.get(m) ?? 0 },
+    ]),
+  }
+
+  return { cards, charts: [pipeline, trend, dispatchVsPlan] }
 }
