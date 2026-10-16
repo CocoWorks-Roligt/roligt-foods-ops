@@ -87,18 +87,18 @@ export const DASHBOARDS: readonly DashboardDef[] = [
   {
     module: 'inventory',
     title: 'Inventory & Storage',
-    blurb: 'Stock by category, near-expiry, slow-moving, reorder alerts, ageing.',
+    blurb: 'Stock value by category, cold-room value, ageing, near-expiry FG, loose BIB stock, slow-moving.',
     sources: 'Ledger + item masters',
     reports: ['rm', 'storage'],
-    exports: [],
+    exports: ['stock-position'],
   },
   {
     module: 'packaging-materials',
     title: 'Packaging Materials',
-    blurb: 'Stock vs min/max, consumption trend, boxed vs loose ratio.',
+    blurb: 'Stock vs reorder level, consumption trend, most consumed materials.',
     sources: 'Ledger + item masters',
     reports: ['pm'],
-    exports: [],
+    exports: ['pm-flows'],
   },
   {
     module: 'orders-dispatch',

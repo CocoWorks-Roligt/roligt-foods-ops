@@ -474,3 +474,80 @@ describe('D3b module registers', () => {
     ).rejects.toMatchObject({ status: 403, code: 'role_allowed' })
   })
 })
+
+/** P5 D4b: the Inventory/Storage and Packaging Materials registers. The stock
+ * position is the Inventory page's own rows (stockRows) with an honest
+ * position header; the PM flows are the classic PM report's own engine
+ * (itemFlows) over the caller's window. */
+describe('P5 D4b registers', () => {
+  const led = (over: Record<string, unknown>) =>
+    ({ id: 'L-1', doc: 'D-1', type: 'PM Receipt', qtyIn: 0, qtyOut: 0, unitCost: 1, time: '2026-09-01T08:00:00',
+       item: 'PM-BOT', itemType: 'Packing Material', lot: 'PM-1', location: 'Dry Store', status: 'Available', uom: 'No', ...over })
+
+  const seedStock = (d1: FakeD1): void => {
+    put(d1, 'items', 'RM-COCO', { id: 'RM-COCO', name: 'Coconuts', type: 'Raw Material', uom: 'Piece', lotControlled: true, reorder: 0, costMethod: 'avg' })
+    put(d1, 'items', 'FG-A', { id: 'FG-A', name: 'TCW 250ml', type: 'Finished Goods', uom: 'Packs', lotControlled: true, reorder: 0, costMethod: 'avg' })
+    put(d1, 'storage_locations', 'S1', { id: 'S1', name: 'CR-1', label: 'Cold room 1', holds: '', type: 'Cold Room', status: 'Active' })
+    put(d1, 'ledger', 'L1', led({ id: 'L1', doc: 'GRN-1', type: 'Receipt', item: 'RM-COCO', itemType: 'Raw', lot: 'LOT-1', location: 'CR-1', uom: 'Piece', qtyIn: 100, unitCost: 10 }))
+    put(d1, 'ledger', 'L2', led({ id: 'L2', doc: 'PKG-1', type: 'Packing', item: 'FG-A', itemType: 'Finished Goods', lot: 'PKG-2026-0009', location: 'CR-1', uom: 'Packs', qtyIn: 50, unitCost: 4, expiry: '2026-11-30' }))
+  }
+
+  it('stock-position: the page own rows, a position header, never a window line', async () => {
+    const d1 = new FakeD1()
+    seedStock(d1)
+    const v = await exportFor(d1, { ...OPS, permissions: ['page.live-reports', 'page.inventory'] }, 'stock-position', { format: 'csv', from: '2026-04-15', to: '2026-10-15' })
+    if (v.kind !== 'stream') throw new Error('expected a stream')
+    const text = v.file.bytes.toString('utf8')
+    expect(text).toContain('# Position as of:') // a balance is not an event
+    expect(text).not.toContain('# Window:')
+    expect(text).toContain('Coconuts')
+    expect(text).toContain('Cold room 1') // the label, not the ledger key
+    expect(text).toContain('LOT-1')
+    expect(text).toContain('200') // 50 packs × ₹4 — the value column
+  })
+
+  it('stock-position: an inventory-page caller may run it, a procurement-only caller may not', async () => {
+    const d1 = new FakeD1()
+    seedStock(d1)
+    const storeOnly = { email: 'store@roligt.local', permissions: ['page.inventory'] }
+    const v = await exportFor(d1, storeOnly, 'stock-position', { format: 'csv' })
+    expect(v.kind).toBe('stream')
+    await expect(
+      exportFor(d1, { ...OPS, permissions: ['page.procurement'] }, 'stock-position', { format: 'csv' }),
+    ).rejects.toMatchObject({ status: 403, code: 'role_allowed' })
+  })
+
+  const seedPm = (d1: FakeD1): void => {
+    put(d1, 'items', 'PM-BOT', { id: 'PM-BOT', name: 'Bottle 250ml', type: 'Packing Material', uom: 'No', lotControlled: false, reorder: 100, costMethod: 'avg' })
+    put(d1, 'items', 'PM-CAP', { id: 'PM-CAP', name: 'Crown cap', type: 'Packing Material', uom: 'No', lotControlled: false, reorder: 500, costMethod: 'avg' })
+    put(d1, 'ledger', 'L0', led({ id: 'L0', time: '2026-05-01T08:00:00', qtyIn: 99, unitCost: 2 })) // before the window: opening only
+    put(d1, 'ledger', 'L1', led({ id: 'L1', qtyIn: 1000, unitCost: 2 }))
+    put(d1, 'ledger', 'L2', led({ id: 'L2', type: 'Packing Consume', qtyOut: 400, unitCost: 2, time: '2026-09-10T08:00:00' }))
+    put(d1, 'ledger', 'L3', led({ id: 'L3', item: 'PM-CAP', lot: 'PM-2', qtyIn: 600, unitCost: 0.5, time: '2026-09-02T08:00:00' }))
+    put(d1, 'ledger', 'L4', led({ id: 'L4', item: 'PM-CAP', lot: 'PM-2', type: 'Packing Consume', qtyOut: 200, unitCost: 0.5, time: '2026-09-11T08:00:00' }))
+  }
+
+  it('pm-flows: the report own opening→closing arithmetic and below-reorder flag', async () => {
+    const d1 = new FakeD1()
+    seedPm(d1)
+    const v = await exportFor(d1, { ...OPS, permissions: ['page.live-reports', 'page.packing-materials'] }, 'pm-flows', { format: 'csv', from: '2026-07-01', to: '2026-10-15' })
+    if (v.kind !== 'stream') throw new Error('expected a stream')
+    const text = v.file.bytes.toString('utf8')
+    expect(text).toContain('# Window: 2026-07-01 to 2026-10-15')
+    expect(text).toContain('Bottle 250ml')
+    expect(text).toContain('699') // 99 opening + 1000 received − 400 issued
+    expect(text).toContain('Crown cap')
+    expect(text).toContain('Yes') // cap closing 400 < reorder 500 — the report's own flag
+  })
+
+  it('pm-flows: a packing-materials-page caller may run it, a quality-only caller may not', async () => {
+    const d1 = new FakeD1()
+    seedPm(d1)
+    const pmOnly = { email: 'store@roligt.local', permissions: ['page.packing-materials'] }
+    const v = await exportFor(d1, pmOnly, 'pm-flows', { format: 'csv' })
+    expect(v.kind).toBe('stream')
+    await expect(
+      exportFor(d1, { ...OPS, permissions: ['page.quality'] }, 'pm-flows', { format: 'csv' }),
+    ).rejects.toMatchObject({ status: 403, code: 'role_allowed' })
+  })
+})

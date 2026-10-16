@@ -23,6 +23,8 @@ import { openBlendRuns } from '../blendStage.ts'
 import { packFormatOf } from '../kpis/packing.ts'
 import { qcStatuses } from '../qcCategories.ts'
 import { controlSampleRows } from '../controlSamples.ts'
+import { stockRows, locationLabel, itemTypeLabel } from '../stock.ts'
+import { itemFlows, daysBetween } from '../reports/inventoryReports.ts'
 import type { PurchaseOrder, SpoilageRecord } from '../contracts.ts'
 
 export type { ExportColumn }
@@ -41,6 +43,10 @@ export interface ExportSpec<R> {
   rows: (state: Partial<AppState>, w: ReportWindow, today: string) => R[]
   /** Extra filter keys the fold honours beyond the window, for the header. */
   filterKeys?: readonly string[]
+  /** A POSITION register: its rows are balances, not events, so the window
+   *  applies to nothing — the header says "Position as of <today>" instead of
+   *  a window that was never applied. The fold's rows ignore `w`. */
+  position?: true
 }
 
 /** A spec with its row type existentially erased, so heterogeneous specs sit in
@@ -55,6 +61,7 @@ export interface RegisteredExportSpec {
   columns: { header: string; value: (row: never) => string | number | null | undefined }[]
   rows: (state: Partial<AppState>, w: ReportWindow, today: string) => unknown[]
   filterKeys?: readonly string[]
+  position?: true
 }
 
 const spec = <R>(s: ExportSpec<R>): RegisteredExportSpec => s as RegisteredExportSpec
@@ -400,6 +407,89 @@ export const EXPORT_SPECS = {
       { header: 'Status', value: (r) => r.status },
       { header: 'Destroyed on', value: (r) => r.destroyedOn || '—' },
       { header: 'Remark', value: (r) => r.remark || '—' },
+    ],
+  }),
+  // ── P5 module registers (D4b): the Inventory/Storage and Packaging
+  // Materials dashboards' Export rows fold these — the stock position is the
+  // Inventory page's own rows (stockRows), the PM flows are the classic PM
+  // report's own engine (itemFlows), so the file and the chart cannot
+  // disagree.
+  'stock-position': spec({
+    key: 'stock-position',
+    title: 'Stock position register',
+    pages: ['live-reports', 'inventory'],
+    collections: ['ledger', 'items', 'storageLocations'],
+    // A POSITION: the fold's every cut is unwindowed (D4a), so the register's
+    // rows are too — a balance is not an event, and the header's Position line
+    // names the day. Sorted as the FG report sorts: area, item, lot, expiry.
+    position: true,
+    rows: (state, _w, today) => {
+      const s = state as AppState
+      const name = (id: string) => s.items.find((i) => i.id === id)?.name || id
+      return stockRows(s)
+        .sort(
+          (a, b) =>
+            locationLabel(s, a.location).localeCompare(locationLabel(s, b.location)) ||
+            name(a.item).localeCompare(name(b.item)) ||
+            a.lot.localeCompare(b.lot) ||
+            (a.expiry || '').localeCompare(b.expiry || ''),
+        )
+        .map((r) => ({
+          item: name(r.item),
+          type: itemTypeLabel(r.itemType),
+          lot: r.lot,
+          location: locationLabel(s, r.location),
+          status: r.status,
+          qty: r.qty,
+          uom: r.uom,
+          value: r.value,
+          expiry: r.expiry || '',
+          days: r.expiry ? daysBetween(today, r.expiry) : null,
+        }))
+    },
+    columns: [
+      { header: 'Item', value: (r) => r.item },
+      { header: 'Type', value: (r) => r.type },
+      { header: 'Lot', value: (r) => r.lot },
+      { header: 'Location', value: (r) => r.location },
+      { header: 'Status', value: (r) => r.status },
+      { header: 'Qty', value: (r) => num(r.qty, 3) },
+      { header: 'Unit', value: (r) => r.uom },
+      { header: 'Value', value: (r) => num(r.value, 2) },
+      { header: 'Expiry', value: (r) => r.expiry || '—' },
+      { header: 'Days to expiry', value: (r) => r.days ?? '—' },
+    ],
+  }),
+  'pm-flows': spec({
+    key: 'pm-flows',
+    title: 'Packing material flows',
+    pages: ['live-reports', 'packing-materials'],
+    collections: ['ledger', 'items'],
+    // The classic PM report's own engine over the caller's window: opening →
+    // received → issued → closing, closing below reorder flagged by the
+    // report's own rule (items.reorder > 0).
+    rows: (state, w) =>
+      itemFlows(state as AppState, w, ['Packing Material']).map((r) => ({
+        material: r.name,
+        uom: r.uom,
+        opening: r.opening,
+        received: r.received,
+        issued: r.issued,
+        closing: r.closing,
+        value: r.closingValue,
+        reorder: r.reorder,
+        below: r.belowReorder,
+      })),
+    columns: [
+      { header: 'Material', value: (r) => r.material },
+      { header: 'Unit', value: (r) => r.uom },
+      { header: 'Opening', value: (r) => num(r.opening, 3) },
+      { header: 'Received', value: (r) => num(r.received, 3) },
+      { header: 'Issued', value: (r) => num(r.issued, 3) },
+      { header: 'Closing', value: (r) => num(r.closing, 3) },
+      { header: 'Closing value', value: (r) => num(r.value, 2) },
+      { header: 'Reorder level', value: (r) => r.reorder ?? '—' },
+      { header: 'Below reorder', value: (r) => (r.below ? 'Yes' : '—') },
     ],
   }),
 } satisfies Record<string, RegisteredExportSpec>
