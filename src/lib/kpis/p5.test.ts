@@ -10,6 +10,8 @@ import { intermediatesBlendingKpis } from './intermediatesBlending.ts'
 import { packingKpis } from './packing.ts'
 import { qcKpis } from './qc.ts'
 import { controlSamplesKpis } from './controlSamples.ts'
+import { inventoryStorageKpis } from './inventoryStorage.ts'
+import { packagingMaterialsKpis } from './packagingMaterials.ts'
 import type { AppState, Batch, Grn, Product } from '../../types.ts'
 import type { PurchaseOrder } from '../contracts.ts'
 
@@ -438,5 +440,149 @@ describe('controlSamplesKpis', () => {
     const rows = out.charts.find((c) => c.key === 'cs-by-product')?.rows ?? []
     expect(rows).toContainEqual({ label: '200 ml Tender', value: 2 })
     expect(rows).toContainEqual({ label: 'Coco Bulk', value: 1 })
+  })
+})
+
+/** P5 D4a: inventory/storage (position value, cold-room heatmap, ageing,
+ * near-expiry FG, loose BIB by size, slow-moving) and packaging materials
+ * (stock vs reorder, consumption by month and uom — itemFlows' own engine). */
+describe('inventoryStorageKpis', () => {
+  const led = (over: Record<string, unknown>) =>
+    ({ id: 'LED-1', doc: 'D-1', type: 'Receipt', qtyIn: 0, qtyOut: 0, unitCost: 1, time: '2026-09-01T08:00:00', ...over })
+
+  it('value by category and the cold-room heatmap are the position; near-expiry is Released FG only', () => {
+    const state = {
+      ledger: [
+        led({ id: 'L1', item: 'RM-COCO', itemType: 'Raw', lot: 'LOT-1', location: 'Dry Store', status: 'Available', uom: 'Piece', qtyIn: 100, unitCost: 10 }),
+        led({ id: 'L2', item: 'FG-A', itemType: 'Finished Goods', lot: 'PKG-1', location: 'CR-1', status: 'Released', uom: 'Packs', qtyIn: 50, unitCost: 4, expiry: '2026-10-18' }),
+        led({ id: 'L3', item: 'FG-B', itemType: 'Finished Goods', lot: 'PKG-2', location: 'CR-1', status: 'Released', uom: 'Packs', qtyIn: 30, unitCost: 4, expiry: '2026-12-01' }),
+        led({ id: 'L4', item: 'FG-C', itemType: 'Finished Goods', lot: 'PKG-3', location: 'CR-1', status: 'Quarantine', uom: 'Packs', qtyIn: 99, unitCost: 4, expiry: '2026-10-16' }),
+      ],
+      items: [
+        { id: 'RM-COCO', name: 'Coconuts', type: 'Raw Material', uom: 'Piece' },
+        { id: 'FG-A', name: 'TCW 250ml', type: 'Finished Goods', uom: 'Packs' },
+        { id: 'FG-B', name: 'TCW 5L', type: 'Finished Goods', uom: 'Packs' },
+        { id: 'FG-C', name: 'TCW 2.5L', type: 'Finished Goods', uom: 'Packs' },
+      ],
+      storageLocations: [{ id: 'S1', name: 'CR-1', label: 'Cold room 1', holds: '', type: 'Cold Room', status: 'Active' }],
+      products: [],
+      grns: [],
+      config: { expiryAlertDays: 7 },
+    } as unknown as Partial<AppState>
+    const out = inventoryStorageKpis(state, W, '2026-10-15')
+    // Held stock is still on hand: 1000 + 200 + 120 + 396.
+    expect(out.cards.find((c) => c.key === 'inv-stock-value')?.value).toBe(1716)
+    expect(out.cards.find((c) => c.key === 'inv-lines')?.value).toBe(4)
+    // Near-expiry counts Released FG only: FG-A (3 d) is in, quarantined FG-C is out.
+    expect(out.cards.find((c) => c.key === 'inv-near-expiry')?.value).toBe(1)
+    expect(out.charts.find((c) => c.key === 'inv-value-by-category')?.rows).toEqual([
+      { label: 'Raw', value: 1000 },
+      { label: 'Finished Goods', value: 716 },
+    ])
+    expect(out.charts.find((c) => c.key === 'inv-coldroom-occupancy')?.rows).toEqual([
+      { series: 'Finished Goods', label: 'Cold room 1', value: 716 },
+    ])
+    expect(out.charts.find((c) => c.key === 'inv-fg-expiry')?.rows).toEqual([
+      { label: '≤ 7 d', value: 1 },
+      { label: '> 30 d', value: 1 },
+    ])
+  })
+
+  it('ageing rides lotAgeing buckets; slow-moving is no line on the row for 30+ days', () => {
+    const state = {
+      ledger: [
+        led({ id: 'L1', item: 'RM-COCO', itemType: 'Raw', lot: 'LOT-FRESH', location: 'Dry Store', status: 'Available', uom: 'Piece', qtyIn: 80, unitCost: 10, time: '2026-10-14T08:00:00' }),
+        led({ id: 'L2', item: 'RM-COCO', itemType: 'Raw', lot: 'LOT-OLD', location: 'Dry Store', status: 'Available', uom: 'Piece', qtyIn: 100, unitCost: 10, time: '2026-09-05T08:00:00' }),
+      ],
+      items: [{ id: 'RM-COCO', name: 'Coconuts', type: 'Raw Material', uom: 'Piece' }],
+      storageLocations: [],
+      products: [],
+      grns: [
+        { id: 'GRN-1', lot: 'LOT-FRESH', date: '2026-10-14', uom: 'Piece' },
+        { id: 'GRN-2', lot: 'LOT-OLD', date: '2026-09-05', uom: 'Piece' },
+      ],
+      config: { expiryAlertDays: 7 },
+    } as unknown as Partial<AppState>
+    const out = inventoryStorageKpis(state, W, '2026-10-15')
+    expect(out.charts.find((c) => c.key === 'inv-ageing')?.rows).toEqual([
+      { series: 'Piece', label: '0–3 days', value: 80 },
+      { series: 'Piece', label: '15+ days', value: 100 },
+    ])
+    expect(out.cards.find((c) => c.key === 'inv-aged-lots')?.value).toBe(1)
+    expect(out.cards.find((c) => c.key === 'inv-slow-moving')?.value).toBe(1)
+  })
+
+  it('loose BIB stock by size counts BIB finished goods only, glass and bulk out', () => {
+    const state = {
+      ledger: [
+        led({ id: 'L1', item: 'FG-BIB5', itemType: 'Finished Goods', lot: 'PKG-1', location: 'CR-1', status: 'Released', uom: 'Packs', qtyIn: 40, unitCost: 10, expiry: '2026-11-05' }),
+        led({ id: 'L2', item: 'FG-BIB25', itemType: 'Finished Goods', lot: 'PKG-2', location: 'CR-1', status: 'Released', uom: 'Packs', qtyIn: 10, unitCost: 10, expiry: '2026-11-05' }),
+        led({ id: 'L3', item: 'FG-GLASS', itemType: 'Finished Goods', lot: 'PKG-3', location: 'CR-1', status: 'Released', uom: 'Packs', qtyIn: 60, unitCost: 10, expiry: '2026-11-05' }),
+        led({ id: 'L4', item: 'BULK', itemType: 'Semi Finished', lot: 'BAT-1', location: 'CR-1', status: 'Released', uom: 'Litre', qtyIn: 500, unitCost: 10, expiry: '2026-11-05' }),
+      ],
+      items: [
+        { id: 'FG-BIB5', name: 'TCW 5L', type: 'Finished Goods', uom: 'Packs' },
+        { id: 'FG-BIB25', name: 'TCW 2.5L', type: 'Finished Goods', uom: 'Packs' },
+        { id: 'FG-GLASS', name: 'TCW 250ml', type: 'Finished Goods', uom: 'Packs' },
+        { id: 'BULK', name: 'Coco Bulk', type: 'Semi Finished', uom: 'Litre' },
+      ],
+      storageLocations: [],
+      products: [
+        { id: 'FG-BIB5', name: 'TCW 5L', type: 'BiB', size: 5, unit: 'L', packVolume: 5, packName: '5 L BiB' },
+        { id: 'FG-BIB25', name: 'TCW 2.5L', type: 'BiB', size: 2.5, unit: 'L', packVolume: 2.5, packName: '2.5 L BiB' },
+        { id: 'FG-GLASS', name: 'TCW 250ml', type: 'Glass Bottle', size: 250, unit: 'ml', packVolume: 0.25 },
+      ],
+      grns: [],
+      config: { expiryAlertDays: 7 },
+    } as unknown as Partial<AppState>
+    const out = inventoryStorageKpis(state, W, '2026-10-15')
+    expect(out.charts.find((c) => c.key === 'inv-bib-by-size')?.rows).toEqual([
+      { label: '5 L BiB', value: 40 },
+      { label: '2.5 L BiB', value: 10 },
+    ])
+  })
+})
+
+describe('packagingMaterialsKpis', () => {
+  const led = (over: Record<string, unknown>) =>
+    ({ id: 'LED-1', doc: 'D-1', type: 'PM Receipt', qtyIn: 0, qtyOut: 0, unitCost: 1, time: '2026-09-01T08:00:00', ...over })
+
+  it('position and window ride itemFlows: below-reorder at today, received only in window', () => {
+    const state = {
+      items: [
+        { id: 'PM-BOT', name: 'Bottle 250ml', type: 'Packing Material', uom: 'No', reorder: 100 },
+        { id: 'PM-CAP', name: 'Crown cap', type: 'Packing Material', uom: 'No', reorder: 500 },
+        { id: 'PM-LBL', name: 'Label', type: 'Packing Material', uom: 'No', reorder: 0 },
+      ],
+      ledger: [
+        led({ id: 'L0', item: 'PM-LBL', qtyIn: 100, unitCost: 1, lot: 'PM-3', location: 'Dry Store', status: 'Available', uom: 'No', time: '2026-09-01T08:00:00' }),
+        led({ id: 'L1', item: 'PM-BOT', qtyIn: 1000, unitCost: 2, lot: 'PM-1', location: 'Dry Store', status: 'Available', uom: 'No', time: '2026-09-01T08:00:00' }),
+        led({ id: 'L2', item: 'PM-BOT', type: 'Packing Consume', qtyOut: 400, unitCost: 2, lot: 'PM-1', location: 'Dry Store', status: 'Available', uom: 'No', time: '2026-09-10T08:00:00' }),
+        led({ id: 'L3', item: 'PM-CAP', qtyIn: 600, unitCost: 0.5, lot: 'PM-2', location: 'Dry Store', status: 'Available', uom: 'No', time: '2026-09-02T08:00:00' }),
+        led({ id: 'L4', item: 'PM-CAP', type: 'Packing Consume', qtyOut: 200, unitCost: 0.5, lot: 'PM-2', location: 'Dry Store', status: 'Available', uom: 'No', time: '2026-09-11T08:00:00' }),
+        led({ id: 'L5', item: 'PM-LBL', type: 'Stock Issue', qtyOut: 50, unitCost: 1, lot: 'PM-3', location: 'Dry Store', status: 'Available', uom: 'No', time: '2026-09-12T08:00:00' }),
+        // Outside the window: opening balance only, never a windowed receipt.
+        led({ id: 'L6', item: 'PM-BOT', qtyIn: 99, unitCost: 2, lot: 'PM-4', location: 'Dry Store', status: 'Available', uom: 'No', time: '2026-05-01T08:00:00' }),
+        // A raw-material line the PM fold never sees.
+        led({ id: 'L7', item: 'RM-X', type: 'Receipt', qtyIn: 500, unitCost: 3, lot: 'LOT-1', location: 'Dry Store', status: 'Available', uom: 'Piece', time: '2026-09-01T08:00:00' }),
+      ],
+    } as unknown as Partial<AppState>
+    const out = packagingMaterialsKpis(state, W, '2026-10-15')
+    expect(out.cards.find((c) => c.key === 'pm-below-reorder')?.value).toBe(1) // cap 400 < 500; bottle 699 > 100
+    expect(out.cards.find((c) => c.key === 'pm-stocked')?.value).toBe(3)
+    expect(out.cards.find((c) => c.key === 'pm-value')?.value).toBe(1648) // 699×2 + 400×0.5 + 50×1
+    expect(out.cards.find((c) => c.key === 'pm-received')?.value).toBe(3) // the May receipt never counts
+    expect(out.charts.find((c) => c.key === 'pm-consumption')?.rows).toEqual([
+      { series: 'No', label: '2026-09', value: 650 },
+    ])
+    expect(out.charts.find((c) => c.key === 'pm-most-consumed')?.rows).toEqual([
+      { label: 'Bottle 250ml (No)', value: 400 },
+      { label: 'Crown cap (No)', value: 200 },
+      { label: 'Label (No)', value: 50 },
+    ])
+    const stock = out.charts.find((c) => c.key === 'pm-stock-vs-reorder')?.rows ?? []
+    expect(stock).toContainEqual({ series: 'On hand', label: 'Crown cap (No)', value: 400 })
+    expect(stock).toContainEqual({ series: 'Reorder', label: 'Crown cap (No)', value: 500 })
+    expect(stock.some((r) => r.label.startsWith('Label'))).toBe(false) // no level set — nothing to compare
   })
 })

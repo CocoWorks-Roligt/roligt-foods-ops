@@ -27,6 +27,8 @@ import { gradingExtractionKpis } from './gradingExtraction.ts'
 import { intermediatesBlendingKpis } from './intermediatesBlending.ts'
 import { packingKpis } from './packing.ts'
 import { controlSamplesKpis } from './controlSamples.ts'
+import { inventoryStorageKpis } from './inventoryStorage.ts'
+import { packagingMaterialsKpis } from './packagingMaterials.ts'
 
 export type { KpiPayload }
 
@@ -81,8 +83,19 @@ export const KPI_SPECS: Record<KpiModule, KpiSpec> = {
     collections: ['packingRuns', 'products', 'items'],
     fold: controlSamplesKpis,
   },
-  inventory: { pages: ['inventory'], collections: ['items', 'storageLocations'] },
-  'packaging-materials': { pages: ['packing-materials'], collections: ['items'] },
+  // P5 D4a: folds live. inventory rides the position (stockRows/fgOnHand) plus
+  // the ageing report's own buckets (lotAgeing → grns); packaging-materials
+  // rides the PM report's own engine (itemFlows over items + ledger).
+  inventory: {
+    pages: ['inventory'],
+    collections: ['ledger', 'items', 'storageLocations', 'products', 'grns'],
+    fold: inventoryStorageKpis,
+  },
+  'packaging-materials': {
+    pages: ['packing-materials'],
+    collections: ['ledger', 'items'],
+    fold: packagingMaterialsKpis,
+  },
   'orders-dispatch': {
     pages: ['orders', 'dispatch'],
     collections: ['orders', 'dispatches', 'items', 'customers', 'batches'],

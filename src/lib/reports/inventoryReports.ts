@@ -25,9 +25,9 @@ import type { AppState, LedgerEntry } from '../../types.ts'
 import type { ReportWindow } from './params.ts'
 import { localDay } from '../utils.ts'
 
-const RECEIPT_TYPES = ['Receipt', 'PM Receipt']
+export const RECEIPT_TYPES = ['Receipt', 'PM Receipt']
 // A raw material bought ready to use leaves the store on a blend draw, not a pressing.
-const ISSUE_TYPES = ['Production Consume', 'Melange Consume', 'Packing Consume', 'Stock Issue']
+export const ISSUE_TYPES = ['Production Consume', 'Melange Consume', 'Packing Consume', 'Stock Issue']
 
 export interface ItemFlowRow {
   item: string
@@ -48,7 +48,7 @@ export interface ItemFlowRow {
 
 /** The day a ledger line happened, as a local date key — the ledger's `time` is
  *  an ISO timestamp, whose first ten characters are the day in Greenwich. */
-const lineDay = (l: LedgerEntry) => localDay(l.time)
+export const lineDay = (l: LedgerEntry) => localDay(l.time)
 
 /** Opening → received → issued → closing for every item of the given types that
  *  the ledger has ever seen. */
