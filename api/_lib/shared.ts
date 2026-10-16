@@ -1,61 +1,15 @@
 /**
- * One ZohoClient for the whole BFF.
+ * One D1Client for the whole BFF — the store seam's construction home.
  *
- * The client's read/write budgets guard an API limit that is global per key, not per
- * request — a per-handler instance would give each request its own fresh 26/17 and
- * three concurrent requests would blow straight past the real ceiling. Every handler
- * (and commit's link-map reads) goes through this single instance so the budget is
- * spent once, plant-wide. Tests keep injecting their own fakes through
- * `commitChanges`'s parameters; this instance is for the handlers only.
- *
- * The generated schema (baseSchema.ts) carries every synced base — one SCHEMAS entry
- * per synced base — and T resolves the active one from
- * ZOHO_BASE_ID at import (DEFAULT_BASE_ID when unset). A base nobody synced still has
- * to fail loudly rather than quietly serve another base's table ids, so the client is
- * only constructed after assertBaseMatch agrees that ZOHO_BASE_ID, when set, names a
- * base the schemas actually carry; an unknown base throws at boot naming what to run.
+ * The client is nothing but three strings until a route uses it, so one
+ * deployment image serves by env alone: D1_* present ⇒ the store answers;
+ * absent ⇒ `d1` stays null and the gated endpoints answer 503 (postRoutes)
+ * while the core routes refuse through requireStore (engine.ts) — a
+ * misconfigured deployment fails honestly, never silently. The engines'
+ * selection seam is engine.ts; this module only owns construction.
  */
-import { ZohoClient } from './zoho.js'
-import { SCHEMAS } from './baseSchema.js'
 import { D1Client } from './d1.js'
 import { d1Enabled, type Store } from './store.js'
 
-/**
- * Throw when env names a base the generated schemas don't carry. Unset stays allowed:
- * no ZOHO_BASE_ID means the client and T both fall back to DEFAULT_BASE_ID, the base
- * this checkout was generated against.
- */
-export function assertBaseMatch(
-  env: { ZOHO_BASE_ID?: string | undefined },
-  known: string[] = Object.keys(SCHEMAS),
-): void {
-  const envBase = env.ZOHO_BASE_ID
-  if (envBase && !known.includes(envBase)) {
-    throw new Error(
-      `ZOHO_BASE_ID ${envBase} has no generated schema (have: ${known.join(', ')}) — the Zoho bases are frozen; ` +
-        `point ZOHO_BASE_ID at one of those in .env`,
-    )
-  }
-}
-
-assertBaseMatch(process.env)
-
-// 45s of budget wait, not 60: the platform kills a function at its maxDuration
-// (60s, vercel.json), and a call that would sleep past ~45s of waiting cannot
-// also do its work inside what remains. Failing into ZohoLockedError hands the
-// caller a 503 + Retry-After the client already knows how to retry — the honest
-// outcome, where sleeping to the minute's end was a death sentence for a
-// half-applied commit.
-export const zoho = new ZohoClient({ maxWaitMs: 45_000 })
-
-/**
- * The D1 migration's cutover switch: D1_DATABASE_ID present ⇒ the D1 engine
- * serves; absent ⇒ the Zoho engine this file always built. Both instances stay
- * cheap to hold — the Zoho client makes no calls in D1 mode and the D1 client
- * is nothing but three strings until a route uses it — so one deployment image
- * can serve either engine by env alone (rollback on cutover day = remove
- * D1_DATABASE_ID, redeploy, nothing else). The engines are selected in
- * engine.ts; this module only owns construction.
- */
-export const d1 = d1Enabled() ? new D1Client() : null
-export const store: Store = d1 ?? zoho
+export const d1: D1Client | null = d1Enabled() ? new D1Client() : null
+export const store: Store | null = d1

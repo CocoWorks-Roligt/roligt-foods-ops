@@ -1,26 +1,27 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { T } from './baseSchema.js'
 import { __resetCommitThrottle } from './commitThrottle.js'
 import { __resetSnapshotThrottle } from './snapshotThrottle.js'
 
 /**
- * Handler-level tests: the Retry-After plumbing, the status-code mapping and the
- * shared ZohoClient. The commit path runs for real end to end below (real ZohoClient
- * from the shared module, real commitChanges, only the network stubbed); the snapshot
- * and revision handlers fake the reader lib, because a real sweep fans one fetch out
- * per mapped table and the real client's read budget is 26/min — a cooperative base
- * would stall the suite for sixty seconds, which is the client doing its job.
+ * Handler-level tests: the Retry-After plumbing, the status-code mapping and
+ * the shared store handle. The routes run for real end to end below (real
+ * validators, real throttles, real projection), with only the engine seam
+ * faked — the D1 arm's own behavior is pinned where it lives (d1Engine.test.ts).
+ * The fake below answers the empty plant ('0', never written) the way a fresh
+ * database does; the levers reproduce the outcomes the arm can throw.
  */
 const mode = vi.hoisted(() => ({
   locked: false,
   retryAfterSec: 120,
   permissions: [] as string[],
   setCookies: null as string[] | null,
-  /** When set: criteria reads naming this key answer one stored row — the
-   *  pre-flight's view of a document another device already saved. */
-  existing: null as { key: string; appId: string; fields: Record<string, string> } | null,
-  /** When set: every Zoho network call throws it — the handler's catch-all. */
+  /** When set: an upsert naming this id is already saved up there — the
+   *  pre-flight's view of a document another device committed first. */
+  existing: null as string | null,
+  /** When set: a commit touching this table is refused by the write gate. */
+  forbid: null as string | null,
+  /** When set: every engine call throws it — the handler's catch-all. */
   failWith: null as Error | null,
 }))
 
@@ -32,66 +33,43 @@ vi.mock('./auth.ts', () => ({
   AuthError: class AuthError extends Error {},
 }))
 
-vi.mock('./shared.ts', async () => {
-  const { ZohoClient, ZohoLockedError } = await vi.importActual<typeof import('./zoho.ts')>('./zoho.ts')
-  const fetchImpl = async (url: string) => {
-    if (url.startsWith('https://accounts.zoho.in')) {
-      return new Response(JSON.stringify({ access_token: 'tok', expires_in: 3600 }), { status: 200 })
-    }
-    if (mode.failWith) throw mode.failWith
-    if (mode.locked) throw new ZohoLockedError(mode.retryAfterSec)
-    // small POSTs carry their params on the query string (see zoho.ts call()) —
-    // the criteria naming the row appears in the URL, not the body
-    if (mode.existing && url.includes('/fetchRecordsWithCriteria') && url.includes(mode.existing.key)) {
-      return new Response(
-        JSON.stringify({
-          records: { fetched: [{ recordID: 'z-1', data: { [mode.existing.appId]: mode.existing.key, ...mode.existing.fields } }] },
-        }),
-        { status: 200 },
-      )
-    }
-    return new Response(JSON.stringify({ records: { fetched: [] } }), { status: 200 })
-  }
-  // The global read window is not this file's subject (zoho.test.ts pins it);
-  // the commit path left live here spends 10 reads on its first commit (Config
-  // plus the nine link tables) and 1 on every one after, so the production
-  // 26/min held the whole file's ledger at exactly 26 — the first added test
-  // pushed fire #8 of the refill loop into a full window and every test after
-  // inherited the poisoned budget. Uncapped here on purpose.
-  // `store` is the engine seam's handle on the same client (shared.ts export).
-  const client = new ZohoClient({ fetchImpl, env: {} as Record<string, string | undefined>, readsPerMin: 100_000 })
-  return { zoho: client, store: client }
-})
-
-vi.mock('./snapshot.ts', async () => {
-  const { ZohoLockedError } = await vi.importActual<typeof import('./zoho.ts')>('./zoho.ts')
-  // the real projection forwards: the route imports projectSnapshot off this
-  // module, and the test below pins the REAL read-side rule, not a mock of it
-  const actual = await vi.importActual<typeof import('./snapshot.ts')>('./snapshot.ts')
+vi.mock('./engine.ts', async () => {
+  const actual = await vi.importActual<typeof import('./engine.ts')>('./engine.ts')
+  const { LockedError } = await vi.importActual<typeof import('./store.ts')>('./store.ts')
+  const { Conflict, Forbidden } = await vi.importActual<typeof import('./commitGates.ts')>('./commitGates.ts')
+  const EMPTY = { state: null, revision: '0', everWritten: false }
   const guard = async <A,>(v: A): Promise<A> => {
-    if (mode.locked) throw new ZohoLockedError(mode.retryAfterSec)
+    if (mode.failWith) throw mode.failWith
+    if (mode.locked) throw new LockedError(mode.retryAfterSec)
     return v
   }
   return {
-    readSnapshot: vi.fn(async () => guard({ state: null, revision: '0', everWritten: false })),
-    readSnapshotCached: vi.fn(async () => guard({ state: null, revision: '0', everWritten: false })),
-    readRevision: vi.fn(async () => guard('0')),
-    readRevisionMemoized: vi.fn(async () => guard('0')),
-    invalidateSnapshotCache: vi.fn(),
-    projectSnapshot: actual.projectSnapshot,
-    // the real commit lib imports these off the same mocked module
-    noteRevision: vi.fn(),
-    cachedRevision: vi.fn(() => null),
-    noteCommitApplied: vi.fn(),
-    cachedLedgerWatermark: vi.fn(() => null),
+    ...actual,
+    readSnapshotCached: vi.fn(() => guard(EMPTY)),
+    readRevisionMemoized: vi.fn(() => guard('0')),
+    commitChanges: vi.fn(async (_store: unknown, _caller: unknown, changes: { tables: { table: string; upsert: { id: string }[] }[]; counters: Record<string, unknown> }) => {
+      await guard(undefined)
+      // the write gate's refusal (the arm consults the caller's pages — the
+      // route's 403 mapping is what this file pins)
+      if (mode.forbid && changes.tables.some((t) => t.table === mode.forbid)) throw new Forbidden(mode.forbid)
+      // the pre-flight's lost race: the row exists under the device's minted id
+      for (const t of changes.tables) {
+        if (mode.existing && t.upsert.some((row) => row.id === mode.existing)) {
+          throw new Conflict([{ table: t.table, id: mode.existing, kind: 'exists' }])
+        }
+      }
+      // nothing to write: the revision this base already sits at goes straight back
+      if (!changes.tables.length && !Object.keys(changes.counters ?? {}).length) {
+        return { token: '0', wrote: false }
+      }
+      return { token: '7:1', wrote: true }
+    }),
   }
 })
 
 const commit = (await import('../commit.ts')).default
 const snapshot = (await import('../snapshot.ts')).default
 const revision = (await import('../revision.ts')).default
-const { zoho } = await import('./shared.ts')
-const { ZohoClient } = await import('./zoho.ts')
 
 beforeEach(() => {
   mode.locked = false
@@ -99,6 +77,7 @@ beforeEach(() => {
   mode.permissions = ['masters.manage', 'staff.manage', 'config.manage', 'audit.manage', 'admin.manage']
   mode.setCookies = null
   mode.existing = null
+  mode.forbid = null
   mode.failWith = null
   __resetCommitThrottle() // every test's caller starts with a fresh bucket
   __resetSnapshotThrottle() // and a fresh snapshot bucket beside it
@@ -133,16 +112,16 @@ describe('handlers', () => {
   })
 
   it('answers a server failure with a generic body — internal error text stays in the server log', async () => {
-    // the catch-all used to hand e.message to the caller, and a ZohoApiError
+    // the catch-all used to hand e.message to the caller, and a D1ApiError
     // carries slices of the raw upstream response: base ids, table ids, API
     // internals. The wire gets the retry promise; the log gets the detail.
     const err = vi.spyOn(console, 'error').mockImplementation(() => {})
-    mode.failWith = new Error('upstream detail naming base gerc53fe9f1e44e5f4a13809d9bd47367ba9d and tables')
+    mode.failWith = new Error('upstream detail naming database 8f3a-4bb2-9c1d and tables')
     const res = fakeRes()
     await commit(fakeReq({ changes: { tables: [], counters: {}, empty: false } }), res)
     expect(res.status).toHaveBeenCalledWith(500)
     const body = res.json.mock.calls[0][0] as { error: string }
-    expect(body.error).not.toContain('gerc53fe')
+    expect(body.error).not.toContain('8f3a-4bb2')
     expect(body.error).not.toContain('upstream')
     expect(body.error).toContain('retry')
     expect(err).toHaveBeenCalled() // the detail landed in the log, not the wire
@@ -153,7 +132,7 @@ describe('handlers', () => {
     const codes: number[] = []
     // seventeen rapid commits from one email: a fresh bucket holds the sustained
     // minute's worth (8), so the ninth through the seventeenth are refused — the
-    // shared Zoho budget is not one device's to drain.
+    // store's write budget is not one device's to drain.
     for (let i = 0; i < 17; i++) {
       const res = fakeRes()
       await commit(fakeReq({ changes: { tables: [], counters: {}, empty: false } }), res)
@@ -161,7 +140,7 @@ describe('handlers', () => {
     }
     expect(codes.slice(0, 8)).toEqual(Array(8).fill(200))
     expect(codes.slice(8)).toEqual(Array(9).fill(429))
-    // the refusal carries the same Retry-After shape the Zoho lock's 503 does
+    // the refusal carries the same Retry-After shape the store lock's 503 does
     const refused = fakeRes()
     await commit(fakeReq({ changes: { tables: [], counters: {}, empty: false } }), refused)
     expect(refused.setHeader).toHaveBeenCalledWith('Retry-After', expect.any(String))
@@ -202,13 +181,8 @@ describe('handlers', () => {
   })
 
   it('maps a lost save race to 409 with the conflicting rows named', async () => {
-    const t = T['GRNs']
     // the colleague's receipt is already up there under this device's minted code
-    mode.existing = {
-      key: 'GRN-2026-0001',
-      appId: t.appId,
-      fields: { [t.dataJson!]: JSON.stringify({ id: 'GRN-2026-0001', lot: 'LOT-B', total: 50 }) },
-    }
+    mode.existing = 'GRN-2026-0001'
     const res = fakeRes()
     await commit(
       fakeReq({
@@ -250,7 +224,7 @@ describe('handlers', () => {
     expect(res.status).toHaveBeenCalledWith(400)
   })
 
-  it('rejects a payload naming a table the app does not write with 400 — before any Zoho read', async () => {
+  it('rejects a payload naming a table the app does not write with 400 — before any store read', async () => {
     const res = fakeRes()
     await commit(
       fakeReq({
@@ -263,7 +237,7 @@ describe('handlers', () => {
   })
 
   it('maps Forbidden to 403 with the table named', async () => {
-    mode.permissions = []
+    mode.forbid = 'vendors'
     const res = fakeRes()
     await commit(fakeReq({ changes: { empty: false, tables: [{ table: 'vendors', upsert: [{ id: 'V-1', data: {} }], remove: [] }], counters: {} } }), res)
     expect(res.status).toHaveBeenCalledWith(403)
@@ -284,7 +258,7 @@ describe('handlers', () => {
     expect(rc.setHeader).toHaveBeenCalledWith('Set-Cookie', mode.setCookies)
   })
 
-  it('surfaces a Zoho lock as 503 + Retry-After on every handler', async () => {
+  it('surfaces a store lock as 503 + Retry-After on every handler', async () => {
     mode.locked = true
     mode.retryAfterSec = 300
     for (const handler of [commit, snapshot, revision]) {
@@ -295,7 +269,7 @@ describe('handlers', () => {
     }
   })
 
-  it('answers snapshot and revision reads and reports the shared client', async () => {
+  it('answers snapshot and revision reads from the one shared store handle', async () => {
     const rs = fakeRes()
     await snapshot(fakeReq(null), rs)
     expect(rs.status).toHaveBeenCalledWith(200)
@@ -304,14 +278,12 @@ describe('handlers', () => {
     await revision(fakeReq(null), rr)
     expect(rr.status).toHaveBeenCalledWith(200)
     expect(rr.json).toHaveBeenCalledWith({ revision: '0' })
-    // one client for the whole BFF — the budget is global per API key, not per request
-    expect(zoho).toBeInstanceOf(ZohoClient)
   })
 
   it('throttles snapshot reads per account — a burst fired rapid-fire gets 429 with Retry-After', async () => {
     // the read-side twin of the commit throttle (the audit's S2-5 interim): a
-    // snapshot spend is shared plant budget — every warm miss a criteria read,
-    // every moved revision a full sweep — so one account hammering /api/snapshot
+    // snapshot spend is shared plant budget — every warm miss a batch, every
+    // moved revision a fresh assemble — so one account hammering /api/snapshot
     // is refused BEFORE a read is spent. A fresh bucket holds the sustained
     // minute's worth (6); the honest client (boot two calls, the poll ~3/min)
     // never meets it.
@@ -334,7 +306,7 @@ describe('handlers', () => {
   it('speaks the caller page scope in the snapshot body — withheld names the tables this caller may not read', async () => {
     // a suppliers clerk: procurement receipts and the audit trail are withheld;
     // the masters they hold, and the ledger and counters their own page needs,
-    // are not. The mocked reader serves a null plant here and the list is the
+    // are not. The faked engine serves a null plant here and the list is the
     // same a full one would answer — that constancy is pinned in snapshot.test.ts.
     mode.permissions = ['page.vendors']
     const scoped = fakeRes()

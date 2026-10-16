@@ -3,7 +3,7 @@ import { fetchDb, ThrottledError } from './dbApi.ts'
 
 /**
  * The throttle contract's client half (the audit's S3-11): both refusal
- * statuses — the BFF's own token buckets (429) and the Zoho lock it forwards
+ * statuses — the BFF's own token buckets (429) and the store lock's
  * (503) — carry the server's Retry-After, and api() folds them into one
  * ThrottledError so AppContext's save-retry scheduler waits the server's own
  * hint rather than a fixed 30 s probe. fetch is stubbed; nothing leaves the tab.

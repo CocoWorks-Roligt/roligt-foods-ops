@@ -178,7 +178,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
     if (e instanceof LockedError) {
       // the audit write is the first write now — a lock here changed nothing
       res.setHeader('Retry-After', String(e.retryAfterSec))
-      res.status(503).json({ error: 'Zoho is rate-limited — nothing was changed. Try again shortly.' })
+      res.status(503).json({ error: 'The store is rate-limited — nothing was changed. Try again shortly.' })
       return
     }
     const status = (e as { status?: number }).status

@@ -5,7 +5,6 @@ import { admitSnapshot } from './_lib/snapshotThrottle.js'
 import { projectSnapshot } from './_lib/snapshot.js'
 import { readSnapshotCached } from './_lib/engine.js'
 import { D1Client } from './_lib/d1.js'
-import { d1Enabled } from './_lib/store.js'
 import { store } from './_lib/shared.js'
 import { toWebRequest } from './_lib/vercel.js'
 import { readFlagRecords } from './_lib/rulesGate.js'
@@ -17,9 +16,8 @@ export default async function (req: VercelRequest, res: VercelResponse) {
     const { caller, setCookies } = await authenticate(toWebRequest(req))
     if (setCookies) res.setHeader('Set-Cookie', setCookies)
     // The read-side twin of the commit throttle: a snapshot spend is shared
-    // plant budget (a warm miss is a criteria read, a moved revision a full
-    // sweep), so it is refused per caller BEFORE any read is spent, with the
-    // same Retry-After shape the commit throttle and the Zoho lock carry.
+    // plant budget, so it is refused per caller BEFORE any read is spent, with
+    // the same Retry-After shape the commit throttle and the store lock carry.
     const retryAfterSec = admitSnapshot(caller.email)
     if (retryAfterSec > 0) {
       res.setHeader('Retry-After', String(retryAfterSec))
@@ -35,9 +33,8 @@ export default async function (req: VercelRequest, res: VercelResponse) {
     const { state, revision, withheld } = projectSnapshot(snap, caller.permissions)
     // Feature flags ride the snapshot read-only (SHELL): the client's shell_nav
     // decision and rule pre-checks read the same rows the server enforces
-    // from. A handful of rows, only on the D1 engine — the Zoho path answers
-    // none, which is all-OFF, i.e. exactly the Classic app.
-    const flagRecords = d1Enabled() && store instanceof D1Client ? await readFlagRecords(store) : []
+    // from. A handful of rows, read only when the D1 store is configured.
+    const flagRecords = store instanceof D1Client ? await readFlagRecords(store) : []
     res.status(200).json({ state, revision, permissions: caller.permissions, withheld, flags: flagRecords })
   } catch (e) {
     if (e instanceof AuthError) {
@@ -46,7 +43,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
     }
     if (e instanceof LockedError) {
       res.setHeader('Retry-After', String(e.retryAfterSec))
-      res.status(503).json({ error: 'Zoho is rate-limited — try again shortly.' })
+      res.status(503).json({ error: 'The store is rate-limited — try again shortly.' })
       return
     }
     // Generic to the caller, detailed in the server log — upstream error text

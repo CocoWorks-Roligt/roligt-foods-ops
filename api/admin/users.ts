@@ -26,7 +26,7 @@ import { ADMIN_PAGE_SLUGS } from '../../src/lib/permissions.js'
  * remove/delete). Create and reset-link answer with the one-time password URL
  * they minted — the person sets their own password through it (verifying their
  * email on the way), so no admin ever types anyone's password and no onboarding
- * step depends on WorkOS mail surviving a Zoho spam filter. Every mutating
+ * step depends on WorkOS mail surviving the inbox's spam filter. Every mutating
  * action writes its audit row FIRST — a failure upstream then leaves a trail
  * row recording the attempt, never a landed action the trail says nothing
  * about — and bumps the revision, so the change is visible on every client's
@@ -310,12 +310,12 @@ export default async function (req: VercelRequest, res: VercelResponse) {
       res.status(401).json({ error: e.message })
       return
     }
-    // The audit write is the FIRST write of every action now, so a Zoho lock
+    // The audit write is the FIRST write of every action now, so a store lock
     // here means nothing landed at all — retryable, never a 500, and never a
     // change the trail missed.
     if (e instanceof LockedError) {
       res.setHeader('Retry-After', String(e.retryAfterSec))
-      res.status(503).json({ error: 'Zoho is rate-limited — nothing was changed. Try again shortly.' })
+      res.status(503).json({ error: 'The store is rate-limited — nothing was changed. Try again shortly.' })
       return
     }
     // A WorkOS refusal (409 email exists, 422 bad payload…) is theirs to read.

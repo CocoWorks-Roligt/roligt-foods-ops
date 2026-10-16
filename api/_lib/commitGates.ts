@@ -1,15 +1,12 @@
 /**
  * The commit engine's pure gates — the rules that judge a StateChanges
- * against caller permissions and stored state, extracted VERBATIM from
- * commit.ts so the two engines cannot drift: the Zoho engine and the D1
- * engine both import their verdicts from here, and every gate either throws
+ * against caller permissions and stored state: every gate either throws
  * the error class the route maps (Forbidden 403, Conflict 409) or returns
  * its verdict for the caller to act on. Nothing in this module performs I/O.
  *
  * The reads that feed the gates (config, counters, touched rows) stay with
- * each engine; a gate that needs stored state takes it as an argument.
+ * the engine; a gate that needs stored state takes it as an argument.
  */
-import { FUTURE_AT_GRACE_MS } from './zoho.js'
 import { WIRE_TABLES } from './registry.js'
 import { periodKeyForPattern, seriesPatternOf } from '../../src/lib/seriesPatterns.js'
 import { COLLECTIONS } from '../../src/lib/tables.js'
@@ -31,10 +28,20 @@ export class Forbidden extends Error {
  *  with a 400 before any store call, unlike Forbidden (403) and Conflict (409). */
 export class Malformed extends Error {}
 
-/** Every table a commit may write. `vendor_types` and `order_lines` sat in
- *  TABLE_FOR with no CollectionSpec, so a change naming them used to slip past
- *  both permission loops untouched — ungated writes to live base tables. */
+/** Every table a commit may write. `vendor_types` and `order_lines` were Zoho
+ *  link machinery the app never read back, so a change naming them used to slip
+ *  past both permission loops untouched — ungated writes to live base tables. */
 const WRITABLE_TABLES = new Set<string>(WIRE_TABLES)
+
+/**
+ * How far past this clock a timestamp may sit and still be honest — the slack
+ * any phone's skewed clock is allowed. The commit shape gate refuses a ledger or
+ * audit row dated beyond it (a future `at` parks the revision token's watermark
+ * where no later read reaches, and the snapshot serves empty forever while
+ * looking healthy). Past stays free: backdated PM receipts are a real, legal
+ * shape.
+ */
+const FUTURE_AT_GRACE_MS = 5 * 60_000
 
 /** How far a counter may jump FORWARD past what is stored, for everyone but
  *  administrators. A stale mirror heals by the size of the offline stint that

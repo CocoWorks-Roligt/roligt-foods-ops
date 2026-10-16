@@ -1,10 +1,10 @@
 /**
- * Reading and writing the plant — Zoho Tables edition.
+ * Reading and writing the plant — over the BFF, onto the D1 store.
  *
  * Everything the Supabase version did through its SDK now goes over three BFF
  * endpoints; the shapes are unchanged (`fetchDb` returns the same DbSnapshot,
  * `saveDb` the same SaveResult), so AppContext, the offline queue and the diff
- * engine keep working untouched. The BFF holds the Zoho credentials; the
+ * engine keep working untouched. The BFF holds the store credentials; the
  * browser holds no tokens at all — the httpOnly session cookie is the whole
  * credential, refreshed server-side by the BFF on any data request.
  */
@@ -42,7 +42,7 @@ async function api(path: string, init?: RequestInit): Promise<Response> {
     throw new UnauthorizedError()
   }
   if (res.status === 429 || res.status === 503) {
-    // The commit/snapshot throttles (429) and the Zoho lock (503) both answer
+    // The commit/snapshot throttles (429) and the store lock (503) both answer
     // with the seconds they want the client to wait — the queue's retry honours
     // the server's own hint instead of probing on a fixed half-minute.
     const retryAfter = Number(res.headers.get('retry-after')) || 60
@@ -150,21 +150,22 @@ export type SaveResult =
   | { ok: false; reason: 'error'; message: string }
 
 /**
- * Splits a diff into commits the write budget can carry. Zoho allows roughly 17
- * writes a minute and the BFF fails fast at 45 s of budget wait, so a first-run
- * seed or an offline catch-up (a hundred-odd rows in one POST) can never land
- * as a single request. Each chunk is an independent keyed-upsert commit, so a
- * failure partway is retried as the same writes, never as duplicates.
+ * Splits a diff into commits the throttle can carry. The BFF admits a handful
+ * of commits a minute per account (commitThrottle.ts) and a giant seed lands as
+ * one POST only once — a first-run seed or an offline catch-up (a hundred-odd
+ * rows) still walks the queue as separate commits, so they go as separate
+ * requests from the start. Each chunk is an independent keyed-upsert commit,
+ * so a failure partway is retried as the same writes, never as duplicates.
  *
- * The budget counts every Zoho write, not just rows: each moved counter is one
- * write and the config one more, so they are charged against the same 12 as the
- * rows. A 12-row chunk with a morning of minted numbers riding free is really a
- * 30-write commit that cannot fit one budget minute — the 2026-10-05 catch-up
- * queue that would not drain.
+ * The chunk counts every write the commit batch performs, not just rows: each
+ * moved counter is one statement and the config one more, so they are charged
+ * against the same 12 as the rows. A 12-row chunk with a morning of minted
+ * numbers riding free is really a 30-statement commit — the 2026-10-05 catch-up
+ * queue that would not drain (the same arithmetic under the old engine).
  *
  * Chunks must also be legal on their own: the BFF lets a scoped caller write
  * ledger lines, audit rows and counters only in a commit that also carries a
- * collection row whose page they hold (the ride-along gate in api/_lib/commit.ts),
+ * collection row whose page they hold (the ride-along gate in api/_lib/commitGates.ts),
  * so collection rows are held back to open the tail chunks — the queue never
  * ends in ledger-only commits an operator would be refused for. One document's
  * save often carries a ledger too long for the collection rows it has, so the

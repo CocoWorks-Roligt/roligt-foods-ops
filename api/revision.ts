@@ -12,8 +12,8 @@ export default async function (req: VercelRequest, res: VercelResponse) {
     const { setCookies } = await authenticate(toWebRequest(req))
     if (setCookies) res.setHeader('Set-Cookie', setCookies)
     // Memoized + single-flighted: every client polls every 20s, and polls that
-    // land within a few seconds of each other share one Zoho read instead of
-    // each spending budget the sweep and commit paths need.
+    // land within a few seconds of each other share one read instead of
+    // each spending budget the snapshot and commit paths need.
     const revision = await readRevisionMemoized(store)
     res.status(200).json({ revision })
   } catch (e) {
@@ -23,7 +23,7 @@ export default async function (req: VercelRequest, res: VercelResponse) {
     }
     if (e instanceof LockedError) {
       res.setHeader('Retry-After', String(e.retryAfterSec))
-      res.status(503).json({ error: 'Zoho is rate-limited — try again shortly.' })
+      res.status(503).json({ error: 'The store is rate-limited — try again shortly.' })
       return
     }
     console.error('[revision]', e)

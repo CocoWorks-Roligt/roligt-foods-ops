@@ -5,10 +5,11 @@
  * what a document is, when one is due, and what the reminder says — so the
  * rules live here once, with no imports and no platform globals.
  *
- * Storage shape: the document rows live in the standalone Zoho "Compliance
- * Documents" table (NOT a synced collection — the snapshot sweep must stay
- * exactly 26 reads), the file bytes in a private Vercel Blob store, the
- * object key carried in the doc. Dates are plant-style date keys (YYYY-MM-DD)
+ * Storage shape: the document rows live as plain documents rows under
+ * collection 'compliance' (NOT a synced collection — /api/compliance/* is the
+ * only reader and the snapshot sweep never sees them), the file bytes in a
+ * private Cloudflare R2 bucket, the object key carried in the doc. Dates are
+ * plant-style date keys (YYYY-MM-DD)
  * and all day math is calendar arithmetic on those keys, never timezone math.
  */
 

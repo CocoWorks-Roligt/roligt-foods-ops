@@ -15,7 +15,7 @@
  *   npm run build && npx tsx scripts/dev-server.mjs            # serve on :3000
  *
  * .env is parsed into process.env before the api modules load, because the shared
- * ZohoClient captures ZOHO_BASE_ID at import time.
+ * store client (shared.ts) reads the D1_* env at import time.
  */
 import { createServer } from 'node:http'
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -42,8 +42,8 @@ function loadDotEnv() {
 }
 loadDotEnv()
 
-// Loaded only after .env is in process.env — the shared client snapshots ZOHO_BASE_ID
-// at construction.
+// Loaded only after .env is in process.env — the shared store client reads the
+// D1_* env at construction.
 const snapshotHandler = (await import('../api/snapshot.ts')).default
 const revisionHandler = (await import('../api/revision.ts')).default
 const commitHandler = (await import('../api/commit.ts')).default

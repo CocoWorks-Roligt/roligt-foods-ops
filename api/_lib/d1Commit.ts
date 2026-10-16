@@ -46,7 +46,6 @@ import { D1ApiError, type D1Client } from './d1.js'
 import type { Caller } from './auth.js'
 import type { StateChanges } from '../../src/lib/sync.js'
 import { COLLECTIONS } from '../../src/lib/tables.js'
-import type { CommitResult } from './commit.js'
 import { noteD1Revision } from './d1Snapshot.js'
 import {
   Conflict,
@@ -118,6 +117,23 @@ const SQL_BUMP_REVISION = `UPDATE meta SET value = CAST(CAST(value AS INTEGER) +
  *  cannot drift between them. */
 export function bumpStatement(): { sql: string; params: unknown[] } {
   return { sql: SQL_BUMP_REVISION, params: [Math.random().toString(36).slice(2, 8)] }
+}
+
+/** What a commit did to the store: the revision it sits at, and whether the
+ *  commit was the thing that moved it. */
+export interface CommitResult {
+  /** The store's revision after this commit — a fresh token when it wrote, the
+   *  unchanged one when it did not. */
+  token: string
+  /** Whether ANY write landed (upsert, remove, config, counter). False means the
+   *  whole commit was already exactly true — no reader needs to re-read. */
+  wrote: boolean
+  /** The documents.version every written row now sits at, table → row id →
+   *  version. Rides the response so the saving client can stamp its own copy:
+   *  with the feed down, the revision poll never re-reads the bump a device
+   *  itself caused, so without this the versioned rows only ever arrive with
+   *  somebody else's write. */
+  versions?: Record<string, Record<string, number>>
 }
 
 export async function commitChangesD1(d1: D1Client, caller: Caller, changes: StateChanges): Promise<CommitResult> {

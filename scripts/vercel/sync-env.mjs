@@ -49,9 +49,9 @@ if (TARGET === 'production' && HATCH !== 'production') {
   process.exit(1)
 }
 
-// the BFF's own keys, and only ever these
+// the BFF's own keys, and only ever these (the Zoho engine is deleted — its
+// ZOHO_* keys stay out of the sync set; removing them from Vercel is manual)
 const BFF_KEYS = [
-  'ZOHO_BASE_ID', 'ZOHO_CLIENT_ID', 'ZOHO_CLIENT_SECRET', 'ZOHO_REFRESH_TOKEN', 'ZOHO_DC',
   'WORKOS_API_HOSTNAME', 'WORKOS_CLIENT_ID', 'WORKOS_API_KEY', 'WORKOS_COOKIE_PASSWORD', 'WORKOS_ORG_ID',
   'CRON_SECRET',
 ]

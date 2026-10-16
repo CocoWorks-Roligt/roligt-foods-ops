@@ -3,20 +3,26 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 
 /**
  * The /api/compliance routes at the handler level — the same harness shape as
- * routes.test.ts (session/auth mocked, statuses asserted), with the Zoho
- * client mocked wholesale: what these tests pin is the route contract, not the
- * transport (handlers.test.ts owns that). The cron's send-then-mark ordering
- * lives here because it is the route's own guarantee: a refused email must
- * leave its document unmarked so tomorrow's run retries it.
+ * routes.test.ts (session/auth mocked, statuses asserted), with the compliance
+ * STORE mocked at its seam (a fake ComplianceStore behind engine.complianceStore):
+ * what these tests pin is the route contract, not the storage (d1Engine.test.ts
+ * owns the store arm). The cron's send-then-mark ordering lives here because it
+ * is the route's own guarantee: a refused email must leave its document
+ * unmarked so tomorrow's run retries it.
  */
 const world = vi.hoisted(() => ({
   authError: null as string | null,
   caller: { email: 'lead@roligt.local', permissions: ['page.compliance'] },
-  fetchAllImpl: null as null | ((tableId: string) => unknown[]),
-  byKey: null as null | ((ids: string[]) => unknown[]),
-  upserts: [] as unknown[][],
-  upsertError: null as unknown,
-  deletes: [] as unknown[],
+  /** The register as seeded: {doc, version} rows the fake store serves. */
+  docs: [] as { doc: Record<string, unknown>; version: string }[],
+  saves: [] as { doc: Record<string, unknown>; observed: string | null; version: string }[],
+  removes: [] as { id: string; handle: string }[],
+  marks: [] as { doc: Record<string, unknown>; observed: string }[],
+  /** When set, the fake store's save loses the write race — {saved:false}. */
+  saveLoses: false,
+  /** When set, the fake store's markSent loses to a human edit — false. */
+  markLoses: false,
+  leadDays: 30,
   audits: [] as unknown[][],
   emails: [] as unknown[],
   sendError: null as unknown,
@@ -33,32 +39,48 @@ vi.mock('./auth.ts', () => ({
   AuthError: class AuthError extends Error {},
 }))
 
-vi.mock('./shared.ts', () => {
-  // the same client serves as both `zoho` and `store` — the engine seam hands
-  // the register whichever face it asks for, and the Zoho arm is what answers
-  const client = {
-    baseId: 'dhorj90a2ded0152a4f1d94ae8ce4ece09a5c',
-    fetchAll: vi.fn(async (tableId: string) => (world.fetchAllImpl ? world.fetchAllImpl(tableId) : [])),
-    fetchByKeyIn: vi.fn(async (_t: string, _k: string, ids: string[]) => (world.byKey ? world.byKey(ids) : [])),
-    upsertByKey: vi.fn(async (...args: unknown[]) => {
-      if (world.upsertError) throw world.upsertError
-      world.upserts.push(args)
-    }),
-    deleteRecord: vi.fn(async (...args: unknown[]) => {
-      world.deletes.push(args)
-      return undefined
+vi.mock('./engine.ts', async () => {
+  const actual = await vi.importActual<typeof import('./engine.ts')>('./engine.ts')
+  const { planFromToken } = await vi.importActual<typeof import('./complianceStore.ts')>('./complianceStore.ts')
+  const { sortComplianceRows } = await vi.importActual<typeof import('./compliance.ts')>('./compliance.ts')
+  /** The register's fake — one Map over world.docs, the seam's own grammar. */
+  const rows = () => world.docs.map((r) => ({ doc: r.doc as never, version: r.version }))
+  const fakeStore = {
+    list: async () => sortComplianceRows(rows()),
+    fetch: async (id: string) => {
+      const found = world.docs.find((r) => r.doc.id === id)
+      return found ? { doc: found.doc as never, version: found.version, handle: id } : null
+    },
+    save: async (doc: Record<string, unknown>, observed: string | null) => {
+      if (world.saveLoses) return { saved: false as const }
+      const plan = planFromToken(String(doc.id), observed ?? '')
+      world.saves.push({ doc, observed, version: plan.next })
+      const next = world.docs.filter((r) => r.doc.id !== doc.id)
+      next.push({ doc, version: plan.next })
+      world.docs = next
+      return { saved: true as const, version: plan.next }
+    },
+    remove: async (id: string, handle: string) => {
+      world.removes.push({ id, handle })
+      world.docs = world.docs.filter((r) => r.doc.id !== id)
+    },
+    markSent: async (doc: Record<string, unknown>, observed: string) => {
+      world.marks.push({ doc, observed })
+      if (world.markLoses) return false
+      const row = world.docs.find((r) => r.doc.id === doc.id)
+      if (row) row.doc = doc
+      return true
+    },
+    leadDays: async () => world.leadDays,
+  }
+  return {
+    ...actual,
+    complianceStore: () => fakeStore,
+    writeAdminAudit: vi.fn(async (_s: unknown, caller: unknown, action: string, docTitle: string, details: string) => {
+      world.audits.push([caller, action, docTitle, details])
     }),
   }
-  return { zoho: client, store: client }
 })
-
-vi.mock('./adminAudit.ts', () => ({
-  writeAdminAudit: vi.fn(async (_z: unknown, caller: unknown, action: string, docTitle: string, details: string) => {
-    world.audits.push([caller, action, docTitle, details])
-  }),
-  // the D1 arm must bind for engine.ts even though these routes never take it
-  writeAdminAuditD1: vi.fn(),
-}))
 
 vi.mock('./mailer.ts', () => ({
   sendMail: vi.fn(async (mail: unknown) => {
@@ -78,20 +100,19 @@ const upload = (await import('../compliance/upload.ts')).default
 const file = (await import('../compliance/file.ts')).default
 const remind = (await import('../compliance/remind.ts')).default
 const { __resetCommitThrottle } = await import('./commitThrottle.js')
-const { T } = await import('./baseSchema.js')
-const { ZohoCasConflictError } = await import('./zoho.js')
-const CT = T['Compliance Documents']
 
 beforeEach(() => {
   __resetCommitThrottle()
   process.env.CRON_SECRET = 'sekrit'
   world.authError = null
   world.caller = { email: 'lead@roligt.local', permissions: ['page.compliance'] }
-  world.fetchAllImpl = null
-  world.byKey = null
-  world.upserts = []
-  world.upsertError = null
-  world.deletes = []
+  world.docs = []
+  world.saves = []
+  world.removes = []
+  world.marks = []
+  world.saveLoses = false
+  world.markLoses = false
+  world.leadDays = 30
   world.audits = []
   world.emails = []
   world.sendError = null
@@ -128,18 +149,6 @@ function fakeReq(
 
 const JSON_HEADERS = { 'content-type': 'application/json' }
 
-function docRow(d: Record<string, unknown>, version: string) {
-  return {
-    recordID: `rec-${String(d.id)}`,
-    data: { [CT.appId]: d.id, [CT.dataJson!]: JSON.stringify(d), [CT.fields['Version']]: version },
-  }
-}
-
-function configRows(appConfig: string) {
-  const cfg = T['Config']
-  return [{ recordID: 'rec-cfg', data: { [cfg.fields['Setting']]: 'app_config', [cfg.fields['Value']]: appConfig } }]
-}
-
 const FRESH_DOC = {
   id: 'CMP-NEW-1',
   title: 'FSSAI licence',
@@ -163,13 +172,13 @@ describe('POST/GET /api/compliance/documents', () => {
     const res = fakeRes()
     await documents(fakeReq('/api/compliance/documents', { 'content-type': 'text/plain' }, 'POST', 'x'), res)
     expect(res.status).toHaveBeenCalledWith(415)
-    expect(world.upserts.length).toBe(0)
+    expect(world.saves.length).toBe(0)
   })
 
   it('lists the register, soonest expiry first, with each row\'s version', async () => {
-    world.fetchAllImpl = () => [
-      docRow({ ...FRESH_DOC, id: 'CMP-B', title: 'B', expiresOn: '2027-06-01' }, 'CMP-B:1'),
-      docRow({ ...FRESH_DOC, id: 'CMP-A', title: 'A', expiresOn: '2027-01-01' }, 'CMP-A:2'),
+    world.docs = [
+      { doc: { ...FRESH_DOC, id: 'CMP-B', title: 'B', expiresOn: '2027-06-01' }, version: 'CMP-B:1' },
+      { doc: { ...FRESH_DOC, id: 'CMP-A', title: 'A', expiresOn: '2027-01-01' }, version: 'CMP-A:2' },
     ]
     const res = fakeRes()
     await documents(fakeReq('/api/compliance/documents'), res)
@@ -180,39 +189,32 @@ describe('POST/GET /api/compliance/documents', () => {
   })
 
   it('saves a new document: versioned write, stamped by the caller, audited', async () => {
-    world.byKey = () => []
     const res = fakeRes()
     await documents(fakeReq('/api/compliance/documents', JSON_HEADERS, 'POST', { action: 'save', doc: FRESH_DOC }), res)
-    expect(res.status).toHaveBeenCalledWith(200)
-    expect(world.upserts.length).toBe(1)
-    const [tableId, , keyValue, values] = world.upserts[0] as [string, string, string, Record<string, unknown>]
-    expect(tableId).toBe(CT.id)
-    expect(keyValue).toBe('CMP-NEW-1')
-    expect(values[CT.appId]).toBe('CMP-NEW-1')
-    const stored = JSON.parse(String(values[CT.dataJson!])) as Record<string, unknown>
-    expect(stored.updatedBy).toBe('lead@roligt.local')
-    expect(stored.reminderSentFor).toBeUndefined() // never taken from the wire
-    expect(values[CT.fields['Title']]).toBe('FSSAI licence')
-    expect(values[CT.fields['Version']]).toBe('CMP-NEW-1:1')
+    expect(res.statusCode).toBe(200)
+    expect(world.saves.length).toBe(1)
+    expect(world.saves[0].doc.id).toBe('CMP-NEW-1')
+    expect(world.saves[0].doc.updatedBy).toBe('lead@roligt.local')
+    expect(world.saves[0].doc.reminderSentFor).toBeUndefined() // never taken from the wire
+    expect((res.json.mock.calls[0][0] as { version: string }).version).toBe('CMP-NEW-1:1')
     expect(world.audits.length).toBe(1)
     expect(world.audits[0][1]).toBe('compliance document saved')
   })
 
-  it('stamps the next token and conditions an edit on the stored one', async () => {
-    world.byKey = () => [docRow({ ...FRESH_DOC, title: 'Old title' }, 'CMP-NEW-1:3')]
+  it('stamps the next token and hands the store the one it observed', async () => {
+    world.docs = [{ doc: { ...FRESH_DOC, title: 'Old title' }, version: 'CMP-NEW-1:3' }]
     const res = fakeRes()
     await documents(
       fakeReq('/api/compliance/documents', JSON_HEADERS, 'POST', { action: 'save', doc: FRESH_DOC, baseVersion: 'CMP-NEW-1:3' }),
       res,
     )
-    expect(res.status).toHaveBeenCalledWith(200)
-    const [, , , values, cas] = world.upserts[0] as [string, string, string, Record<string, unknown>, { expected: string }]
-    expect(values[CT.fields['Version']]).toBe('CMP-NEW-1:4')
-    expect(cas.expected).toBe('CMP-NEW-1:3')
+    expect(res.statusCode).toBe(200)
+    expect(world.saves[0].observed).toBe('CMP-NEW-1:3')
+    expect(world.saves[0].version).toBe('CMP-NEW-1:4')
   })
 
   it('refuses a stale baseVersion with the commit 409 shape', async () => {
-    world.byKey = () => [docRow(FRESH_DOC, 'CMP-NEW-1:3')]
+    world.docs = [{ doc: { ...FRESH_DOC }, version: 'CMP-NEW-1:3' }]
     const res = fakeRes()
     await documents(
       fakeReq('/api/compliance/documents', JSON_HEADERS, 'POST', { action: 'save', doc: FRESH_DOC, baseVersion: 'CMP-NEW-1:2' }),
@@ -220,12 +222,12 @@ describe('POST/GET /api/compliance/documents', () => {
     )
     expect(res.status).toHaveBeenCalledWith(409)
     expect((res.json.mock.calls[0][0] as { conflicts: unknown[] }).conflicts).toEqual([{ id: 'CMP-NEW-1', kind: 'changed' }])
-    expect(world.upserts.length).toBe(0)
+    expect(world.saves.length).toBe(0)
   })
 
-  it('maps a CAS race on the write itself to the same 409', async () => {
-    world.byKey = () => [docRow({ ...FRESH_DOC, title: 'Old title' }, 'CMP-NEW-1:3')]
-    world.upsertError = new ZohoCasConflictError('CMP-NEW-1')
+  it('maps a save that loses the write race to the same 409', async () => {
+    world.docs = [{ doc: { ...FRESH_DOC, title: 'Old title' }, version: 'CMP-NEW-1:3' }]
+    world.saveLoses = true
     const res = fakeRes()
     await documents(
       fakeReq('/api/compliance/documents', JSON_HEADERS, 'POST', { action: 'save', doc: FRESH_DOC, baseVersion: 'CMP-NEW-1:3' }),
@@ -236,30 +238,31 @@ describe('POST/GET /api/compliance/documents', () => {
   })
 
   it('treats a retried identical save as a no-op — no write, no audit', async () => {
-    world.byKey = () => [docRow({ ...FRESH_DOC, updatedAt: '2026-10-07T10:00:00Z', updatedBy: 'lead@roligt.local' }, 'CMP-NEW-1:1')]
+    world.docs = [
+      { doc: { ...FRESH_DOC, updatedAt: '2026-10-07T10:00:00Z', updatedBy: 'lead@roligt.local' }, version: 'CMP-NEW-1:1' },
+    ]
     const res = fakeRes()
     await documents(fakeReq('/api/compliance/documents', JSON_HEADERS, 'POST', { action: 'save', doc: FRESH_DOC }), res)
-    expect(res.status).toHaveBeenCalledWith(200)
-    expect(world.upserts.length).toBe(0)
+    expect(res.statusCode).toBe(200)
+    expect(world.saves.length).toBe(0)
     expect(world.audits.length).toBe(0)
     expect((res.json.mock.calls[0][0] as { version: string }).version).toBe('CMP-NEW-1:1')
   })
 
   it('removes a stored document and audits what left', async () => {
-    world.byKey = () => [docRow(FRESH_DOC, 'CMP-NEW-1:1')]
+    world.docs = [{ doc: { ...FRESH_DOC }, version: 'CMP-NEW-1:1' }]
     const res = fakeRes()
     await documents(fakeReq('/api/compliance/documents', JSON_HEADERS, 'POST', { action: 'remove', id: 'CMP-NEW-1' }), res)
-    expect(res.status).toHaveBeenCalledWith(200)
-    expect(world.deletes.length).toBe(1)
+    expect(res.statusCode).toBe(200)
+    expect(world.removes.length).toBe(1)
     expect(world.audits[0][1]).toBe('compliance document removed')
   })
 
   it('treats removing an already-gone document as the asked-for outcome', async () => {
-    world.byKey = () => []
     const res = fakeRes()
     await documents(fakeReq('/api/compliance/documents', JSON_HEADERS, 'POST', { action: 'remove', id: 'CMP-NEW-1' }), res)
-    expect(res.status).toHaveBeenCalledWith(200)
-    expect(world.deletes.length).toBe(0)
+    expect(res.statusCode).toBe(200)
+    expect(world.removes.length).toBe(0)
     expect(world.audits.length).toBe(0)
   })
 })
@@ -345,8 +348,7 @@ describe('/api/compliance/remind (the cron)', () => {
   const FAR_OUT = { ...FRESH_DOC, id: 'CMP-FAR', expiresOn: '2028-01-01' }
 
   const withDocs = (...docs: Record<string, unknown>[]) => {
-    world.fetchAllImpl = (tableId: string) =>
-      tableId === T['Config'].id ? configRows(JSON.stringify({ complianceLeadDays: 30 })) : docs.map((d, i) => docRow(d, `${String(d.id)}:1-${i}`))
+    world.docs = docs.map((d, i) => ({ doc: d, version: `${String(d.id)}:1-${i}` }))
   }
 
   it('refuses to run open when CRON_SECRET is unset', async () => {
@@ -370,11 +372,9 @@ describe('/api/compliance/remind (the cron)', () => {
     expect(res.json.mock.calls[0][0]).toEqual({ ok: true, due: 1, sent: 1, failed: 0 })
     expect(world.emails.length).toBe(1)
     expect((world.emails[0] as { to: string[] }).to).toEqual(['owner@example.in'])
-    expect(world.upserts.length).toBe(1)
-    const [, , keyValue, values] = world.upserts[0] as [string, string, string, Record<string, unknown>]
-    expect(keyValue).toBe('CMP-DUE')
-    const marked = JSON.parse(String(values[CT.dataJson!])) as { reminderSentFor?: string }
-    expect(marked.reminderSentFor).toBe('2026-10-20')
+    expect(world.marks.length).toBe(1)
+    expect(world.marks[0].doc.id).toBe('CMP-DUE')
+    expect(world.marks[0].doc.reminderSentFor).toBe('2026-10-20')
     expect(world.audits.length).toBe(1)
     expect(world.audits[0][1]).toBe('compliance reminders sent')
   })
@@ -386,13 +386,13 @@ describe('/api/compliance/remind (the cron)', () => {
     await remind(fakeReq('/api/compliance/remind', { authorization: 'Bearer sekrit' }), res)
     expect(res.status).toHaveBeenCalledWith(200)
     expect(res.json.mock.calls[0][0]).toEqual({ ok: true, due: 1, sent: 0, failed: 1 })
-    expect(world.upserts.length).toBe(0)
+    expect(world.marks.length).toBe(0)
     expect(world.audits.length).toBe(0)
   })
 
-  it('swallows a CAS race on the mark — the edit wins, the count stays honest', async () => {
+  it('swallows a mark that loses to a human edit — the edit wins, the count stays honest', async () => {
     withDocs(DUE_SOON)
-    world.upsertError = new ZohoCasConflictError('CMP-DUE')
+    world.markLoses = true
     const res = fakeRes()
     await remind(fakeReq('/api/compliance/remind', { authorization: 'Bearer sekrit' }), res)
     expect(res.status).toHaveBeenCalledWith(200)
@@ -405,14 +405,14 @@ describe('/api/compliance/remind (the cron)', () => {
     await remind(fakeReq('/api/compliance/remind', { authorization: 'Bearer sekrit' }), res)
     expect(res.status).toHaveBeenCalledWith(200)
     expect(res.json.mock.calls[0][0]).toEqual({ ok: true, due: 0, sent: 0, failed: 0 })
-    expect(world.upserts.length).toBe(0)
+    expect(world.marks.length).toBe(0)
     expect(world.audits.length).toBe(0)
   })
 
   it('honors the configured lead window, not just the default', async () => {
     const atTwentyDays = { ...FRESH_DOC, id: 'CMP-20', expiresOn: '2026-10-27' }
-    world.fetchAllImpl = (tableId: string) =>
-      tableId === T['Config'].id ? configRows(JSON.stringify({ complianceLeadDays: 7 })) : [docRow(atTwentyDays, 'CMP-20:1')]
+    world.docs = [{ doc: atTwentyDays, version: 'CMP-20:1' }]
+    world.leadDays = 7
     const res = fakeRes()
     await remind(fakeReq('/api/compliance/remind', { authorization: 'Bearer sekrit' }), res)
     expect(res.json.mock.calls[0][0]).toEqual({ ok: true, due: 0, sent: 0, failed: 0 })

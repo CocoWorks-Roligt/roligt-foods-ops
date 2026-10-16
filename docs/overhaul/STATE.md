@@ -1,5 +1,5 @@
 # STATE — Beverage Ops Platform Overhaul
-Updated: 2026-10-16 | Phase: 6 QA HEAVY CLOSED — the OVERHAUL is COMPLETE (run 1: 33/33 default flags; run 2: 10/10 qc_gate_v2; perf p95 ≤22 ms; a11y 100; 75-shot visual walk PASS; QA_REPORT/ROLLOUT/USABILITY_SCRIPT delivered). Next: user runs the usability script + rollout per ROLLOUT.md (flag flips wait for Zoho engine deletion 2026-10-19) | Branch: dev
+Updated: 2026-10-16 | Phase: 6 QA HEAVY CLOSED — the OVERHAUL is COMPLETE (run 1: 33/33 default flags; run 2: 10/10 qc_gate_v2; perf p95 ≤22 ms; a11y 100; 75-shot visual walk PASS; QA_REPORT/ROLLOUT/USABILITY_SCRIPT delivered). Post-overhaul: the Zoho engine DELETION (d1-migration Phase 7) landed in code 2026-10-16 — D1 is the only store; remaining Phase-7 items are user-side (Vercel ZOHO_* env removal, final archive export). Next: user runs the usability script + rollout per ROLLOUT.md | Branch: dev
 
 ## Contracts
 - v1.9 (2026-10-15, P4): +shipment/challan/return wire — ShipmentVersionExtension (documents.version
@@ -180,9 +180,12 @@ Updated: 2026-10-16 | Phase: 6 QA HEAVY CLOSED — the OVERHAUL is COMPLETE (run
 - tsc gate is `tsc -b` (root tsconfig is solution-style; `tsc --noEmit` checks nothing).
 - api-imported src/lib files need .ts import extensions (the numbering/grn/stockIds closure now has them — keep it that way).
 - User-facing word is "blend(s)", never "melange" (code/data names may keep it).
-- Flags are a D1-engine concern only: gated endpoints 503 when D1 env is unset (postRoutes), and the
-  Zoho commit arm never reads the flags collection. Never enable qc_gate_v2/batch_v2 on any deployment
-  that can still reach Zoho (engine deletion planned 2026-10-19); flag toggles are LEAD-only until then.
+- Flags are a D1-engine concern only: gated endpoints 503 when D1 env is unset (postRoutes). The Zoho
+  engine was DELETED 2026-10-16 (d1-migration Phase 7 — zoho.ts/commit.ts/mappers.ts/baseSchema.ts and
+  every Zoho arm gone; `shared.ts` builds a D1Client or nothing, and a store-less deployment refuses
+  through requireStore with LockedError's 503 + Retry-After shape). No deployed build can reach Zoho
+  once this lands — the old "never enable flags where Zoho is reachable" constraint is now structural.
+  Flag toggles still stay LEAD-only per ROLLOUT.md until the user gives the go.
 - batch_v2 stays OFF everywhere until the mass-balance decision lands (DECISIONS #2: 3/14 historical
   batches pass at 2% — extraction cannot close under enforcement today).
 - shell_nav (and every UI flag) rides /api/snapshot as raw rows folded through the isomorphic

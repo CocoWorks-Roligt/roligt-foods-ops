@@ -1,20 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MailError, sendMail, smtpConfigured } from './mailer.js'
-import { canonicalDoc, carryReminderState, docFromRow, markSentPatch, normalizeDocPayload, rowValues, rowVersion, rowsToDocs } from './compliance.js'
-import type { TableRef } from './baseSchema.js'
-import type { ZohoRecord } from './zoho.js'
+import { canonicalDoc, carryReminderState, markSentPatch, normalizeDocPayload, parseDocJson, sortComplianceRows } from './compliance.js'
 import type { ComplianceDoc } from '../../src/lib/complianceRules.js'
-
-/** A minimal Compliance Documents TableRef — the real one comes from the generated schema. */
-function table(): TableRef {
-  return {
-    name: 'Compliance Documents',
-    id: 'tbl',
-    appId: 'F_APP',
-    dataJson: 'F_JSON',
-    fields: { Title: 'F_TITLE', 'Expires On': 'F_EXP', Version: 'F_VER', 'App ID': 'F_APP', 'Data JSON': 'F_JSON' },
-  }
-}
 
 function doc(over: Partial<ComplianceDoc> = {}): ComplianceDoc {
   return {
@@ -27,29 +14,21 @@ function doc(over: Partial<ComplianceDoc> = {}): ComplianceDoc {
   }
 }
 
-describe('compliance row mapping', () => {
-  it('round-trips a doc through a row and back', () => {
-    const t = table()
-    const values = rowValues(t, doc(), 'CMP-TEST-1:4')
-    expect(values[t.appId]).toBe('CMP-TEST-1')
-    expect(JSON.parse(String(values[t.dataJson!]))).toEqual(doc())
-    expect(values[t.fields['Title']]).toBe('FSSAI licence')
-    expect(values[t.fields['Expires On']]).toBe('2027-03-31')
-    expect(values[t.fields['Version']]).toBe('CMP-TEST-1:4')
-    const row = { recordID: 'rec-1', data: values } as unknown as ZohoRecord
-    expect(docFromRow(t, row)).toEqual(doc())
-    expect(rowVersion(t, row)).toBe('CMP-TEST-1:4')
+describe('compliance doc parsing', () => {
+  it('parses a stored doc string and skips what is not one', () => {
+    expect(parseDocJson(JSON.stringify(doc()))).toEqual(doc())
+    expect(parseDocJson('not json')).toBeNull()
+    expect(parseDocJson(JSON.stringify({ title: 'no id' }))).toBeNull()
   })
 
-  it('skips rows with no parsable doc and sorts by soonest expiry', () => {
-    const t = table()
+  it('sorts by soonest expiry, undated after those, title as the tiebreak', () => {
     const rows = [
-      { recordID: 'a', data: { [t.appId]: 'CMP-B', [t.dataJson!]: JSON.stringify(doc({ id: 'CMP-B', title: 'B', expiresOn: '2027-06-01' })), [t.fields['Version']]: 'CMP-B:1' } },
-      { recordID: 'b', data: { [t.appId]: 'hand', [t.dataJson!]: 'not json', [t.fields['Version']]: '' } },
-      { recordID: 'c', data: { [t.appId]: 'CMP-A', [t.dataJson!]: JSON.stringify(doc({ id: 'CMP-A', title: 'A', expiresOn: '2027-01-01' })), [t.fields['Version']]: 'CMP-A:1' } },
-      { recordID: 'd', data: { [t.appId]: 'CMP-Z', [t.dataJson!]: JSON.stringify(doc({ id: 'CMP-Z', title: 'Z', expiresOn: undefined })), [t.fields['Version']]: 'CMP-Z:1' } },
-    ] as unknown as ZohoRecord[]
-    expect(rowsToDocs(t, rows).map((r) => r.doc.id)).toEqual(['CMP-A', 'CMP-B', 'CMP-Z'])
+      { doc: doc({ id: 'CMP-B', title: 'B', expiresOn: '2027-06-01' }), version: 'CMP-B:1' },
+      { doc: doc({ id: 'CMP-Z', title: 'Z', expiresOn: undefined }), version: 'CMP-Z:1' },
+      { doc: doc({ id: 'CMP-A', title: 'A', expiresOn: '2027-01-01' }), version: 'CMP-A:1' },
+      { doc: doc({ id: 'CMP-Y', title: 'Y', expiresOn: undefined }), version: 'CMP-Y:1' },
+    ]
+    expect(sortComplianceRows(rows).map((r) => r.doc.id)).toEqual(['CMP-A', 'CMP-B', 'CMP-Y', 'CMP-Z'])
   })
 })
 
@@ -73,7 +52,7 @@ describe('normalizeDocPayload', () => {
     })
   })
 
-  it('refuses ids the Zoho key path cannot carry and payloads the rules reject', () => {
+  it('refuses ids the key path cannot carry and payloads the rules reject', () => {
     const err = (payload: unknown) => {
       const r = normalizeDocPayload(payload)
       return 'error' in r ? r.error : '(no error)'

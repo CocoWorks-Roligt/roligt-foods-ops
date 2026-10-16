@@ -1,5 +1,5 @@
 # PROGRESS — Beverage Ops Platform Overhaul
-Updated: 2026-10-16 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS CLOSED — all 10 modules COMPLETE (folds + dashboards + registers; QA LIGHT green at 2-, 4-, 6-, 8- and 10-module gates); Phase 6 QA HEAVY next (fresh session: /clear, re-run the master prompt)
+Updated: 2026-10-16 | Branch: dev | Base commit: de4c13b | OVERHAUL COMPLETE (Phases 0-6 closed); post-overhaul: Zoho engine DELETION landed (d1-migration Phase 7 code half) — D1 only store, gates green; user-side items left (Vercel ZOHO_* removal, archive export), then usability script + ROLLOUT flag flips on the user's go
 
 | Task | Agent | Status | Files | Next action |
 |---|---|---|---|---|
@@ -66,6 +66,7 @@ Updated: 2026-10-16 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS CL
 | P6/Q3: performance — API p95, snapshot size breakdown, Lighthouse incl. dashboards, secrets scan | QA | done | .artifacts/qa-p6-perf.mjs → .artifacts/qa-p6-perf.md, .artifacts/lh-*.json | API p95 PASS (worst 22 ms vs 500; all 10 KPI modules ≤2 ms warm); snapshot 215 KB — audits 37.5% + ledger 21.9% = boot majority (split → ROLLOUT Gate 2); bundle 2.7 MB no secrets; Lighthouse desktop perf 95/91 (home/dashboards), mobile-4G FCP 4.7 s/LCP 6.5 s/TBT 0; PWA: LH12 retired the badge — manifest+SW verified, offline spec is the stronger proof |
 | P6/Q4: a11y fixes (heading-order, sort-header touch size) + re-audit; visual walk incl. dashboard screens | QA | done @ this commit | src/index.css (topbar contrast --ink-soft-on-light 4.6:1), .artifacts/qa-screens.mjs (+10 dashboard screens) | a11y 100 both key screens (96→100 verified by re-run); walk 75 shots (25 screens × 3 widths) with dashboards flags sqlite-flipped ON live DB — no horizontal scroll anywhere; vision-verified QC desktop + inventory phone |
 | P6/Q5: QA_REPORT Phase-6, ROLLOUT.md, usability script, DECISIONS/STATE, final LIGHT gates | QA | done @ this commit | docs/overhaul/{QA_REPORT,ROLLOUT,USABILITY_SCRIPT,STATE,PROGRESS}.md | QA_REPORT Phase-6 verdict PASS (33/33 + 10/10); ROLLOUT 6-step roll order + 3 gates (Gate 1 stuck-dirty discard blocks qc_gate_v2; Gate 2 snapshot split; Gate 3 backups); usability 5 tasks w/ success criteria; Phase 6 CLOSED — overhaul COMPLETE |
+| Post-overhaul: Zoho engine deletion (d1-migration Phase 7, code half) | LEAD | done @ this commit | api/_lib/{zoho,commit,mappers,baseSchema}.ts + tests DELETED; Zoho arms of snapshot/adminAudit/complianceStore/compliance removed; engine.ts facade D1-only, store `D1Client \| null` + requireStore 503; commitGates (+FUTURE_AT_GRACE_MS), d1Commit (+CommitResult), shared/registry/store/d1Commit/comments; sync-env.mjs drops ZOHO_*; .env.example, README, throttles, dbApi comments | 1049 tests green (156 engine tests deleted); tsc/lint/build/build:e2e clean; user-side left: Vercel ZOHO_* removal + archive export |
 
 ## Log
 - 2026-10-13 Phase 0 complete. Baseline green (745 tests, tsc -b, lint, build @ de4c13b). DB target confirmed:
@@ -740,3 +741,22 @@ Updated: 2026-10-16 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS CL
   acceptance bar — dashboard + live report + exports off the same fold. Phase 6 QA HEAVY
   (E2E A–E, security, performance, a11y, visual verification, ROLLOUT.md) next, in a fresh
   session per one-phase-one-session.
+- 2026-10-16 Post-overhaul — Zoho engine DELETION (d1-migration-2026-10-09.md Phase 7, code half;
+  picked up where the prior session stopped mid-diff). Deleted: api/_lib/{zoho,commit,mappers,
+  baseSchema}.ts + their suites (zoho/commit/mappers/baseSchema/adminAudit/shared .test.ts —
+  156 engine tests gone with the arm). Zoho arms removed from snapshot.ts (now the shared
+  assemble/projection over ParsedSnapshot), adminAudit.ts (writeAdminAuditD1 only),
+  complianceStore.ts (surface only; d1Compliance is the arm), compliance.ts (docTable/rowValues/
+  docFromRow/rowsToDocs gone). engine.ts stays the facade — D1 the only arm, store is
+  `D1Client | null`, requireStore turns a store-less deployment into LockedError's 503 +
+  Retry-After (a day — redeploy fixes it). FUTURE_AT_GRACE_MS moved into commitGates.ts (its
+  only consumer); CommitResult into d1Commit.ts; invalidateSnapshotCache gone (a D1 write IS
+  the invalidation — noteD1Revision inside the atomic batch). d1Enabled() keeps postRoutes'
+  gated-endpoint 503. Plumbing: sync-env.mjs drops ZOHO_* from the sync set (Vercel removal
+  stays manual), .env.example server block now lists D1_*, README retitled (D1 edition,
+  Persistence + env sections rewritten), dev-server/throttle/dbApi comments de-Zoho'd,
+  historical mentions kept. Gates: tsc -b clean; 1049 passed | 7 skipped; oxlint 10 baseline;
+  build + build:e2e + assert-no-apptics clean (115 dist files). User-side left: delete ZOHO_*
+  from the Vercel project; final archive export beside the Zoho dump. The "never enable flags
+  where Zoho is reachable" constraint is now structural — flag flips still wait on the user's
+  go per ROLLOUT.md.

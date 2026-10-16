@@ -330,7 +330,8 @@ export interface Product {
 
 /** One physical format the plant buys and fills. Its member SKUs carry only
  * their recipe/commercial facts; the legacy physical fields on Product remain a
- * compatibility projection while Zoho is still an available rollback engine. */
+ * compatibility projection — older rows and every downstream reader still read
+ * them off the SKU. */
 export interface Pack {
   id: string
   name: string

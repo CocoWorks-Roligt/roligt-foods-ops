@@ -2,10 +2,10 @@
  * The per-caller snapshot throttle — an in-memory token bucket keyed by email,
  * the read-side twin of commitThrottle.
  *
- * A snapshot read is the other thing a tight client loop can spend the plant's
- * one shared Zoho read budget on (26/min): every warm miss is a criteria read,
- * every moved revision a full sweep, so a broken or crafted retry loop against
- * /api/snapshot burns what the whole floor shares. The honest client cannot
+ * A snapshot read is the other thing a tight client loop can spend the store
+ * on: every moved revision is a full documents batch, so a broken or crafted
+ * retry loop against /api/snapshot burns what the whole floor shares. The
+ * revision-token memos make warm reads cheap, and the honest client cannot
  * trip it — boot is two calls, the 20s poll is one revision read plus a
  * snapshot only when the revision moved, ~3/min on the busiest plant — so
  * sustained 6/min with a burst of 12 (a reload and its redirect inside one
@@ -14,8 +14,8 @@
  * granted cold — and a refusal answers 429 with Retry-After, which the poll's
  * catch swallows and boot retries on its own; nothing is lost, only delayed.
  *
- * In-memory only, per warm instance — the same accepted interim as the Zoho
- * budget and the commit throttle beside it (the audit's S2-5 note): instances
+ * In-memory only, per warm instance — the same accepted interim as the
+ * commit throttle beside it (the audit's S2-5 note): instances
  * fan out, so this caps ONE device against ONE instance, not the fleet. The
  * shared-budget work that finishes that is the audit's Phase 4.
  */

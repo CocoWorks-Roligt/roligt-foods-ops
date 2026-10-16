@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { LockedError } from './_lib/store.js'
 import { authenticate, AuthError } from './_lib/auth.js'
-import { commitChanges, invalidateSnapshotCache, Conflict, Forbidden, Malformed, validateChanges } from './_lib/engine.js'
+import { commitChanges, Conflict, Forbidden, Malformed, validateChanges } from './_lib/engine.js'
 import { RulesRejected } from './_lib/rulesGate.js'
 import { admitCommit } from './_lib/commitThrottle.js'
 import { store } from './_lib/shared.js'
@@ -40,8 +40,8 @@ export default async function (req: VercelRequest, res: VercelResponse) {
       res.status(400).json({ error: invalid })
       return
     }
-    // The shared Zoho budget is not one device's to drain: a tight retry loop on
-    // one tab spent it whatever the server did. Refused before a single Zoho read,
+    // The store's write budget is not one device's to drain: a tight retry loop on
+    // one tab could spend it whatever the server did. Refused before any read,
     // with the same Retry-After shape the 503 carries — the work stays on the
     // device and the next poll retries it.
     const retryAfterSec = admitCommit(caller.email)
@@ -50,18 +50,14 @@ export default async function (req: VercelRequest, res: VercelResponse) {
       res.status(429).json({ error: 'Too many commits from this account — the change is still saved on this device and will retry.' })
       return
     }
-    const { token: revision, wrote, versions } = await commitChanges(store, caller, body.changes)
-    if (wrote) {
-      // This process has now changed the base with its own hands — anything it
-      // cached about the old plant is spent, even though the revision moved too.
-      // The token rides along so the process remembers the revision it just wrote.
-      // A no-op commit (nothing landed) skips this on purpose: its revision never
-      // moved, so the cache still describes the base and evicting it would order
-      // a re-sweep for a nothing-burger.
-      invalidateSnapshotCache(revision)
-    }
-    // The written rows' CAS versions ride along (additive; absent on the legacy
-    // engine) so the saving client can stamp its own copy — see CommitResult.
+    const { token: revision, versions } = await commitChanges(store, caller, body.changes)
+    // A D1 write is its own invalidation: the revision token the commit minted
+    // feeds the read memos inside the same atomic batch (noteD1Revision), so
+    // there is no cache to evict here — a no-op commit never moved the token
+    // and needs nothing either.
+    //
+    // The written rows' CAS versions ride along so the saving client can stamp
+    // its own copy — see CommitResult.
     res.status(200).json({ revision, ...(versions ? { versions } : {}) })
   } catch (e) {
     if (e instanceof AuthError) {
@@ -91,11 +87,11 @@ export default async function (req: VercelRequest, res: VercelResponse) {
     }
     if (e instanceof LockedError) {
       res.setHeader('Retry-After', String(e.retryAfterSec))
-      res.status(503).json({ error: 'Zoho is rate-limited — the change is saved on this device and will retry.' })
+      res.status(503).json({ error: 'The store is rate-limited — the change is saved on this device and will retry.' })
       return
     }
-    // The detail is ours, not the caller's — ZohoApiError carries slices of the
-    // raw upstream response (base and table ids, internals). Logged server-side.
+    // The detail is ours, not the caller's — D1ApiError carries slices of the
+    // raw upstream response. Logged server-side.
     console.error('[commit]', e)
     res.status(500).json({ error: 'The save failed on the server — it is still saved on this device and will retry.' })
   }

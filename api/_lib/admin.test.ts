@@ -4,9 +4,10 @@ import { PERMISSIONS } from '../../src/lib/permissions.js'
 
 /**
  * Admin endpoint tests: the admin.manage gate, the WorkOS wrapper's arguments,
- * and the audit contract — every mutating action writes exactly one Audit Log
- * row and one app_revision bump through the shared Zoho client, then
- * invalidates the snapshot cache so every client's poll sees it.
+ * and the audit contract — every mutating action files exactly one
+ * writeAdminAudit call (one atomic D1 batch: the audit row, the revision bump
+ * and the memo note together — pinned where it lives, d1Engine.test.ts),
+ * audit-first so a refusal anywhere leaves an honest trail.
  */
 const mode = vi.hoisted(() => ({
   permissions: [] as string[],
@@ -25,7 +26,7 @@ const mode = vi.hoisted(() => ({
   refuse: null as null | { status: number; message: string },
   /** When set, the mocked ensurePermissions throws — the GET must survive it. */
   refuseEnsure: false,
-  /** When set, the Audit Log write throws a Zoho lock — the audit-first pin. */
+  /** When set, the audit write hits the store lock — the audit-first pin. */
   lockAudit: false,
 }))
 
@@ -82,42 +83,31 @@ vi.mock('./workosAdmin.ts', () => ({
   }),
 }))
 
-/** The writes writeAdminAudit makes, recorded off the stubbed wire. */
-const writes = vi.hoisted(() => [] as { url: string; body: string }[])
+/** The audits the routes file — recorded at the engine seam, one per mutation. */
+const audits = vi.hoisted(() => [] as { action: string; doc: string; details: string }[])
 
-vi.mock('./shared.ts', async () => {
-  const { ZohoClient, ZohoLockedError } = await vi.importActual<typeof import('./zoho.ts')>('./zoho.ts')
-  const { T } = await vi.importActual<typeof import('./baseSchema.ts')>('./baseSchema.ts')
-  const fetchImpl = async (url: string | URL, init?: RequestInit) => {
-    const full = String(url)
-    if (full.startsWith('https://accounts.zoho.in')) {
-      return new Response(JSON.stringify({ access_token: 'tok', expires_in: 3600 }), { status: 200 })
-    }
-    if (init?.method === 'PUT') {
-      // the audit-first pin's lever: the Audit Log write itself hits the lock
-      if (mode.lockAudit && full.includes(T['Audit Log'].id)) throw new ZohoLockedError(120)
-      writes.push({ url: full, body: String(init.body ?? '') })
-    }
-    return new Response(JSON.stringify({ records: { fetched: [] } }), { status: 200 })
+vi.mock('./engine.ts', async () => {
+  const actual = await vi.importActual<typeof import('./engine.ts')>('./engine.ts')
+  const { LockedError } = await vi.importActual<typeof import('./store.ts')>('./store.ts')
+  return {
+    ...actual,
+    writeAdminAudit: vi.fn(async (
+      _store: unknown,
+      _caller: { email: string },
+      action: string,
+      doc: string,
+      details: string,
+    ) => {
+      // the audit-first pin's lever: the write itself hits the store lock, and
+      // a refused write leaves nothing behind — the record below IS the row
+      if (mode.lockAudit) throw new LockedError(120)
+      audits.push({ action, doc, details })
+    }),
   }
-  // `store` is the engine seam's handle on the same client (shared.ts export).
-  const client = new ZohoClient({ fetchImpl, env: {} as Record<string, string | undefined>, writesPerMin: 100_000 })
-  return { zoho: client, store: client }
 })
-
-vi.mock('./snapshot.ts', () => ({
-  invalidateSnapshotCache: vi.fn(),
-  cachedRevision: vi.fn(() => null),
-  // readRevision/noteRevision ride the same mocked module for the real commit
-  // lib and adminAudit — the tests never call them, but the imports must bind
-  readRevision: vi.fn(async () => '0'),
-  noteRevision: vi.fn(),
-}))
 
 const usersHandler = (await import('../admin/users.ts')).default
 const rolesHandler = (await import('../admin/roles.ts')).default
-const { T } = await import('./baseSchema.ts')
-const { invalidateSnapshotCache } = await import('./snapshot.ts')
 
 // the two Administration pages — the caller needs both to drive both handlers
 const ADMIN = ['page.admin-users', 'page.admin-roles']
@@ -131,7 +121,7 @@ beforeEach(() => {
   mode.refuse = null
   mode.refuseEnsure = false
   mode.lockAudit = false
-  writes.length = 0
+  audits.length = 0
   vi.clearAllMocks()
 })
 
@@ -141,7 +131,7 @@ function fakeRes() {
     status: vi.fn(() => res),
     json: vi.fn(),
   }
-  return res as unknown as VercelResponse & { status: ReturnType<typeof vi.fn>; json: ReturnType<typeof vi.fn> }
+  return res as unknown as VercelResponse & { status: ReturnType<typeof vi.fn>; json: ReturnType<typeof vi.fn>; setHeader: ReturnType<typeof vi.fn> }
 }
 
 function fakeReq(body: unknown, method = 'POST'): VercelRequest {
@@ -163,15 +153,6 @@ function withCallerAdmin(...others: ReturnType<typeof row>[]) {
   mode.orgUsers = [row('u1', 'm1', 'who@roligt.local', ['app-admin']), ...others]
 }
 
-/** The criteria of every recorded write, decoded — `"<fieldId>" = "<value>"` strings. */
-const criteriaOf = () =>
-  writes.map((w) => {
-    const inQuery = /[?&]criteria=([^&]*)/.exec(w.url)?.[1]
-    return decodeURIComponent((inQuery ?? w.body).replace(/\+/g, ' '))
-  })
-/** Which table each write hit — the criteria names the row, this names the table. */
-const tableIdsOf = () => writes.map((w) => /[?&]table_id=([^&]*)/.exec(w.url)?.[1] ?? '')
-
 describe('admin gate', () => {
   it('refuses both endpoints without the admin pages, touching nothing', async () => {
     mode.permissions = ['page.vendors']
@@ -181,7 +162,7 @@ describe('admin gate', () => {
       expect(res.status).toHaveBeenCalledWith(403)
     }
     expect(mode.calls).toEqual([])
-    expect(writes).toEqual([])
+    expect(audits).toEqual([])
   })
 
   it('refuses a non-JSON body on both mutating endpoints — a form-stitched CSRF never parses', async () => {
@@ -195,7 +176,7 @@ describe('admin gate', () => {
       expect(res.status).toHaveBeenCalledWith(415)
     }
     expect(mode.calls).toEqual([])
-    expect(writes).toEqual([])
+    expect(audits).toEqual([])
   })
 })
 
@@ -282,7 +263,7 @@ describe('GET', () => {
 })
 
 describe('mutations audit and bump', () => {
-  it('creates a user, mints their password link, files one audit row and one revision bump, invalidates the cache', async () => {
+  it('creates a user, mints their password link, and files exactly one audit write for it', async () => {
     const res = fakeRes()
     await usersHandler(fakeReq({ action: 'create', email: 'new@roligt.local', roleSlugs: ['operator'] }), res)
     expect(res.status).toHaveBeenCalledWith(200)
@@ -292,14 +273,11 @@ describe('mutations audit and bump', () => {
       expiresAt: '2026-09-28T08:00:00.000Z',
     })
     expect(mode.calls).toEqual(['create:new@roligt.local', 'reset-link:new@roligt.local'])
-    expect(writes).toHaveLength(2) // exactly one audit row + one revision bump
-    const criteria = criteriaOf().join(' | ')
-    const tables = tableIdsOf()
-    expect(tables).toContain(T['Audit Log'].id)
-    expect(tables).toContain(T['Config'].id)
-    expect(criteria).toContain(`"${T['Audit Log'].appId}" = "AUD-admin-`) // fresh insert-only id
-    expect(criteria).toContain(`"${T['Config'].fields['Setting']}" = "app_revision"`)
-    expect(invalidateSnapshotCache).toHaveBeenCalledTimes(1)
+    // exactly one audit write (row + revision bump ride one atomic D1 batch —
+    // that shape is pinned in d1Engine.test.ts), under the new user's email
+    expect(audits).toHaveLength(1)
+    expect(audits[0]).toMatchObject({ action: 'user created', doc: 'new@roligt.local' })
+    expect(audits[0].details).toContain('operator')
   })
 
   it('sets roles on a membership and audits — the ceiling admits what the caller already holds', async () => {
@@ -317,32 +295,26 @@ describe('mutations audit and bump', () => {
     await usersHandler(fakeReq({ action: 'set-roles', membershipId: 'm9', roleSlugs: ['clerk'] }), res)
     expect(res.status).toHaveBeenCalledWith(200)
     expect(mode.calls).toEqual(['set-roles:m9=clerk'])
-    expect(writes).toHaveLength(2)
+    expect(audits).toHaveLength(1)
   })
-
-  // Budget note: writeAdminAudit costs 2 writes per mutation, and the audit-
-  // first order means even a WorkOS-refused action spends them — so this
-  // file's mocked client overrides writesPerMin (the documented test hook)
-  // and the 17/min production cap is pinned in zoho.test.ts instead. The
-  // write SHAPES (one audit row, one revision bump) stay asserted here.
 
   it('creates a role and audits', async () => {
     const res = fakeRes()
     await rolesHandler(fakeReq({ action: 'create-role', slug: 'shift-lead', name: 'Shift Lead' }), res)
     expect(res.status).toHaveBeenCalledWith(200)
     expect(mode.calls).toEqual(['create-role:shift-lead:Shift Lead'])
-    expect(writes).toHaveLength(2)
+    expect(audits).toHaveLength(1)
   })
 
-  it('removes a membership, files one audit row and one revision bump', async () => {
+  it('removes a membership and files exactly one audit write', async () => {
     withCallerAdmin(row('u7', 'm7', 'gone@roligt.local'))
     const res = fakeRes()
     await usersHandler(fakeReq({ action: 'remove', membershipId: 'm7' }), res)
     expect(res.status).toHaveBeenCalledWith(200)
     expect(res.json).toHaveBeenCalledWith({ ok: true })
     expect(mode.calls).toEqual(['remove:m7'])
-    expect(writes).toHaveLength(2)
-    expect(criteriaOf().join(' | ')).toContain(`"AUD-admin-`) // fresh insert-only id
+    expect(audits).toHaveLength(1)
+    expect(audits[0]).toMatchObject({ action: 'user access removed', doc: 'gone@roligt.local' })
   })
 
   it('permanently deletes a user and audits under their email', async () => {
@@ -351,11 +323,8 @@ describe('mutations audit and bump', () => {
     await usersHandler(fakeReq({ action: 'delete', userId: 'u7' }), res)
     expect(res.status).toHaveBeenCalledWith(200)
     expect(mode.calls).toEqual(['delete:u7'])
-    expect(writes).toHaveLength(2)
-    // the email rides in the audit row's record — URL-encoded into the data= param
-    const wire = writes.map((w) => decodeURIComponent(`${w.url} ${w.body}`).replace(/\+/g, ' ')).join(' ')
-    expect(wire).toContain('gone@roligt.local')
-    expect(wire).toContain('user deleted')
+    expect(audits).toHaveLength(1)
+    expect(audits[0]).toMatchObject({ action: 'user deleted', doc: 'gone@roligt.local' })
   })
 
   it('mints a password link for a member, audits under their email, and answers with the URL', async () => {
@@ -369,10 +338,8 @@ describe('mutations audit and bump', () => {
       expiresAt: '2026-09-28T08:00:00.000Z',
     })
     expect(mode.calls).toEqual(['reset-link:locked@roligt.local'])
-    expect(writes).toHaveLength(2)
-    const wire = writes.map((w) => decodeURIComponent(`${w.url} ${w.body}`).replace(/\+/g, ' ')).join(' ')
-    expect(wire).toContain('locked@roligt.local')
-    expect(wire).toContain('password link minted')
+    expect(audits).toHaveLength(1)
+    expect(audits[0]).toMatchObject({ action: 'password link minted', doc: 'locked@roligt.local' })
   })
 })
 
@@ -384,7 +351,7 @@ describe('self-protection and last-admin', () => {
     await usersHandler(fakeReq({ action: 'remove', membershipId: 'm1', email: 'someone.else@roligt.local' }), res)
     expect(res.status).toHaveBeenCalledWith(400)
     expect(mode.calls).toEqual([])
-    expect(writes).toEqual([])
+    expect(audits).toEqual([])
   })
 
   it('refuses deleting the caller own account the same way', async () => {
@@ -393,7 +360,7 @@ describe('self-protection and last-admin', () => {
     await usersHandler(fakeReq({ action: 'delete', userId: 'u1', email: 'someone.else@roligt.local' }), res)
     expect(res.status).toHaveBeenCalledWith(400)
     expect(mode.calls).toEqual([])
-    expect(writes).toEqual([])
+    expect(audits).toEqual([])
   })
 
   it('refuses ids that are not members — nothing to audit, nothing to call', async () => {
@@ -407,7 +374,7 @@ describe('self-protection and last-admin', () => {
       expect(res.status).toHaveBeenCalledWith(400)
     }
     expect(mode.calls).toEqual([])
-    expect(writes).toEqual([])
+    expect(audits).toEqual([])
   })
 
   it('refuses a role change that would leave zero admins', async () => {
@@ -417,7 +384,7 @@ describe('self-protection and last-admin', () => {
     await usersHandler(fakeReq({ action: 'set-roles', membershipId: 'm1', roleSlugs: ['clerk'] }), res)
     expect(res.status).toHaveBeenCalledWith(400)
     expect(mode.calls).toEqual([])
-    expect(writes).toEqual([])
+    expect(audits).toEqual([])
   })
 
   it('refuses deactivating the caller own access', async () => {
@@ -426,7 +393,7 @@ describe('self-protection and last-admin', () => {
     await usersHandler(fakeReq({ action: 'deactivate', membershipId: 'm1' }), res)
     expect(res.status).toHaveBeenCalledWith(400)
     expect(mode.calls).toEqual([])
-    expect(writes).toEqual([])
+    expect(audits).toEqual([])
   })
 
   it('refuses taking out the last active admin — by deactivation or removal', async () => {
@@ -447,7 +414,7 @@ describe('self-protection and last-admin', () => {
       expect(res.status).toHaveBeenCalledWith(400)
     }
     expect(mode.calls).toEqual([])
-    expect(writes).toEqual([])
+    expect(audits).toEqual([])
   })
 
   it('allows self-demotion while another admin remains', async () => {
@@ -467,7 +434,7 @@ describe('self-protection and last-admin', () => {
     await usersHandler(fakeReq({ action: 'set-roles', membershipId: 'm9', roleSlugs: [] }), res)
     expect(res.status).toHaveBeenCalledWith(400)
     expect(mode.calls).toEqual([])
-    expect(writes).toEqual([])
+    expect(audits).toEqual([])
   })
 
   it('refuses editing the admin role — it always holds the whole catalog', async () => {
@@ -477,7 +444,7 @@ describe('self-protection and last-admin', () => {
     await rolesHandler(fakeReq({ action: 'set-permissions', slug: 'app-admin', permissions: [...PERMISSIONS] }), res)
     expect(res.status).toHaveBeenCalledWith(400)
     expect(mode.calls).toEqual([])
-    expect(writes).toEqual([])
+    expect(audits).toEqual([])
   })
 
   it('refuses stripping the admin pages from the last role carrying them', async () => {
@@ -489,7 +456,7 @@ describe('self-protection and last-admin', () => {
     await rolesHandler(fakeReq({ action: 'set-permissions', slug: 'board', permissions: ['page.roster'] }), res)
     expect(res.status).toHaveBeenCalledWith(400)
     expect(mode.calls).toEqual([])
-    expect(writes).toEqual([])
+    expect(audits).toEqual([])
   })
 
   it('allows stripping them once another role carries the admin pages — and audits the change', async () => {
@@ -504,9 +471,8 @@ describe('self-protection and last-admin', () => {
     await rolesHandler(fakeReq({ action: 'set-permissions', slug: 'board', permissions: ['page.roster'] }), res)
     expect(res.status).toHaveBeenCalledWith(200)
     expect(mode.calls).toEqual(['set-permissions:board=page.roster'])
-    expect(writes).toHaveLength(2)
-    const wire = writes.map((w) => decodeURIComponent(`${w.url} ${w.body}`).replace(/\+/g, ' ')).join(' ')
-    expect(wire).toContain('role permissions set')
+    expect(audits).toHaveLength(1)
+    expect(audits[0].action).toBe('role permissions set')
   })
 })
 
@@ -515,7 +481,7 @@ describe('validation and upstream failures', () => {
     const res = fakeRes()
     await usersHandler(fakeReq({ action: 'create', email: 'not-an-email' }), res)
     expect(res.status).toHaveBeenCalledWith(400)
-    expect(writes).toEqual([])
+    expect(audits).toEqual([])
   })
 
   it('refuses a bad role slug with 400', async () => {
@@ -529,7 +495,7 @@ describe('validation and upstream failures', () => {
     await rolesHandler(fakeReq({ action: 'set-permissions', slug: 'app-admin', permissions: ['widgets:dsync:manage'] }), res)
     expect(res.status).toHaveBeenCalledWith(400)
     expect(mode.calls).toEqual([])
-    expect(writes).toEqual([])
+    expect(audits).toEqual([])
   })
 
   it('answers an unknown action with 400', async () => {
@@ -548,9 +514,8 @@ describe('validation and upstream failures', () => {
     await usersHandler(fakeReq({ action: 'create', email: 'dupe@roligt.local', roleSlugs: [] }), res)
     expect(res.status).toHaveBeenCalledWith(502)
     expect(mode.calls).toEqual(['create:dupe@roligt.local']) // the mutation ran and was refused
-    expect(writes).toHaveLength(2) // the attempt's audit row + revision bump stand
-    const wire = writes.map((w) => decodeURIComponent(`${w.url} ${w.body}`).replace(/\+/g, ' ')).join(' ')
-    expect(wire).toContain('user created')
+    expect(audits).toHaveLength(1) // the attempt's audit write stands
+    expect(audits[0].action).toBe('user created')
   })
 
   it('maps a WorkOS refusal on delete the same way — audited attempt, no deletion', async () => {
@@ -559,7 +524,7 @@ describe('validation and upstream failures', () => {
     const res = fakeRes()
     await usersHandler(fakeReq({ action: 'delete', userId: 'uX' }), res)
     expect(res.status).toHaveBeenCalledWith(502)
-    expect(writes).toHaveLength(2)
+    expect(audits).toHaveLength(1)
   })
 })
 
@@ -576,7 +541,7 @@ describe('the role ceiling (S3-7) — page.admin-users alone is not full admin',
     await usersHandler(fakeReq({ action: 'create', email: 'new@roligt.local', roleSlugs: ['full'] }), res)
     expect(res.status).toHaveBeenCalledWith(403)
     expect(mode.calls).toEqual([])
-    expect(writes).toEqual([])
+    expect(audits).toEqual([])
   })
 
   it('refuses set-roles that would grant a stronger role', async () => {
@@ -587,7 +552,7 @@ describe('the role ceiling (S3-7) — page.admin-users alone is not full admin',
     await usersHandler(fakeReq({ action: 'set-roles', membershipId: 'm9', roleSlugs: ['full'] }), res)
     expect(res.status).toHaveBeenCalledWith(403)
     expect(mode.calls).toEqual([])
-    expect(writes).toEqual([])
+    expect(audits).toEqual([])
   })
 
   it('refuses a password link for a member stronger than the caller — takeover by another name', async () => {
@@ -598,7 +563,7 @@ describe('the role ceiling (S3-7) — page.admin-users alone is not full admin',
     await usersHandler(fakeReq({ action: 'reset-link', membershipId: 'm2' }), res)
     expect(res.status).toHaveBeenCalledWith(403)
     expect(mode.calls).toEqual([])
-    expect(writes).toEqual([])
+    expect(audits).toEqual([])
   })
 
   it('refuses strengthening a role past the caller\'s own permissions', async () => {
@@ -613,15 +578,15 @@ describe('the role ceiling (S3-7) — page.admin-users alone is not full admin',
     await rolesHandler(fakeReq({ action: 'set-permissions', slug: 'board', permissions: ['page.roster'] }), res)
     expect(res.status).toHaveBeenCalledWith(403)
     expect(mode.calls).toEqual([])
-    expect(writes).toEqual([])
+    expect(audits).toEqual([])
   })
 })
 
 describe('audit before mutate (S3-8)', () => {
-  it('a Zoho lock during the audit write aborts before anything lands — 503, no WorkOS call', async () => {
+  it('a store lock during the audit write aborts before anything lands — 503, no WorkOS call', async () => {
     // the exact gap the audit named: the WorkOS mutation used to run first,
-    // and a ZohoLockedError in writeAdminAudit left a landed action with no
-    // trail row. The audit write is the first write now, so a lock here means
+    // and a store lock in writeAdminAudit left a landed action with no trail
+    // row. The audit write is the first write now, so a lock here means
     // NOTHING happened — and the 503 says so.
     mode.orgUsers = [row('u2', 'm2', 'back@roligt.local')]
     mode.lockAudit = true
@@ -633,6 +598,6 @@ describe('audit before mutate (S3-8)', () => {
       expect.objectContaining({ error: expect.stringContaining('nothing was changed') }),
     )
     expect(mode.calls).toEqual([]) // WorkOS was never touched
-    expect(writes).toEqual([]) // and no row landed anywhere
+    expect(audits).toEqual([]) // and no row landed anywhere
   })
 })

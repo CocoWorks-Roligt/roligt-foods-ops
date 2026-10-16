@@ -1,35 +1,15 @@
 /**
- * The standalone register behind the Compliance page — licenses, permits and
- * certificates with expiry reminders.
+ * The register behind the Compliance page — licenses, permits and certificates
+ * with expiry reminders.
  *
- * The rows live in the Zoho "Compliance Documents" table, which is NOT a synced
- * collection and NOT in TABLE_FOR: the snapshot sweep must stay exactly 26
- * reads, so /api/compliance/* is the only reader and it fetches on demand (the
- * shape the planned Books integration documented first). Writes carry the same
- * "<AppID>:<n>" Version token the commit engine uses — versionPlan is shared,
- * not reimplemented — so a compliance save conflicts the same way a commit
- * does when another device moved the row first.
- *
- * The doc itself is the Data JSON payload; Title and Expires On exist as plain
- * text columns for reading the table by eye in the Zoho UI. Never add an
- * attachment column to this table — a string there makes Zoho silently drop
- * every field after it in the same upsert (see mappers.ts). The file bytes
- * live in the private Vercel Blob store; the doc carries the object key.
+ * The rows live as plain documents rows under collection 'compliance' (not a
+ * synced collection, never a wire table): /api/compliance/* is the only reader
+ * and it fetches on demand. Writes carry the same "<id>:<n>" Version token the
+ * commit engine uses — the grammar is shared (commitGates.ts), so a compliance
+ * save conflicts the same way a commit does when another device moved the row
+ * first. The file bytes live in R2; the doc carries the object key.
  */
-import { T, type TableRef } from './baseSchema.js'
-import type { ZohoRecord } from './zoho.js'
-import { columnsByFieldId } from './commit.js'
 import { validateComplianceDoc, type ComplianceDoc } from '../../src/lib/complianceRules.js'
-
-export function docTable(): TableRef {
-  const table = T['Compliance Documents']
-  if (!table) {
-    throw new Error(
-      'The Compliance Documents table is missing from this base\'s schema — the register lives in D1; switch the deploy to D1.',
-    )
-  }
-  return table
-}
 
 export interface ComplianceRow {
   doc: ComplianceDoc
@@ -38,10 +18,8 @@ export interface ComplianceRow {
 }
 
 /**
- * A stored document string → the doc, or null. The one parse every engine
- * shares: Zoho hands it the Data JSON column, D1 hands it the documents row's
- * json — a hand-staged or unparsable payload is never a conflict, just not a
- * document.
+ * A stored document string → the doc, or null. A hand-staged or unparsable
+ * payload is never a conflict, just not a document.
  */
 export function parseDocJson(raw: string): ComplianceDoc | null {
   try {
@@ -52,19 +30,6 @@ export function parseDocJson(raw: string): ComplianceDoc | null {
   }
 }
 
-/** The doc inside a row, or null for a hand-staged row with no parsable Data JSON. */
-export function docFromRow(table: TableRef, row: ZohoRecord): ComplianceDoc | null {
-  if (!table.dataJson) return null
-  const raw = row.data[table.dataJson]
-  if (typeof raw !== 'string' || !raw) return null
-  return parseDocJson(raw)
-}
-
-export function rowVersion(table: TableRef, row: ZohoRecord): string {
-  const versionFieldId = table.fields['Version'] ?? ''
-  return versionFieldId ? String(row.data[versionFieldId] ?? '') : ''
-}
-
 /** Soonest expiry first, undated documents after those, expired before upcoming. */
 export function sortComplianceRows<T extends ComplianceRow>(rows: T[]): T[] {
   return rows.sort((a, b) => {
@@ -72,15 +37,6 @@ export function sortComplianceRows<T extends ComplianceRow>(rows: T[]): T[] {
     const bk = b.doc.expiresOn ?? '9999-12-31'
     return ak === bk ? a.doc.title.localeCompare(b.doc.title) : ak < bk ? -1 : 1
   })
-}
-
-export function rowsToDocs(table: TableRef, rows: ZohoRecord[]): ComplianceRow[] {
-  const out: ComplianceRow[] = []
-  for (const row of rows) {
-    const doc = docFromRow(table, row)
-    if (doc) out.push({ doc, version: rowVersion(table, row) })
-  }
-  return sortComplianceRows(out)
 }
 
 /**
@@ -113,7 +69,8 @@ export function normalizeDocPayload(payload: unknown): { doc: ComplianceDoc } | 
   if (f && typeof f === 'object') {
     doc.file = { fileName: text(f.fileName, 120) ?? '', path: text(f.path, 300) ?? '', uploadedAt: text(f.uploadedAt, 40) ?? '' }
   }
-  // the id is a Zoho criteria value — refuse anything the key path cannot carry
+  // the id rides into SQL parameters and version tokens — refuse anything the
+  // key path cannot carry
   if (doc.id && !/^[A-Za-z0-9_.:-]{1,64}$/.test(doc.id)) return { error: 'That document id is not one this app minted.' }
   const problem = validateComplianceDoc(doc)
   return problem ? { error: problem } : { doc }
@@ -134,16 +91,4 @@ export function carryReminderState(next: ComplianceDoc, stored: ComplianceDoc | 
 /** The patch the cron writes after a reminder goes out. */
 export function markSentPatch(doc: ComplianceDoc): ComplianceDoc {
   return { ...doc, reminderSentFor: doc.expiresOn, reminderSentAt: new Date().toISOString() }
-}
-
-/** The Zoho write shape: App ID + Data JSON + the two eye-readable columns + the Version stamp. */
-export function rowValues(table: TableRef, doc: ComplianceDoc, stamp: string): Record<string, unknown> {
-  const values: Record<string, unknown> = {
-    [table.appId]: doc.id,
-    ...(table.dataJson ? { [table.dataJson]: JSON.stringify(doc) } : {}),
-    ...columnsByFieldId(table, { Title: doc.title, 'Expires On': doc.expiresOn ?? '' }),
-  }
-  const versionFieldId = table.fields['Version'] ?? ''
-  if (stamp && versionFieldId) values[versionFieldId] = stamp
-  return values
 }

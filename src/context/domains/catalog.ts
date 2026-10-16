@@ -373,7 +373,7 @@ export function useCatalog({ state, setState, nextId, log, showToast }: CoreDeps
    *
    * The pack is a stored master (state.packs) and each member SKU points at it by
    * packId. The save still writes the physicals onto every member — the projection
-   * every downstream reader and the Zoho fallback engine read — so the catalog can
+   * every downstream reader reads — so the catalog can
    * never show a pack whose recipes disagree with it.
    */
   const savePack = useCallback(

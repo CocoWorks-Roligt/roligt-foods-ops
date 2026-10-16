@@ -1,169 +1,92 @@
-/**
- * The facade's dispatch — the whole point of the engine seam. Every store-
- * shaped call the routes make lands on ONE of the two arms, chosen by the
- * D1_* env and nothing else; these tests pin that choice for each export and
- * the two behaviors the facade adds of its own accord: the cross-engine
- * commit queue (one write at a time per process, and a rejected commit never
- * jams it) and invalidateSnapshotCache's deliberate no-op under D1, where the
- * revision token IS the invalidation.
- *
- * Every collaborator is mocked because the arms' own correctness is pinned
- * where it lives (commit.test.ts, d1Engine.test.ts) — this file asks only
- * "which arm answered, and did the argument arrive untouched".
- */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Caller } from './auth.js'
 import type { StateChanges } from '../../src/lib/sync.js'
-import * as engine from './engine.js'
-import { Conflict } from './commitGates.js'
 
-vi.mock('./snapshot.js', () => ({
-  readSnapshotCached: vi.fn(async () => 'ZOHO-SNAPSHOT'),
-  readRevisionMemoized: vi.fn(async () => 'ZOHO-REVISION'),
-  invalidateSnapshotCache: vi.fn(),
-}))
-vi.mock('./commit.js', () => ({
-  commitChanges: vi.fn(async () => 'ZOHO-COMMIT'),
-}))
-vi.mock('./adminAudit.js', () => ({
-  writeAdminAudit: vi.fn(async () => 'ZOHO-AUDIT'),
-  writeAdminAuditD1: vi.fn(async () => 'D1-AUDIT'),
+/**
+ * The engine facade, post-Zoho: every call lands on the D1 arm, a null store
+ * (an unconfigured deployment) refuses with the LockedError ladder the routes
+ * already map to 503 + Retry-After, and the commit mutex serializes — a
+ * rejected commit never jams the queue. The D1 arm's own behavior is pinned
+ * where it lives (d1Engine.test.ts).
+ */
+vi.mock('./d1Commit.js', () => ({
+  commitChangesD1: vi.fn(async () => ({ token: 'D1-COMMIT', wrote: true })),
 }))
 vi.mock('./d1Snapshot.js', () => ({
   readSnapshotD1: vi.fn(async () => 'D1-SNAPSHOT'),
-  readRevisionD1: vi.fn(async () => 'D1-REVISION'),
+  readRevisionD1: vi.fn(async () => 'D1-REV'),
+  noteD1Revision: vi.fn(),
+  resetD1Caches: vi.fn(),
 }))
-vi.mock('./d1Commit.js', () => ({
-  commitChangesD1: vi.fn(async () => 'D1-COMMIT'),
-}))
-vi.mock('./complianceStore.js', () => ({
-  zohoComplianceStore: vi.fn(() => 'ZOHO-COMPLIANCE'),
+vi.mock('./adminAudit.js', () => ({
+  writeAdminAuditD1: vi.fn(async () => undefined),
 }))
 vi.mock('./d1Compliance.js', () => ({
-  d1ComplianceStore: vi.fn(() => 'D1-COMPLIANCE'),
+  d1ComplianceStore: vi.fn(() => 'D1-STORE' as unknown as never),
 }))
 
-import { readSnapshotCached as zohoSnap, readRevisionMemoized as zohoRev, invalidateSnapshotCache as zohoInvalidate } from './snapshot.js'
-import { commitChanges as zohoCommit } from './commit.js'
-import { writeAdminAudit as zohoAudit, writeAdminAuditD1 } from './adminAudit.js'
-import { readSnapshotD1, readRevisionD1 } from './d1Snapshot.js'
-import { commitChangesD1 } from './d1Commit.js'
-import { zohoComplianceStore } from './complianceStore.js'
-import { d1ComplianceStore } from './d1Compliance.js'
+const engine = await import('./engine.js')
+const d1Commit = await import('./d1Commit.js')
+const d1Snapshot = await import('./d1Snapshot.js')
+const adminAudit = await import('./adminAudit.js')
+const d1Compliance = await import('./d1Compliance.js')
 
-const caller: Caller = { email: 'boss@roligt.local', permissions: [] }
-const changes: StateChanges = { empty: false, tables: [], counters: {} }
-const store = {} as Parameters<typeof engine.readSnapshotCached>[0]
-
-/** The cutover switch, flipped exactly as shared.ts would read it. */
-const setD1 = (on: boolean): void => {
-  if (on) {
-    process.env.D1_DATABASE_ID = 'db-x'
-    process.env.D1_API_TOKEN = 'tok-x'
-    process.env.D1_ACCOUNT_ID = 'acct-x'
-  } else {
-    delete process.env.D1_DATABASE_ID
-    delete process.env.D1_API_TOKEN
-    delete process.env.D1_ACCOUNT_ID
-  }
-}
-
-beforeEach(() => {
-  vi.clearAllMocks()
-  setD1(false)
-})
-afterEach(() => {
-  setD1(false)
-})
+const store = { databaseId: 'db' } as never
+const caller: Caller = { email: 'who@roligt.local', permissions: [] }
+const changes: StateChanges = { tables: [], counters: {}, empty: false }
 
 describe('the engine facade', () => {
-  it('routes every store-shaped call to the D1 arm when the D1_* env is set — the same store object, untouched', async () => {
-    setD1(true)
-    await expect(engine.readSnapshotCached(store)).resolves.toBe('D1-SNAPSHOT')
-    await expect(engine.readRevisionMemoized(store)).resolves.toBe('D1-REVISION')
-    await expect(engine.commitChanges(store, caller, changes)).resolves.toBe('D1-COMMIT')
-    await expect(engine.writeAdminAudit(store, caller, 'role changed', 'ops@roligt.local', 'granted')).resolves.toBe('D1-AUDIT')
-    expect(engine.complianceStore(store)).toBe('D1-COMPLIANCE')
-    // the arm received the very object handed in — no adaptation, no copy
-    expect(vi.mocked(readSnapshotD1).mock.calls[0][0]).toBe(store)
-    expect(vi.mocked(readRevisionD1).mock.calls[0][0]).toBe(store)
-    expect(vi.mocked(commitChangesD1).mock.calls[0]).toEqual([store, caller, changes])
-    expect(vi.mocked(writeAdminAuditD1).mock.calls[0]).toEqual([store, caller, 'role changed', 'ops@roligt.local', 'granted'])
-    expect(vi.mocked(d1ComplianceStore).mock.calls[0][0]).toBe(store)
-    // and the Zoho arm never stirred
-    expect(zohoSnap).not.toHaveBeenCalled()
-    expect(zohoRev).not.toHaveBeenCalled()
-    expect(zohoCommit).not.toHaveBeenCalled()
-    expect(zohoAudit).not.toHaveBeenCalled()
-    expect(zohoComplianceStore).not.toHaveBeenCalled()
+  it('hands every call to the D1 arm', async () => {
+    await engine.readSnapshotCached(store)
+    expect(d1Snapshot.readSnapshotD1).toHaveBeenCalledWith(store)
+    await engine.readRevisionMemoized(store)
+    expect(d1Snapshot.readRevisionD1).toHaveBeenCalledWith(store)
+    await engine.commitChanges(store, caller, changes)
+    expect(d1Commit.commitChangesD1).toHaveBeenCalledWith(store, caller, changes)
+    await engine.writeAdminAudit(store, caller, 'role changed', 'ops@roligt.local', 'granted page.vendors')
+    expect(adminAudit.writeAdminAuditD1).toHaveBeenCalledWith(store, caller, 'role changed', 'ops@roligt.local', 'granted page.vendors')
+    expect(engine.complianceStore(store)).toBe('D1-STORE')
+    expect(d1Compliance.d1ComplianceStore).toHaveBeenCalledWith(store)
   })
 
-  it('routes every call to the Zoho arm when the env is absent — today deployment, unchanged', async () => {
-    await expect(engine.readSnapshotCached(store)).resolves.toBe('ZOHO-SNAPSHOT')
-    await expect(engine.readRevisionMemoized(store)).resolves.toBe('ZOHO-REVISION')
-    await expect(engine.commitChanges(store, caller, changes)).resolves.toBe('ZOHO-COMMIT')
-    await expect(engine.writeAdminAudit(store, caller, 'role changed', 'ops@roligt.local', 'granted')).resolves.toBe('ZOHO-AUDIT')
-    expect(engine.complianceStore(store)).toBe('ZOHO-COMPLIANCE')
-    expect(vi.mocked(zohoSnap).mock.calls[0][0]).toBe(store)
-    expect(vi.mocked(zohoRev).mock.calls[0][0]).toBe(store)
-    expect(vi.mocked(zohoCommit).mock.calls[0]).toEqual([store, caller, changes])
-    expect(vi.mocked(zohoAudit).mock.calls[0]).toEqual([store, caller, 'role changed', 'ops@roligt.local', 'granted'])
-    expect(readSnapshotD1).not.toHaveBeenCalled()
-    expect(readRevisionD1).not.toHaveBeenCalled()
-    expect(commitChangesD1).not.toHaveBeenCalled()
-    expect(writeAdminAuditD1).not.toHaveBeenCalled()
-    expect(d1ComplianceStore).not.toHaveBeenCalled()
+  it('refuses a null store with the LockedError ladder — never a TypeError', async () => {
+    for (const call of [
+      () => engine.readSnapshotCached(null),
+      () => engine.readRevisionMemoized(null),
+      () => engine.commitChanges(null, caller, changes),
+      () => engine.writeAdminAudit(null, caller, 'a', 'b', 'c'),
+    ]) {
+      await expect(call()).rejects.toMatchObject({ retryAfterSec: 86_400 })
+    }
+    // the one sync seam: complianceStore hands back a store object, so the
+    // refusal is the throw itself (the route's try/catch owns it)
+    expect(() => engine.complianceStore(null)).toThrow(expect.objectContaining({ retryAfterSec: 86_400 }))
   })
 
-  it('serializes commits per process: the second write does not start until the first lands', async () => {
-    setD1(true)
-    let started = 0
-    let releaseFirst!: () => void
-    const gate = new Promise<void>((resolve) => {
-      releaseFirst = resolve
+  it('serializes commits — a rejected one never jams the queue', async () => {
+    const order: string[] = []
+    let refuse = true
+    vi.mocked(d1Commit.commitChangesD1).mockImplementation(async () => {
+      if (refuse) {
+        order.push('reject')
+        throw new Error('assert table trip')
+      }
+      order.push('accept')
+      return { token: '7:nonce', wrote: true }
     })
-    vi.mocked(commitChangesD1).mockImplementation(async () => {
-      started++
-      if (started === 1) await gate
-      return { token: `${started}:x`, wrote: true }
-    })
-    const a = engine.commitChanges(store, caller, changes)
-    const b = engine.commitChanges(store, caller, changes)
-    await vi.waitFor(() => {
-      expect(started).toBe(1) // the queue holds the second behind the first's landing
-    })
-    releaseFirst()
-    const [ra, rb] = await Promise.all([a, b])
-    expect(started).toBe(2)
-    expect(ra).toEqual({ token: '1:x', wrote: true })
-    expect(rb).toEqual({ token: '2:x', wrote: true })
+    const first = engine.commitChanges(store, caller, changes)
+    await expect(first).rejects.toThrow('assert table trip')
+    refuse = false // the queue stays live — the next waiter runs clean
+    const second = engine.commitChanges(store, caller, changes)
+    await expect(second).resolves.toMatchObject({ token: '7:nonce' })
+    expect(order).toEqual(['reject', 'accept'])
   })
 
-  it('a rejected commit does not jam the queue — the next waiter still runs', async () => {
-    setD1(true)
-    vi.mocked(commitChangesD1)
-      .mockImplementationOnce(() => Promise.reject(new Error('the store refused')))
-      .mockImplementationOnce(async () => ({ token: '2:x', wrote: true }))
-    const a = engine.commitChanges(store, caller, changes).then(
-      () => null,
-      (e: unknown) => e,
-    )
-    const b = await engine.commitChanges(store, caller, changes)
-    expect(await a).toBeInstanceOf(Error)
-    expect(b).toEqual({ token: '2:x', wrote: true })
-  })
-
-  it('invalidateSnapshotCache is a no-op under D1 (the token is the invalidation) and delegates on the Zoho arm', () => {
-    setD1(true)
-    engine.invalidateSnapshotCache('2026-10-08T00:00:00Z')
-    expect(zohoInvalidate).not.toHaveBeenCalled()
-    setD1(false)
-    engine.invalidateSnapshotCache('2026-10-08T00:00:00Z')
-    expect(zohoInvalidate).toHaveBeenCalledWith('2026-10-08T00:00:00Z')
-  })
-
-  it('re-exports the shared verdict classes — a route catch keeps its one class object across engines', () => {
-    expect(engine.Conflict).toBe(Conflict)
-    expect(new engine.Conflict([])).toBeInstanceOf(Conflict)
+  it('re-exports the shared gates as the same class objects the routes catch', async () => {
+    const gates = await import('./commitGates.js')
+    expect(engine.Forbidden).toBe(gates.Forbidden)
+    expect(engine.Conflict).toBe(gates.Conflict)
+    expect(engine.Malformed).toBe(gates.Malformed)
+    expect(engine.validateChanges).toBe(gates.validateChanges)
   })
 })

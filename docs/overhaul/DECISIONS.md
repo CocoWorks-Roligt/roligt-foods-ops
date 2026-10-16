@@ -37,7 +37,7 @@ Verdicts from audit slice 2 (2026-10-13). RULE: ASSUMED/PARTIAL items are built 
 - /api/search as built (B3): delivery_agent → 403 (no own-id search); RBAC.md row corrected to match.
 - Procurement KPIs kept; `purchase_orders` entity + PO form are REQUIRED — PO form added to the WORKFLOW stage-form list (Receipt stage). No PO form, no funnel/on-time/lead-time/calendar numbers.
 - Manager role: page ticks carry WRITES (not read-only) — disclosed in RBAC.md; if business wants managers read-only, that is a role-seed decision at B4.
-- Zoho/flags: verified structurally safe (gated endpoints 503 without D1 env; flags collection exists only in D1). Operational rule in STATE.md invariants until engine deletion (2026-10-19).
+- Zoho/flags: verified structurally safe (gated endpoints 503 without D1 env; flags collection exists only in D1). RESOLVED 2026-10-16: the Zoho engine was deleted (d1-migration Phase 7) — no deployed build can reach Zoho; STATE.md invariants updated.
 - Rollback gap: backfill has no reverse script. Before any apply: scratch apply + `D1_SMOKE=1 npm test` first; prod apply (user-only) takes a D1 Time Travel bookmark or export beforehand. Still deferred — LEAD does the scratch apply before flags go on.
 
 ## W16 decisions (2026-10-14, WORKFLOW — Onboarding)
@@ -174,6 +174,19 @@ Verdicts from audit slice 2 (2026-10-13). RULE: ASSUMED/PARTIAL items are built 
 - Phase 5 CLOSED at the 10-module gate (QA LIGHT): tsc -b clean; vitest 1205 passed | 7 skipped; oxlint 10
   warnings baseline; build + build:e2e + assert-no-apptics clean (115 dist files). All ten modules COMPLETE
   per the acceptance bar — dashboard + live report + exports off the same fold.
+
+## Phase 7 — Zoho engine deletion (2026-10-16, post-overhaul)
+- Per docs/d1-migration-2026-10-09.md Phase 7 (deletion after 7 stable days; cutover was 2026-10-12,
+  D1 stable): zoho.ts, commit.ts, mappers.ts, baseSchema.ts and their test suites deleted; the Zoho
+  arms of snapshot.ts / adminAudit.ts / complianceStore.ts / compliance.ts removed. engine.ts stays
+  the facade with D1 the only arm; store is `D1Client | null` and a store-less deployment refuses via
+  requireStore (LockedError → 503 + Retry-After). FUTURE_AT_GRACE_MS moved into commitGates.ts (its
+  only consumer); CommitResult moved into d1Commit.ts. ZOHO_* keys dropped from sync-env.mjs's sync
+  set (removal from Vercel stays a manual user step); .env.example/README/throttle comments updated;
+  historical/provenance mentions kept. Gates: tsc -b clean · 1049 passed/7 skipped (156 Zoho-engine
+  tests deleted with the arm) · lint 10 baseline · build + build:e2e + assert-no-apptics clean.
+- Remaining user-side Phase-7 items: delete ZOHO_* env vars from the Vercel project; final archive
+  export stored beside the Zoho dump (QA/scripts never touch prod).
 
 ## Blocked
 - batch_v2 enablement — blocked on the DECISIONS #2 mass-balance resolution (3/14 pass; extractions cannot close under enforcement).

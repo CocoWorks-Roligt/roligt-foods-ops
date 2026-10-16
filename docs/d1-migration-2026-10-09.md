@@ -185,15 +185,21 @@ new entries queue on your device".
 
 ## Phase 7 — deletion (after 7 stable days)
 
-- [ ] Delete `zoho.ts`, `mappers.ts`, `baseSchema.ts`, the Zoho arms of
+- [x] Delete `zoho.ts`, `mappers.ts`, `baseSchema.ts`, the Zoho arms of
       `snapshot.ts` / `commit.ts` / `adminAudit.ts` / `complianceStore.ts`,
       and their tests (`zoho.test.ts`, `mappers.test.ts`, `baseSchema.test.ts`,
-      the Zoho-coupled suites).
+      the Zoho-coupled suites). Done 2026-10-16 — D1 is the only store;
+      `engine.ts` stays the facade, `shared.ts` builds a D1Client or nothing,
+      and a store-less deployment refuses via `requireStore` (503 +
+      Retry-After). Gates green: tsc -b, 1049 tests, lint 10, build + build:e2e.
 - [ ] Remove `ZOHO_*` env from Vercel (keep `.zoho.env` locally if the
-      archive ever needs re-reading).
+      archive ever needs re-reading). User step — they were dropped from
+      `scripts/vercel/sync-env.mjs`'s sync set; deleting them from the project
+      is manual.
 - [ ] Final archive export from D1 (`dump`-equivalent SELECT export) stored
-      beside tonight's Zoho dump.
-- [ ] Update `docs/` and the memory files.
+      beside tonight's Zoho dump. User step — QA/scripts never touch prod.
+- [x] Update `docs/` and the memory files (README, .env.example, STATE.md,
+      PROGRESS.md, DECISIONS.md — 2026-10-16).
 
 ## Provenance of the numbers
 
