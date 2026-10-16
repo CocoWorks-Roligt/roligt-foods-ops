@@ -1,5 +1,5 @@
 # PROGRESS — Beverage Ops Platform Overhaul
-Updated: 2026-10-16 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS in session — D0 export engine, D1a/D1b + D2a/D2b + D3a/D3b done (modules 1-6 COMPLETE: Procurement, Grading & Extraction, Intermediates & Blending, Packing, QC, Control Samples — each with fold + dashboard + register; QA LIGHT green at 2-, 4- and 6-module gates); next D4a: Inventory/Storage + Packaging Materials folds (BACKEND first)
+Updated: 2026-10-16 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS in session — D0 export engine, D1a/D1b + D2a/D2b + D3a/D3b + D4a/D4b done (modules 1-8 COMPLETE: Procurement, Grading & Extraction, Intermediates & Blending, Packing, QC, Control Samples, Inventory & Storage, Packaging Materials — each with fold + dashboard + register; QA LIGHT green at 2-, 4-, 6- and 8-module gates); next D5a: Orders & Dispatch + Shipment Tracking folds (BACKEND first)
 
 | Task | Agent | Status | Files | Next action |
 |---|---|---|---|---|
@@ -54,7 +54,10 @@ Updated: 2026-10-16 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS in
 | P5: QA LIGHT (4-module gate) | QA | done | — | tsc -b clean · 1180 passed/7 skipped · lint 10 baseline · build + build:e2e + assert-no-apptics clean (114 dist files) |
 | P5/D3a: KPI folds live — QC full build + Control Samples | BACKEND | done @ ca8a771 | src/lib/kpis/{qc.ts(control),controlSamples.ts}, src/lib/kpis/index.ts (qc +ledger; control-samples fold+collections), src/lib/qcCategories.ts + sensory.ts (.ts extensions — api project), p5.test.ts | 1186 tests (+6); tsc -b, lint 10, build green; honest gaps logged DECISIONS P5 |
 | P5/D3b: module registers (qc-records, control-samples) + catalog wiring | BACKEND | done @ 57b3719 | src/lib/exports/index.ts (+2 specs), src/lib/dashboards.ts (exports wired, qc blurb honest), api/_lib/exports.test.ts (+4) | 1190 tests (+4); QA LIGHT (6-module gate) green below; modules 5-6 COMPLETE |
-| P5: QA LIGHT (6-module gate) | QA | done | — | tsc -b clean · 1190 passed/7 skipped · lint 10 baseline · build + build:e2e + assert-no-apptics clean (115 dist files); next D4a: Inventory/Storage + Packaging Materials folds (BACKEND first) |
+| P5: QA LIGHT (6-module gate) | QA | done | — | tsc -b clean · 1190 passed/7 skipped · lint 10 baseline · build + build:e2e + assert-no-apptics clean (115 dist files) |
+| P5/D4a: KPI folds live — Inventory/Storage + Packaging Materials | BACKEND | done @ e5cb88c | src/lib/kpis/{inventoryStorage,packagingMaterials}.ts, src/lib/kpis/index.ts, src/lib/reports/inventoryReports.ts (RECEIPT_TYPES/ISSUE_TYPES/lineDay exported), p5.test.ts | 1194 tests (+4); tsc -b, lint 10, build green; honest gaps logged DECISIONS P5 (carton charts declined, capacity/min-max fields absent, SLOW_MOVING_DAYS ASSUMED 30) |
+| P5/D4b: module registers (stock-position, pm-flows) + catalog wiring | BACKEND | done @ e943f34 | src/lib/exports/index.ts (+2 specs, +position flag), api/_lib/{exports.ts (Position-as-of header), exports.test.ts (+4)}, src/lib/dashboards.ts (exports wired, blurbs honest) | QA LIGHT (8-module gate) green below; modules 7-8 COMPLETE |
+| P5: QA LIGHT (8-module gate) | QA | done | — | tsc -b clean · 1198 passed/7 skipped · lint 10 baseline · build + build:e2e + assert-no-apptics clean (115 dist files); next D5a: Orders & Dispatch + Shipment Tracking folds (BACKEND first) |
 
 ## Log
 - 2026-10-13 Phase 0 complete. Baseline green (745 tests, tsc -b, lint, build @ de4c13b). DB target confirmed:
@@ -649,3 +652,48 @@ Updated: 2026-10-16 | Branch: dev | Base commit: de4c13b | Phase 5 DASHBOARDS in
   files). Modules 5-6 (QC, Control Samples) COMPLETE per the acceptance bar — dashboard
   + live report + exports off the same fold. Next D4a: BACKEND folds for Inventory/
   Storage + Packaging Materials, then D4b registers, QA LIGHT (8-module gate).
+- 2026-10-16 P5 D4a — the modules 7-8 folds (BACKEND). inventory (src/lib/kpis/
+  inventoryStorage.ts): every cut is a POSITION off the screens' own folds —
+  stock value by category (₹ treemap — the only cross-category unit), cold-room
+  occupancy as a value heatmap by room × category (CAPACITY is not recorded —
+  value, not fill %, logged gap), ageing IS lotAgeing's own buckets (raw + Semi
+  Finished, uom per series), released-FG expiry buckets off fgOnHand (the
+  classic rule: config.expiryAlertDays; near-expiry BULK stays the blending
+  module's ib-near-expiry card — never double-counted), loose BIB stock by size
+  = the BIB FG position by packLabel (every BIB is stored loose, §3.3-6; glass
+  never answers), slow-moving = no ledger line on the exact row (stockRowKey
+  identity) for SLOW_MOVING_DAYS (30 — ASSUMED, no config field; logged).
+  packaging-materials (packagingMaterials.ts): position AND window both ride
+  itemFlows — the classic PM report's own engine (closing at a {today,today}
+  window IS the balance of every line to today); below-reorder counts the
+  report's own belowReorder (items.reorder > 0) while the sidebar badge keeps
+  lowStockItems' lowStockPacks fallback (a pre-existing second rule for
+  alerts, unchanged); consumption by month with one series per uom, never
+  summed across uoms, off the report's own ISSUE_TYPES (now exported with
+  RECEIPT_TYPES/lineDay); most-consumed top-8. Carton charts (boxed-vs-loose,
+  per-customer carton use, reconciliation) DECLINED honestly — they need the
+  §3.3-9 carton master + dispatch_v2 packaging decisions that do not exist
+  (B5a reads LOOSE; W15 deferred). +4 tests. Gates: tsc -b clean, 1194
+  passed, oxlint 10 baseline, build green.
+- 2026-10-16 P5 D4b — the modules 7-8 export registers (+QA LIGHT, 8-module
+  gate). `stock-position` (pages live-reports+inventory) IS the Inventory
+  page's own rows (stockRows; labels via locationLabel; days-to-expiry off the
+  FG report's daysBetween), a POSITION: the engine grew an additive `position`
+  flag — the header prints "Position as of <today>", never a Window line that
+  was not applied, and the job row's from/to collapse to the as-of day (the
+  existing header pin is untouched — only position specs branch). `pm-flows`
+  (pages live-reports+packing-materials) IS the classic PM report's own engine
+  (itemFlows) over the caller's window — opening/received/issued/closing with
+  the report's own belowReorder flag. NO withheld-collections edge this time:
+  ledger/items/storage_locations are open-tier reads (no page owns them, unlike
+  batches) — a live-reports-only holder streams both registers full, exactly as
+  they already run the classic rm/pm/storage reports. Catalog blurbs made
+  honest (D3b precedent): inventory names what the fold draws; PM says reorder
+  level, not min/max, and drops the boxed-vs-loose claim. +4 tests. QA LIGHT
+  (8-module gate): tsc -b clean; 1198 passed | 7 skipped; oxlint 10 baseline;
+  build + build:e2e + assert-no-apptics clean (115 dist files). Modules 7-8
+  (Inventory & Storage, Packaging Materials) COMPLETE per the acceptance bar —
+  dashboard + live report + exports off the same fold. Next D5a: BACKEND
+  folds for Orders & Dispatch + Shipment Tracking (the board's cached daily
+  folds — avg delivery time, agent performance — are Phase-5 work per B5b),
+  then D5b registers, QA LIGHT (10-module gate) closes Phase 5.

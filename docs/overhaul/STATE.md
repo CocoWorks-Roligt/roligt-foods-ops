@@ -1,5 +1,5 @@
 # STATE — Beverage Ops Platform Overhaul
-Updated: 2026-10-16 | Phase: 5 DASHBOARDS in session — D3b done, modules 1-6 COMPLETE (folds + dashboards + registers; QA LIGHT green at 2-, 4- and 6-module gates); next D4a: Inventory/Storage + Packaging Materials KPI folds (BACKEND first) | Branch: dev | Base: de4c13b
+Updated: 2026-10-16 | Phase: 5 DASHBOARDS in session — D4b done, modules 1-8 COMPLETE (folds + dashboards + registers; QA LIGHT green at 2-, 4-, 6- and 8-module gates); next D5a: Orders & Dispatch + Shipment Tracking KPI folds (BACKEND first) | Branch: dev | Base: de4c13b
 
 ## Contracts
 - v1.9 (2026-10-15, P4): +shipment/challan/return wire — ShipmentVersionExtension (documents.version
@@ -26,6 +26,28 @@ Updated: 2026-10-16 | Phase: 5 DASHBOARDS in session — D3b done, modules 1-6 C
 
 ## Locks
 - none
+
+## P5 D4a/D4b invariants (2026-10-16)
+- The inventory fold's cuts are ALL POSITIONS (unwindowed, the control-samples
+  precedent): value (₹) is the only cross-category unit and a uom rides the
+  label wherever a chart splits them. NEAR-EXPIRY = Released FG inside
+  config.expiryAlertDays (fgOnHand's own buckets); near-expiry BULK stays
+  ib-near-expiry (blending module) — the two never double-count. SLOW-MOVING
+  = no ledger line on the exact row (stockRowKey identity) for
+  SLOW_MOVING_DAYS (30 — ASSUMED in DECISIONS; move to config when a field
+  exists). Ageing IS lotAgeing's own buckets — never re-derived.
+- PM below-reorder = itemFlows' own belowReorder flag (items.reorder > 0); the
+  sidebar badge's lowStockItems (lowStockPacks fallback) is a pre-existing
+  second rule for alerts — unchanged, do not merge them silently.
+  RECEIPT_TYPES/ISSUE_TYPES/lineDay are EXPORTED from inventoryReports.ts —
+  consumption folds ride the report's own type lists, never a re-typed copy.
+- The export engine's `position` flag: such a register's rows ignore the
+  window, the header prints "Position as of <today>" (never a Window line),
+  and the job row's from/to collapse to the as-of day. stock-position is its
+  first user (= stockRows, the Inventory page's own rows); pm-flows =
+  itemFlows over the caller's window (a flow, so it windows). No
+  withheld-collections edge exists for these two registers — ledger/items/
+  storage_locations are open-tier reads (no page owns them, unlike batches).
 
 ## P5 D3a/D3b invariants (2026-10-16)
 - The qc fold's turnaround counts DECIDED records only (Released/Rejected — a Retest is
