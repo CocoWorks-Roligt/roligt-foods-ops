@@ -1,3 +1,128 @@
+# QA_REPORT — Phase 6 close-out (QA HEAVY: journeys B–E, negative & security, perf, a11y, visual)
+
+Run 16 Oct 2026 (IST), against `dev` at the Phase-6 tip (c8acb85 → 202d7d5 → 8306181).
+Harness unchanged from Phase 4 (three servers; fresh DB per run via prepare-db;
+`E2E_FLAGS` flips extra flags at prepare time). `roligt-ops-prod` untouched.
+
+## Verdict
+
+**PASS.** Two E2E runs, both green on their own fresh DBs:
+
+| run | command | result |
+| --- | --- | --- |
+| 1 (default flags) | `E2E_PORT=3100 npx playwright test boot journey-a journey-b journey-c journey-e offline security` | **33/33** |
+| 2 (gate on) | `E2E_FLAGS=qc_gate_v2 E2E_PORT=3100 npx playwright test boot journey-d` | **10/10** |
+
+LIGHT gates at baseline (vitest 1208 passed / 7 skipped; `tsc -b`; oxlint). Lighthouse a11y
+**100** on both key screens after one real fix. API p95 **≤ 22 ms** against a 500 ms budget.
+75 screenshots, no horizontal scroll anywhere. One app defect found and fixed this phase
+(READY_EXTRACT itemType, c8acb85).
+
+## §4 E2E — what the Phase-6 specs pinned
+
+- **Journey B (blend line)**: control samples are EXTRA draws (posting.ts `drawn += count ×
+  packVolume` — 40 L, not 50); blending spoilage takes its own ledger line (SPG:) so the
+  batch holds produced − spoilage; lot picks pinned by remaining qty (mis-picks against
+  dump-era lots were the run-1 failures, not the app).
+- **Journey C (dispatch)**: `GET /api/shipments` is the nested wire (`{shipments:
+  [{shipment, lines, challans}]}`); packaging decision LOOSE rides the shipment;
+  settleMirror (150 s) + test.setTimeout(240 s) absorb the throttled mirror.
+- **Journey D (the QC hard gate, run 2)** — rebuilt on code truths, each one observed:
+  - malai (SF-0003) is **qcExempt**: it never appears on the QC page, released as booked —
+    so the journey's Quarantine carrier is the water, not the malai.
+  - a blend drawing the quarantined water: the client stages it (classic DRAWABLE), the
+    **server 422s** (`rules.rejected` / guard `released_only`), the app flips to its
+    offline vocabulary, the item's ledger net is unchanged before/after, and the refusal
+    is on the audit trail. **Stuck-dirty follows**: the offline retry loop cannot tell a
+    refusal from an outage, and when the lab's release later wins the CAS the refused
+    write 409s (`Another device saved BAT-2026-0011 first`). This is the ROLLOUT gate for
+    qc_gate_v2 — a discard path is required before the flag ships (ROLLOUT.md §Gate 1).
+  - packing from Quarantine bulk **also 422s server-side** (observed live in run 2's
+    second iteration: the toast never came, four 422s on the console) — the plant's own
+    flow can no longer stage that refusal because packs inherit the bulk's verdict, so
+    Quarantine pack lots are unreachable via the UI. The arm stays unit-pinned
+    (rulesGate.test.ts).
+  - the dispatch tab pools **Released packs only** — the dispatch arm's refusal is
+    client-preempted (button dead, "has to be filled" note) before the server is asked;
+    the server arm is unit-pinned, its PASS path rides Released packs end to end.
+- **Journey E (the return)**: the returns surface is **write-only** — no list route, no
+  snapshot key, no board surface (the drawer reads Partially Delivered + the challan, not
+  the return). The one readable trail is the dispatch's deliveryNote ("Return RET-…");
+  the decision POST requires an Idempotency-Key (422 otherwise) and answers Closed; the
+  Return ledger line lands Released at a cold room; challan links are presigned 302s with
+  ≤600 s expiry.
+- **Offline replay**: the parked-intent header proves the round survives a cut network;
+  submit lands "Recorded on this device"; the mirror replays on reconnect to Delivered
+  (nested shipment wire, stop-level proof).
+- **Security**: RBAC matrix on the BFF (module reads projected per role, 403s with
+  `role_allowed`, unknown module 404 `invalid_module`); export route role-gated
+  (`Your role does not run this export.`); 200-expecting reads go through the same
+  throttle-retrying getJson as the app.
+
+## Harness changes this phase
+
+- `helpers.ts`: getJson retries 429 (20×3 s) and takes a headers param (role reads);
+  settleMirror 150 s; page-error exclusions now cover 429 (throttle), 409 (CAS), and
+  **422 (rules refusal — a protocol event the sync engine owns, like the other two)**.
+- `prepare-db.mjs`: E2E_FLAGS env; PP-E2E-CB seed recipe for the cold-brew line.
+
+## §5 Accessibility + Lighthouse
+
+| screen | profile | perf | a11y |
+| --- | --- | --- | --- |
+| / (Pipeline Home) | desktop | 95 | **100** |
+| /reports/live (dashboards) | desktop | 91 | **100** |
+| / (Pipeline Home) | mobile (slow-4G sim) | 65 | **100** |
+
+- **Fix this phase**: the topbar subtitle used the dark-surface mute (#aab6b3) on the
+  light topbar — 1.76:1. Scoped `--ink-soft-on-light: #5f6e6a` for the topbar `<p>`
+  (4.6:1); a11y 96 → 100 on both screens (re-run verified). Pipeline h2 + bottom-nav
+  label fixes landed earlier at c8acb85.
+- Mobile 4G: FCP 4.7 s / LCP 6.5 s / TBT 0 ms — network-bound (2.7 MB JS), zero main-thread
+  blocking; the snapshot-split (below) is the lever for the boot half.
+- PWA: Lighthouse 12 retired the PWA category — verified programmatically instead:
+  manifest 200 (standalone, 4 icons), sw 200, and the offline spec proves the SW's replay
+  end to end, which is the stronger claim.
+
+## §4 PERFORMANCE (numbers; harness .artifacts/qa-p6-perf.mjs → .artifacts/qa-p6-perf.md)
+
+- **API p95 PASS**: worst p95 **22 ms** (/api/snapshot; all 10 KPI modules ≤ 2 ms warm,
+  shipments ≤ 1 ms, qc-records export ≤ 3 ms) against the 500 ms budget. N=25, warm (the
+  KPI memo is part of the design).
+- **Snapshot = 215 KB** (state 213.7 KB): **audits 37.5% + ledger 21.9% = 59% of boot**;
+  items 6.3%, qcs 6.1%, batches 5.7%. → ROLLOUT §Gate 3: split audits (and eventually
+  ledger tails) out of the boot payload before the PWA fleet grows.
+- **Bundle secrets scan**: 100 JS files, 2,705,874 bytes, **no credential-shaped
+  literals** (assert-no-apptics covers the analytics marker separately).
+
+## §6 Visual verification
+
+75 shots (25 screens × desktop/tablet/phone) incl. **all 10 dashboard modules** (flags
+flipped on the live .tmp DB via direct sqlite UPDATE for the walk). Programmatic
+checklist PASS: no horizontal scroll on any screen/width. Vision-verified samples: QC
+dashboard desktop (KPI cards, disposition charts, export toggles — renders, no
+breakage; the "Stale" badge is the designed freshness surface on the aged memo) and
+Inventory dashboard phone (single-column stack, 2×2 KPI grid, charts clean).
+
+## Defects found & fixed this phase
+
+- **READY_EXTRACT itemType (app, fixed c8acb85)**: the receipt ledger wrote itemType from
+  the GRN form instead of the item master — journey B's staged receipt rows mislabeled.
+- Topbar contrast (app, fixed this run, verified by re-run): a11y 96 → 100.
+
+## Honest gaps (recorded, no action this phase)
+
+1. **Returns are write-only** — no list route, no snapshot key, no board surface; the
+   only trail is the dispatch's deliveryNote. A returns surface is future work.
+2. **Stuck-dirty on rules refusal** — the refused write sits on the device retrying until
+   a CAS loss 409s it; needs a discard path (ROLLOUT §Gate 1, blocks qc_gate_v2).
+3. **Dispatch/packing refusals unreachable via UI under the gate** (pools Released-only;
+   packs inherit the verdict) — arms stay unit-pinned, by design.
+4. **bf-cache** audit fails (perf-category nicety; SW cache headers) — noted, not
+   blocking.
+
+---
+
 # QA_REPORT — Phase 4 close-out (HEAVY: Journey A extended through delivery)
 
 Run 15 Oct 2026 (IST), this session, against `dev` at the Phase-4 tip (6ec38f4 + docs +

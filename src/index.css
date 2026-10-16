@@ -161,6 +161,9 @@
 
   --ink: #e8eeec;
   --ink-soft: #aab6b3;
+  /* The soft mute is tuned for the dark panels; the topbar is the one light
+   * surface, and needs its own (4.6:1 on white — Lighthouse P6 finding). */
+  --ink-soft-on-light: #5f6e6a;
   --ink-mute: #9daaa6;
   --ink-faint: #6f7c79;
 
@@ -489,7 +492,7 @@ body.drawer-open {
 
 .topbar p {
   margin: 3px 0 0;
-  color: var(--muted);
+  color: var(--ink-soft-on-light);
   font-size: 13px;
 }
 

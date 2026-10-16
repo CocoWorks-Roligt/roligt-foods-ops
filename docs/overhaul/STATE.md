@@ -1,5 +1,5 @@
 # STATE — Beverage Ops Platform Overhaul
-Updated: 2026-10-16 | Phase: 5 DASHBOARDS CLOSED — all 10 modules COMPLETE (folds + dashboards + registers; QA LIGHT green at 2-, 4-, 6-, 8- and 10-module gates); next: Phase 6 QA HEAVY in a FRESH session (/clear + re-run the master prompt) | Branch: dev | Base: de4c13b
+Updated: 2026-10-16 | Phase: 6 QA HEAVY CLOSED — the OVERHAUL is COMPLETE (run 1: 33/33 default flags; run 2: 10/10 qc_gate_v2; perf p95 ≤22 ms; a11y 100; 75-shot visual walk PASS; QA_REPORT/ROLLOUT/USABILITY_SCRIPT delivered). Next: user runs the usability script + rollout per ROLLOUT.md (flag flips wait for Zoho engine deletion 2026-10-19) | Branch: dev
 
 ## Contracts
 - v1.9 (2026-10-15, P4): +shipment/challan/return wire — ShipmentVersionExtension (documents.version
