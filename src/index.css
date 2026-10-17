@@ -40,6 +40,12 @@
   --well: #ecf2f0;
   --panel: #ffffff;
 
+  /* The topbar — the one translucent surface bar, blurred over scrolling
+     content. The dark edition flips it to a field-dark slab rather than
+     leaving a white strip (the title's ink inverts with it). */
+  --topbar-bg: rgba(255, 255, 255, 0.92);
+  --topbar-ink-soft: var(--ink-soft);
+
   /* Hairlines do the depth, teal-tinted to match. -strong is the structural
      edge: table head rule, control borders. */
   --hair: #dee5e2;
@@ -161,9 +167,10 @@
 
   --ink: #e8eeec;
   --ink-soft: #aab6b3;
-  /* The soft mute is tuned for the dark panels; the topbar is the one light
-   * surface, and needs its own (4.6:1 on white — Lighthouse P6 finding). */
-  --ink-soft-on-light: #5f6e6a;
+  /* The topbar goes dark with the room — a translucent panel slab instead of
+     the light edition's white strip; its subtitle takes the panel mute. */
+  --topbar-bg: rgba(24, 37, 35, 0.9);
+  --topbar-ink-soft: var(--ink-soft);
   --ink-mute: #9daaa6;
   --ink-faint: #6f7c79;
 
@@ -470,7 +477,7 @@ body.drawer-open {
 }
 
 .topbar {
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--topbar-bg);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--hair-strong);
   padding: 17px 26px;
@@ -492,7 +499,7 @@ body.drawer-open {
 
 .topbar p {
   margin: 3px 0 0;
-  color: var(--ink-soft-on-light);
+  color: var(--topbar-ink-soft);
   font-size: 13px;
 }
 
